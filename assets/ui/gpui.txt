@@ -1,0 +1,332 @@
+; gpui.txt - grpaint's UI band: the tool pictures, in the order the band carries them.
+;   . background   # the tile's pixels
+;
+; This is the source of truth for what the right button puts on the canvas.
+; tools/gen-ui.py turns it into gpui.bin, the file grpaint reads into the band's own
+; two cell rows (640 pixel bytes, then 80 matrix bytes) -- so the task holds no
+; picture at all, and the palette and the tools can be redrawn without touching it.
+; tools/build-reu.ps1 re-runs that generator before it seeds, so a change here reaches
+; the image on the next build (F5 -> "Build & Launch with fresh REU").
+;
+; EACH TILE picture is 16x16 -- a 2x2-cell tile -- and carries its own 1px border. The
+; border is what tells one tile from the canvas around it, so the shape inside may
+; never touch it. The PENCIL is the first tool, because a fresh canvas starts drawing
+; with it: the default is the first tile, which is also the one at the palette's edge.
+; The line tool follows it.
+; The LAST TWO pictures are the band's ARROWS, and they are 16x8 -- TWO cells across but
+; ONE band cell row each -- so that a pair of them fits the band's last two columns,
+; which are all that is left after the tiles and the four slot chips. They are STACKED:
+; the first is UNDO, across the band's top cell row, and the second is REDO, across the
+; bottom one. That stacking is why the picker reads the band's ROW for them rather than
+; its column. Each carries its own 1px border like every other icon.
+;
+; The palette in front of the tiles is not authored here: it is always the sixteen
+; colours in order, one 8x8 cell each, colours 0-7 in the band's first cell row and
+; 8-15 in its second.
+;
+; ADDING A TOOL: append its picture to the tiles, and keep the two arrows LAST -- they
+; are the band's last two columns. Keep GP_PK_TN in src/tasks/dynamic/grpaint.asm in
+; step as well: it is what GP_PK_TW4, the band's live cell extent and so the picker's
+; hit test, is computed from.
+
+; the pencil: a one-pixel squiggle slanting down and to the right -- runs of three, five
+; and two steps, turned back by two steps and then by one, so it drifts across the tile
+; rather than hanging straight down it. The tile next door is the straight diagonal, and
+; that is what says "line".
+################
+#..............#
+#...##.........#
+#.....#........#
+#......#.......#
+#.....#........#
+#....#.........#
+#.....#........#
+#......#.......#
+#.......##.....#
+#.........##...#
+#..........#...#
+#.........#....#
+#.......##.....#
+#..............#
+################
+
+; the line tool: the same diagonal, one pixel thick
+################
+#..............#
+#............#.#
+#...........#..#
+#..........#...#
+#.........#....#
+#........#.....#
+#.......#......#
+#......#.......#
+#.....#........#
+#....#.........#
+#...#..........#
+#..#...........#
+#.#............#
+#..............#
+################
+
+; the box: a rectangle outline, drawn corner to corner
+################
+#..............#
+#..............#
+#..............#
+#...########...#
+#...#......#...#
+#...#......#...#
+#...#......#...#
+#...#......#...#
+#...#......#...#
+#...#......#...#
+#...########...#
+#..............#
+#..............#
+#..............#
+################
+
+; the filled box: the same rectangle, full
+################
+#..............#
+#..............#
+#..............#
+#...########...#
+#...########...#
+#...########...#
+#...########...#
+#...########...#
+#...########...#
+#...########...#
+#...########...#
+#..............#
+#..............#
+#..............#
+################
+
+; the circle: centre out -- the press puts the centre down and the drag pulls the rim
+################
+#..............#
+#.....####.....#
+#...##....##...#
+#..#........#..#
+#.#..........#.#
+#.#..........#.#
+#.#..........#.#
+#.#..........#.#
+#.#..........#.#
+#.#..........#.#
+#..#........#..#
+#...##....##...#
+#.....####.....#
+#..............#
+################
+
+; the flood fill: the letter F -- one click seeds the region and the kernel fills it
+################
+#..............#
+#..##########..#
+#..##########..#
+#..##..........#
+#..##..........#
+#..#######.....#
+#..#######.....#
+#..##..........#
+#..##..........#
+#..##..........#
+#..##..........#
+#..##..........#
+#..##..........#
+#..............#
+################
+
+; the brushes: small, medium and large blobs
+################
+#..............#
+#..............#
+#..............#
+#..............#
+#..............#
+#.....####.....#
+#.....####.....#
+#.....####.....#
+#.....####.....#
+#..............#
+#..............#
+#..............#
+#..............#
+#..............#
+################
+
+################
+#..............#
+#..............#
+#..............#
+#..............#
+#.....####.....#
+#....######....#
+#....######....#
+#....######....#
+#....######....#
+#.....####.....#
+#..............#
+#..............#
+#..............#
+#..............#
+################
+
+################
+#..............#
+#..............#
+#..............#
+#.....####.....#
+#...########...#
+#..##########..#
+#..##########..#
+#..##########..#
+#..##########..#
+#...########...#
+#.....####.....#
+#..............#
+#..............#
+#..............#
+################
+
+; the text tool: the letter T -- a press puts the pen down on the cell it landed in and
+; every key after that plots a glyph there and steps on. The letter is drawn the blocky
+; way the F and the C are, so the three read as one set.
+################
+#..............#
+#..##########..#
+#..##########..#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#..............#
+################
+
+; the clear: one press blanks the canvas
+################
+#..............#
+#...########...#
+#..##########..#
+#..##......##..#
+#..##..........#
+#..##..........#
+#..##..........#
+#..##..........#
+#..##..........#
+#..##..........#
+#..##......##..#
+#..##########..#
+#...########...#
+#..............#
+################
+
+; the save: a down arrow onto a bar -- one press writes the picture to the name
+; grpaint was given. It is the one tile whose marking is not "in use": it is
+; MODIFIED state, drawn only while the canvas has changed since the last save, and a
+; press on it does nothing at all when it is not drawn.
+################
+#..............#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#......##......#
+#...########...#
+#....######....#
+#.....####.....#
+#......##......#
+#..............#
+#..##########..#
+#..............#
+#..............#
+################
+
+;
+;  The MODE tile: a COMMAND rather than a tool, so it is never "in use" and is never
+;  marked. Its face says what a PRESS does, which is why there are two: the hires
+;  band's reads MC -- press it to get multicolour -- and the MC band's reads HI, to
+;  get hires back. gpPickTakeMode swaps the mode in place (the pixels survive as
+;  pixels) and re-reads the band from the other file, so the tile the user is looking
+;  at after a press always names the mode they are NOT in.
+;  tools/gen-ui.py uses the 13th picture for the hires band and the 14th for the MC
+;  one. FIRST PASS at the lettering: redraw if it reads badly at the band's scale.
+################
+#..............#
+#..............#
+#..............#
+#.#....#..###..#
+#.##..##.#...#.#
+#.#.##.#.#.....#
+#.#....#.#.....#
+#.#....#.#.....#
+#.#....#.#.....#
+#.#....#.#.....#
+#.#....#.#...#.#
+#.#....#..###..#
+#..............#
+#..............#
+################
+
+################
+#..............#
+#..............#
+#..............#
+#.#....#..###..#
+#.#....#...#...#
+#.#....#...#...#
+#.#....#...#...#
+#.######...#...#
+#.#....#...#...#
+#.#....#...#...#
+#.#....#...#...#
+#.#....#..###..#
+#..............#
+#..............#
+################
+
+; --- the two ARROWS the band closes with: UNDO above, REDO below, STACKED. They are
+; 16x8 each -- two cells across and ONE band cell row down -- so they take the band's
+; last two columns, 38 and 39, one icon a row. That placement is what makes them TWO
+; entries: the picker reads the band's cell ROW there, so the TOP row is entry 33 (undo)
+; and the bottom one is 34 (redo).
+; Each icon carries its own 1px frame, exactly like a tile, so the pair reads as two
+; stacked buttons rather than one picture. The frame, the shape and the far edge all
+; keep clear of one another, which is what makes each arrow legible on its own.
+; Draw the shape in the DRAWING colour (the '#' pixels), as every tile is: the task marks
+; an arrow that has a step to take by turning those cells' drawing WHITE, exactly as it
+; marks the tool in use and the unsaved picture, so an arrow with nothing to do is the
+; one that keeps the grey the image was drawn in.
+; The two pictures are free to redraw: the generator places them by cell ROW and reads
+; no pixel of them. What it holds to is the COUNT -- two 8-row pictures, one band cell
+; row each, because that is all the band has left.
+
+; undo: a LEFT arrow -- a thick head whose edges run at 45 degrees out from a two-row
+; tip, and a two-row shaft running out of the head's middle to the far edge
+################
+#....###.......#
+#..###.........#
+#.############.#
+#..###.........#
+#....###.......#
+#..............#
+################
+
+; redo: the arrow the other way round -- one band cell row below the undo
+################
+#..............#
+#.......###....#
+#.........###..#
+#.############.#
+#.........###..#
+#.......###....#
+################

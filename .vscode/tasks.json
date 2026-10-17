@@ -1,0 +1,158 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "VS64: Build",
+			"type": "shell",
+			"command": "powershell",
+			"windows": { "command": "powershell" },
+			"linux": { "command": "pwsh" },
+			"osx": { "command": "pwsh" },
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/build-kernel.ps1"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": {
+				"kind": "build"
+			},
+			"problemMatcher": [
+				"$kick"
+			],
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared"
+			}
+		},
+		{
+			"label": "VICE with REU",
+			"type": "shell",
+			"dependsOn": "VS64: Build",
+			"dependsOrder": "sequence",
+			"command": "powershell",
+			"windows": { "command": "powershell" },
+			"linux": { "command": "pwsh" },
+			"osx": { "command": "pwsh" },
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/launch-vice.ps1",
+				"Use existing REU"
+			],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "VICE with fresh REU",
+			"type": "shell",
+			"dependsOn": [
+				"Build dynamic tasks",
+				"VS64: Build"
+			],
+			"dependsOrder": "sequence",
+			"command": "powershell",
+			"windows": { "command": "powershell" },
+			"linux": { "command": "pwsh" },
+			"osx": { "command": "pwsh" },
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/launch-vice.ps1",
+				"Scratch + rebuild REU"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Prepare fresh REU",
+			"dependsOn": [
+				"VS64: Build",
+				"Build dynamic tasks",
+				"Build REU"
+			],
+			"dependsOrder": "sequence",
+			"group": "build"
+		},
+		{
+			"label": "Build dynamic tasks",
+			"type": "shell",
+			"command": "powershell",
+			"windows": { "command": "powershell" },
+			"linux": { "command": "pwsh" },
+			"osx": { "command": "pwsh" },
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/build-tasks.ps1"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": [
+				"$kick"
+			]
+		},
+		{
+			"label": "Build REU",
+			"type": "shell",
+			"command": "powershell",
+			"windows": { "command": "powershell" },
+			"linux": { "command": "pwsh" },
+			"osx": { "command": "pwsh" },
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/build-reu.ps1"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"group": "build",
+			"problemMatcher": []
+		},
+		{
+			"label": "Publish binaries",
+			"type": "shell",
+			"command": "powershell",
+			"windows": { "command": "powershell" },
+			"linux": { "command": "pwsh" },
+			"osx": { "command": "pwsh" },
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"tools/publish-binaries.ps1"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "Build dynamic tasks + REU",
+			"dependsOn": [
+				"Build dynamic tasks",
+				"Build REU"
+			],
+			"dependsOrder": "sequence",
+			"group": "build",
+			"problemMatcher": []
+		}
+	]
+}

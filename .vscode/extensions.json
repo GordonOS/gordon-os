@@ -1,0 +1,14 @@
+{
+    // VS Code offers these the first time the folder is opened
+    // (Extensions view -> "Recommended"). See README.md -> Prerequisites.
+    "recommendations": [
+        // Required: KickAssembler + Ninja + VICE integration. It provides the
+        // build task, the F5 launch flows, and the vs64.* tool paths that
+        // tools/toolpaths.ps1 (and so every build script) reads.
+        "rosc.vs64",
+        // KickAssembler syntax highlighting for .asm/.inc.
+        "captainjinx.kickass-c64",
+        // Optional: for editing the tools/*.ps1 build scripts.
+        "ms-vscode.powershell"
+    ]
+}

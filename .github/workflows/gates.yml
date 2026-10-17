@@ -1,0 +1,67 @@
+name: gates
+
+# The SOURCE-ONLY gates: the half of the build that needs no assembler, no
+# Ninja and no emulator. They catch the mistakes that otherwise show up on the
+# machine as a wrong number, a garbled screen or a stale binary -- a stale
+# documented address, a header field read as a bare offset, a call count that
+# drifted from the tree, a non-ASCII byte in a `.text` string.
+#
+# What is NOT here, deliberately:
+#   * the kernel and task builds -- they need the VS64-generated
+#     build/build.ninja and a KickAssembler jar, neither of which lives in this
+#     repository (see docs/development.md);
+#   * `verify-map.ps1`, `check-reu-*.ps1` and `check-pool-budget.ps1` -- they
+#     all need built binaries under tasks-out/ or build/.
+# Run those locally after a build.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Read-only for every run, including pull requests from forks: the gates only
+# read the tree, and a workflow's token is the one thing a fork can misuse.
+permissions:
+  contents: read
+
+# A newer run for the same ref makes the older one irrelevant, and the gates
+# are cheap enough to restart rather than wait.
+concurrency:
+  group: gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pinned to a commit, not a moving tag, so the workflow cannot change
+      # under the repository.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+
+      - name: REU-FS 24-bit offset arithmetic
+        run: pwsh -NoProfile -File tools/check-fs-offsets.ps1
+
+      - name: Library ids vs the descriptor tables
+        run: pwsh -NoProfile -File tools/check-lib-ids.ps1
+
+      - name: Header fields read as HDR_* constants
+        run: pwsh -NoProfile -File tools/check-header-offsets.ps1
+
+      - name: The generated task-asm is current
+        run: pwsh -NoProfile -File tools/gen-task-asm.ps1 -Check
+
+      - name: docs/kernel.md agrees with jumptable.inc (addresses + coverage)
+        run: pwsh -NoProfile -File tools/verify-jumptable-docs.ps1
+
+      - name: The two call inventories agree with the tree
+        run: pwsh -NoProfile -File tools/verify-inventory-docs.ps1
+
+      - name: No non-ASCII bytes in code files (Rule 19)
+        run: python3 tools/check-ascii.py
+
+      - name: Relative links in the documentation resolve
+        run: python3 tools/check-links.py
+
+      - name: History-flavoured comments (Rule 14) -- advisory read-out
+        run: python3 tools/scan-history.py

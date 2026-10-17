@@ -1,0 +1,348 @@
+# GordonOS - Binaries
+
+> Preemptive multitasking kernel for the Commodore 64 with REU — **v1.0 beta**
+
+![GordonOS booting, banner and shell prompt](docs/img/boot.png)
+
+*A fresh boot: the banner, `gordonOS v1.0b1`, and the shell's first prompt.*
+
+Prebuilt binaries for **GordonOS**, a preemptive multitasking operating
+system kernel for the Commodore 64 with a RAM Expansion Unit (REU). This
+repository contains only the binaries needed to *run* GordonOS - source code
+is not included here.
+
+## Screenshots
+
+Captured from a real VICE run of the binaries in this repository - what you see below is
+what you get by following the [quick start](quickstart.binaries.md).
+
+| | |
+|---|---|
+| ![the shell](docs/img/shell-session.png) | ![the task pool](docs/img/pool.png) |
+| `ver`, `me` and `ps` at the shell | `pool`: 109 pool pages, the libraries at the top |
+| ![GordonPaint on a new canvas](docs/img/grpaint-new.png) | ![the editor](docs/img/edit.png) |
+| **GordonPaint**, a new canvas with the band up | the **editor**, status bar and all |
+| ![gortris](docs/img/gortris-play.png) | ![gorkanoid](docs/img/grknoid-play.png) |
+| **gortris**: three pieces landed, one falling | **gorkanoid**: a damaged wall, ball in play |
+| ![gfxdemo](docs/img/gfxdemo.png) | ![spirog](docs/img/spirog.png) |
+| **gfxdemo**: a spider-web weave drawn with `kLine` | **spirog**: a hypotrochoid from an integer sine table |
+| ![sprdemo](docs/img/sprdemo.png) | ![dir *.com](docs/img/dir-com.png) |
+| **sprdemo**: eight sprite balls, per-pixel collision | `dir *.com`: the commands in the image |
+| ![Gordon Basic](docs/img/basic.png) | ![granim](docs/img/granim.gif) |
+| **Gordon Basic** ([language reference](docs/gordonbasic.md)) | **granim**: 360 frames at 24 fps out of the REU |
+
+## Guides
+
+The application guides ship with these binaries, under `docs/` — the programs this image
+carries, plus the language reference:
+
+| Guide | Covers |
+|---|---|
+| [quickstart.binaries.md](quickstart.binaries.md) | every command, with example sessions |
+| [docs/edit.md](docs/edit.md) | the text editor: every key, the document model, and what a save does about failure |
+| [docs/gordonpaint.md](docs/gordonpaint.md) | GordonPaint: the band, the thirteen tiles, the undo ring, and how it works |
+| [docs/gortris.md](docs/gortris.md) | Tetris: the screens, the controls, the scoring tables and the hi-score editor |
+| [docs/grknoid.md](docs/grknoid.md) | Gorkanoid: the wall, the paddle, the bounce rule, lives and levels |
+| [docs/gordonbasic.md](docs/gordonbasic.md) | Gordon Basic: the language, the filesystem and the graphics commands |
+
+## The files
+
+| File | What it is |
+|---|---|
+| `gordon-os.prg` | The kernel. Autostart it in VICE, or on a real machine with an REU. |
+| `REU.bin` | The REU image to boot it with **in VICE**, whose `boot.bat` declares `speed 200` (the 200% fast-forward the launch scripts use) and `mouse 1351` (the pointer is live from the first prompt). |
+| `REU-C64U.bin` | The same image built for a **C64 Ultimate** (or any real machine): `speed 100`. Its turbo raises the CPU speed without moving the SID's clock or the video timing, so a real machine must not be told 200%. |
+
+The two images differ only in that one declaration, and they are alternatives: boot the
+kernel with one of them.
+
+## What is GordonOS?
+
+GordonOS is a from-scratch OS kernel for the C64 + REU. Both KERNAL and BASIC
+ROMs are banked out, giving the kernel full control of all 64KB of RAM.
+
+Everything is bitmap: the VIC-II stays in hires bitmap mode permanently, and
+"text" is an 8x8 glyph layer blitted on top of bitmap surfaces. Every screen
+is a 10 KB REU bitmap slot, and each task can own up to 8 virtual screens with
+their own cursor, colors and charset.
+
+Fully relocatable, reentrant and re-runnable tasks are a major feature: the
+same binary can be loaded into multiple instances at any free address
+(reentrant shares one code copy; re-runnable loads a fresh copy per `run`).
+The system supports up to 24 concurrent tasks, each with its own full 256-byte
+stack and a preserved zero-page region. Cold kernel code (time/filesys/gfx/fp/string/sid/ipc)
+ships as shared `.lib` binaries loaded on demand.
+
+Key features:
+
+- Preemptive multitasking - CIA #1 timer interrupts at ~60 Hz, round-robin
+  scheduler with per-task priority (0-5)
+- Dynamic task loader - `run <name>` loads relocatable + reentrant +
+  re-runnable task binaries from the REU filesystem at runtime, with pool
+  eviction when the pool is full
+- Dynamic kernel libraries - shared `.lib` binaries (time/filesys/gfx/fp/string/sid/ipc/sprite/mouse)
+  loaded on demand
+- Generic kernel heap - task-owned memory blocks preserved across eviction;
+  `pool` shows the pool map
+- Gordon Basic (derived from EhBASIC) - full floating-point BASIC with
+  bitmap-graphics commands (`mode`/`pen0`-`pen3`/`plot`/`line`/`box`/`circle`/
+  `ellipse`/`flood`/`gchar`/`gtext`/…), a persistent 64 KB REU working file
+  `basicwrk` opened with `run basic` (reused if present, created if absent,
+  deleted on `exit`), with `save`/`load`
+  to `.bas` files — see the [Gordon Basic language reference](docs/gordonbasic.md)
+- Shared floating-point library - `fp.lib` (the EhBASIC FP core) consumed
+  by BASIC and the `fpdemo` task, which draws a sine + cosine wave pixel by
+  pixel across the full bitmap
+- REU-accelerated context switches - each task gets its own full 256-byte
+  stack, saved/restored by DMA
+- Per-task ZP preservation - tasks can preserve their own zero-page (ZP)
+  memory across context switches
+- Bitmap graphics - REU-backed bitmap surfaces (28 slots) in hires (320x200)
+  and multicolor (160x200); `gfx.lib` draws lines/boxes/circles/flood-fill and
+  pixel-positioned text, all MC-aware
+- Thread support - tasks can spawn child threads that share the parent's memory
+- REU filesystem - `format`/`save`/`load`/`del`/`rename`/`copy`/`dir`/`type`/`fsinfo`/`compact`, persists across reboots
+- IRQ-driven keyboard - 16-byte ring buffer, key repeat, F-key screen switching
+- Interactive shell - line editing, cursor keys, blinking cursor,
+  custom-glyph `.bnr` banners (`banner <file> <row> <col>`), and a machine
+  speed the OS derives its timings and its music from (`speed <percent>`).
+  **100** (the C64 Ultimate image, `REU-C64U.bin`) and **200** (the VICE image,
+  `REU.bin`) are what the shipped images declare; higher values are not
+  recommended, because the pitch shift is one whole octave per step and one is
+  all a 200% machine needs
+- Full-screen text editor - the `edit` task: 25×40, insert/overwrite modes,
+  two-way scrolling with content-aware cursor movement; the document grows on
+  the fly (24-line chunks are kMalloc'd/freed as you type, up to 192 lines).
+  Region editing: `STOP+M` marks a selection (cursor keys extend it, drawn in
+  reverse video), `STOP+Y` copies it to an in-memory clipboard, `STOP+K` cuts
+  it, `STOP+P` pastes at the cursor
+- Batch file support as .bat files
+- Dynamic loading of charsets as .fnt files
+- Sprite sheets as .spr files (64-byte frames, frame *N* at file offset *N*×64)
+- **GordonPaint** - `run grpaint <name>` is the paint program the mouse exists
+  for: a canvas in hires (320x200) or multicolour (160x200), a palette and tool
+  band over the bottom two cell rows (thirteen tiles plus the four multicolour
+  slot chips), undo/redo five steps each way, and `<name>.pic` save/load in a
+  fixed 10,032-byte format. `run grview <name>` is its viewer, and
+  `hires.pic`, `mc.pic`, `alf.pic` and `alfgs.pic` ship as samples. It is
+  mouse-only and single-instance: its live footprint
+  is 71 of the pool's 109 pages, so a second `run grpaint` gets
+  `? already running` rather than evicting the copy being drawn in.
+- **GordonAnim** - `run granim llama` plays a **full-screen animation** out of the
+  REU filesystem: 360 multicolour frames at 24 fps (15 seconds), stored as 60
+  chunks of six frames plus a manifest. The transfer is split over six reads a
+  frame so no window holds interrupts off for long, the film clock follows the
+  machine's declared *speed* (so it is the same length in real time at 200% as on
+  a real C64), and the display is checked before every update, so an F-key switch
+  pauses the film rather than drawing into the new owner's screen. `+`/`-` change
+  the rate, SPACE pauses, `q` exits. The film is a greyscale conversion of
+  *Caminandes 1: "Llama Drama"* (Blender Foundation, CC-BY 3.0 — credit in
+  `NOTICE`).
+- **1351 mouse support** - `mouse.lib` reads the proportional mouse on **control
+  port 2** (the SID's analog POT lines, selected through PRA `$DC00`), and turns
+  the wrapping position it reports into signed deltas plus the two button lines.
+  `mouse 1351` / `mouse off` declares which pointer the machine has — the default
+  is off, so nothing needs it — and the `mtest` command shows the raw POT bytes,
+  the position, the deltas and the button lines live, so a machine whose SID
+  replacement cannot drive the analog lines can be told apart from a
+  configuration mistake.
+- **Games** - `run gortris` is a full Tetris: a 10x20 board, attract screens,
+  level select, the reference's game-over animation, three hi scores kept in the
+  REU filesystem and typed in under the blinking cursor, keyboard *and* joystick,
+  and its own music (an arrangement of Korobeiniki played through `sid.lib`). It
+  is ported from Wiebo de Wit's `tetris.c64` (MIT) — see `NOTICE` for that port
+  and for the piano sheet the tune's notes were read from.
+  `run grknoid` is **Gorkanoid**, an Arkanoid/Breakout game: a paddle and a ball
+  against a wall of bricks, five lives, four attract screens, a game-over screen
+  whose tune plays through before it leaves, the same REU-filesystem hi scores
+  and the same keyboard-or-joystick choice, with the paddle's step accelerating from
+  1 px to 3 px while a direction is held. Its music is three Compute's Gazette
+  Sid Collection tunes (`katmand`/`immig`/`firstdt`, one per mode) played through
+  `sid.lib` out of one buffer held for the session — see `NOTICE` for the collection credit
+## Files
+
+| File            | Size   | Purpose                                     |
+|-----------------|--------|---------------------------------------------|
+| `gordon-os.prg` | ~63 KB | Kernel image (load into VICE)               |
+| `REU.bin`       | 16 MB  | RAM Expansion Unit image (filesystem+tasks) |
+
+Both files are required: the kernel boots the shell and bundled tasks from
+the REU filesystem.
+
+## Run it with VICE
+
+Requires [VICE](https://vice-emu.sourceforge.io/) **3.9 or later** (`x64sc`)
+with REU support.
+
+```bash
+x64sc -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/REU.bin -reuimagerw gordon-os.prg
+```
+
+`-speed 200` runs VICE at 200% of real time, which is what **`REU.bin` is built for**.
+The OS keeps the machine's speed in one runtime setting — **`speed <percent>`**, declared
+by a line in the image's `boot.bat` — and derives the rest from it: the kernel's **cursor
+blink** and **keyboard repeat** tick counts, and **sid.lib**'s pitch and tempo
+compensation, so neither the music nor the keyboard needs per-task tuning. Change it live
+with `speed` at the shell; `blink <n>` / `keyrpt <delay> <repeat>` still override the
+timings afterwards, and must be run *after* `speed`.
+
+**GordonPaint needs a mouse, and that is two flags, not one.** The paint program (`grpaint`)
+drives its pointer sprite from a Commodore **1351** in control port 2, so start VICE with the
+device *and* the host-pointer grab:
+
+```bash
+x64sc -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/REU.bin -reuimagerw \
+      -controlport2device 1351 -mouse gordon-os.prg
+```
+
+- `-controlport2device 1351` puts a 1351 in control port 2 — `1351` is one of the names VICE's
+own control-port option accepts (`3` is its number). In the GUI it is *Control port settings* →
+control port 2 → **Mouse (1351)**.
+- `-mouse` is VICE's `Mouse` resource, the host-pointer grab. **Without it the POT bytes stay
+frozen and the buttons read released**, so the control-port device alone is not enough. In the
+  GUI it is VICE's mouse-grab setting. **Alt-M toggles the grab while VICE runs** (`Command-M` on
+  macOS) — press it to get the host pointer back without quitting.
+
+Then declare it at the shell — `mouse 1351` — and `run grpaint shot` will take the pointer. A
+joystick can go back into port 2 when you are done.
+
+> **A speed change is not only a blink/repeat change.** `-speed` runs the whole emulated
+> machine faster, so everything measured against the host's clock moves with it: the blink
+> and key repeat above, a game's perceived pace (its rules are emulated time, so it stays
+> self-consistent, but the player feels the ratio), time-sensitive task output (the `clock`
+> task), and **the SID's pitch** — a voice's output frequency is its register value scaled
+> by the CPU clock, so at 200% every note is an octave higher. Declaring the speed is what
+> absorbs the keyboard's and the music's share of that; the [quick-start
+guide](quickstart.binaries.md) has the table of values.
+>
+> **Two images, one setting.** `REU.bin` declares 200% for VICE. **`REU-C64U.bin`** is the
+> same image built with `speed 100`, for a C64 Ultimate — see below.
+>
+> **A C64 Ultimate needs none of this.** Its turbo is a *CPU* speed setting (up to 48x, 64x on
+> an Elite-II): the CPU gets more of the fast system clock's time slots, the VIC keeps
+> priority, and accesses that leave the board — the SID sockets among them — still run at
+> 1 MHz. So the SID is clocked as it is at 1x and **the pitch does not change**, the video
+> timing stays standard (blink and key repeat included), and the music these binaries carry
+> needs no transpose. Turbo buys CPU throughput, not wall-clock speed.
+>
+> **The video standard is measured, not declared.** The clock a standard fixes — 985248 Hz on
+> PAL, 1022727 Hz on NTSC — scales every note too, and the player's note table is the NTSC
+> one, so `sid.lib` measures the standard from the VIC once per load and reads the matching
+> table: a PAL machine is in tune, and only the top octave's B note is 45.5 cents flat. There
+> is nothing to set for it on either image.
+
+`-reuimagerw` writes the REU image back to disk when VICE exits, so files
+you `save` in GordonOS persist. Or drag `gordon-os.prg` into the VICE window,
+then load the image via **Settings > Cartridges > RAM Expansion Module >
+16384K > Browse**, select `REU.bin`, and check **"Write image on detach/emulator
+exit"** there so saved files persist.
+
+### Running VICE on Linux
+
+Debian/Ubuntu builds VICE `+dfsg`, which ships no C64 ROM images — `x64sc`
+exits at once with `Couldn't load kernal ROM` unless it can find them. VICE
+needs `kernal-901227-03.bin`, `basic-901226-01.bin` and `chargen-901225-01.bin`;
+they come with the official VICE distribution. Put them in VICE's default
+location (`~/.local/share/vice/C64/`), or give VICE a colon-separated search
+path with `-directory`:
+
+```bash
+x64sc -directory ~/.local/share/vice:/usr/share/vice \
+      -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/REU.bin \
+      -reuimagerw gordon-os.prg
+```
+
+`~` is expanded by the shell on a command line but not by VICE itself — in a
+config file or a VS Code setting, use an absolute path, e.g.
+`-directory /home/you/.local/share/vice:/usr/share/vice`. When VS Code runs as
+a **snap** its `XDG_DATA_HOME` points inside the snap, so VICE looks there
+instead of your home; set `"vs64.viceArgs"` in `.vscode/settings.json` to the
+`-directory` path above.
+
+VICE 3.9 or later is required.
+
+## Run on a C64 Ultimate / Ultimate 64
+
+The same files run on real hardware via the built-in 16 MB REU of the
+Ultimate-II+ cartridge or an Ultimate 64 board. The REU image is a raw
+16,777,216-byte memory dump, and the Ultimate accepts any filename or
+extension, so `REU.bin` works as-is.
+
+1. Copy `gordon-os.prg` and `REU.bin` to a FAT32 USB flash drive and insert it.
+2. Boot into the Ultimate menu (middle button on the Ultimate-II+; the menu
+   button on an Ultimate 64).
+3. Press **F2**, open **C64 and Cartridge Settings**, and enable the
+   **RAM Expansion Unit (REU)** with a size of **16 MB**.
+
+Then load the REU image using either method:
+
+- **Manual on-demand load:** in the file browser, highlight `REU.bin`, press
+  **Return**, and choose **Load into REU**.
+- **Persistent boot preload:** in settings, set **REU Preload Image** to
+  `REU.bin` on the USB drive (e.g. `/Usb0/REU.bin`) and set **REU Preload** to
+  **Enabled**.
+
+Finally, return to the file browser, select `gordon-os.prg`, press **Return**
+and choose **Run** (DMA load) to start GordonOS.
+
+### The 1351 mouse (GordonPaint)
+
+![the paint program with a picture loaded, band up and pointer visible](docs/img/grpaint.png)
+
+![the mtest readout, with a 1351 attached](docs/img/mtest.png)
+`grpaint` — the paint program — is mouse-only and refuses to start without a 1351: it prints
+`? mouse off - run 'mouse 1351'` and waits for a key. There are two ways to give it one:
+
+- **A real 1351** in control port 2. The mouse is a joystick-port device and the Ultimate
+  handles the POT lines on the board itself, so a real one needs nothing enabled. If the only
+  free port is port 1, an **Ultimate 64 Elite** board can swap the two ports from the menu:
+  press **C= + J**.
+- **A USB mouse**, which the machine presents to the C64 as a 1351. Its mouse options include
+  *Cursor*, *Mouse*, *Mouse+Cursor* and *Mouse+Wheel* modes, with sensitivity, adaptive
+  acceleration and wheel settings; firmware 3.15 reads each mouse's HID report descriptor
+  rather than assuming boot protocol, which is what makes most USB mice work. It also reports
+  the mouse it detected and the HID mode it chose.
+
+Either way, declare it at the shell with **`mouse 1351`** — the image's `boot.bat` already does
+it at boot, so a fresh start is ready. The REU setup above is the other half.
+
+### Persistence
+
+The Ultimate does not automatically write the REU contents back to USB. Any
+changes GordonOS makes (for example files you `save`) live in REU memory only
+until you export them. Before powering down:
+
+1. Press the **Menu** button to interrupt the C64.
+2. Press **F5** to open the Command/Action menu.
+3. Navigate to **C64 Machine**.
+4. Select **Save REU Memory**.
+5. Enter a filename (e.g. `REU.bin` to overwrite the image) and press Enter to
+   write the raw 16 MB block back to the USB drive.
+
+## Quick start
+
+See the [quick-start guide](quickstart.binaries.md) for what you can do once
+the shell boots.
+
+## License / Notice
+
+GordonOS is licensed under the GNU GPL v2 or later - see `LICENSE.md`.
+Third-party notices (EhBASIC, filesystem code, the Enhanced SID Player used by
+the `sidplay` task, the *Caminandes* animation, and the ALF images -- the boot
+banner `logo320` and the sample pictures `alf.pic`/`alfgs.pic`, included
+non-commercially and claimed as fair use) are in `NOTICE`.
+
+The `sidplay` player routine is a port of COMPUTE!'s Enhanced SID
+Player (Craig Chamberlain, 1986) as disassembled by Chris Zinn (2025).
+Neither the original nor the disassembly carries an explicit license —
+see `NOTICE` before redistributing.
+
+## Contact
+
+The source, the documentation and the issue tracker are at
+**[github.com/GordonOS/gordon-os](https://github.com/GordonOS/gordon-os)** — the
+system is still in active development, and contributions are welcome. Development
+is also discussed in the **GordonOS Development** Facebook group — a private group,
+request to join: <https://www.facebook.com/groups/1486946993399861>. To write
+directly, contact **Besim Atalay** at
+[besim.atalay@gmail.com](mailto:besim.atalay@gmail.com).

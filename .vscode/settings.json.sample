@@ -1,0 +1,58 @@
+// ==========================================
+//  settings.json.sample — copy to .vscode/settings.json and edit the paths
+// ==========================================
+//  .vscode/settings.json is GITIGNORED on purpose: it holds this machine's
+//  tool locations, which are not portable. A fresh clone therefore has no
+//  settings file, and the first build stops with
+//
+//      KickAss.jar not found at:            (an empty path)
+//
+//  — that message means this file is missing, not that KickAssembler is.
+//
+//  To set up (from the repository root):
+//
+//      cp .vscode/settings.json.sample .vscode/settings.json           (Linux/macOS)
+//      Copy-Item .vscode\settings.json.sample .vscode\settings.json    (Windows)
+//
+//  then edit the four vs64.* paths below. They are the single source of truth
+//  for the build/launch scripts: tools/toolpaths.ps1 reads them (and nothing
+//  else does), and the VS64 extension reads the same keys to assemble and
+//  launch. Env vars VICE_EXE / KICKASS_JAR / JAVA_EXE still override them for
+//  ad-hoc runs. See docs/quick-start.md -> "Option 2: Build from source".
+{
+    // KickAssembler INSTALL DIRECTORY — the folder holding KickAss.jar
+    // (v5.25 or later), NOT the jar itself. tools/toolpaths.ps1 appends
+    // "KickAss.jar" to this path.
+    //   Windows:     C:/Tools/c64/KickAssembler
+    //   Linux/macOS: /opt/KickAssembler
+    "vs64.kickInstallDir": "C:/Tools/c64/KickAssembler",
+
+    // Java executable that runs KickAssembler (JDK 26+ recommended).
+    // Quotes and forward slashes are both fine.
+    //   Windows:     C:/Program Files/Java/jdk-XX/bin/java.exe
+    //   Linux/macOS: /usr/bin/java
+    "vs64.javaExecutable": "C:/Program Files/Java/jdk-XX/bin/java.exe",
+
+    // ninja. Leave it BLANK to use the Ninja bundled inside the VS64 extension
+    // (recommended: it resolves resources/ninja/<platform>/ for you, and
+    // tools/toolpaths.ps1 finds the same bundled copy for the build scripts).
+    // Set a path only for a custom Ninja, e.g.
+    //   Windows:     C:/Tools/ninja/ninja.exe
+    //   Linux/macOS: /usr/bin/ninja
+    "vs64.ninjaExecutable": "",
+
+    // x64sc — VICE 3.10 or later (GTK3 build); older versions only have the
+    // removed -reuimagesize flag.
+    //   Windows:     C:/Program Files/GTK3VICE-x.y-win64/bin/x64sc.exe
+    //   Linux/macOS: /usr/bin/x64sc  (or the bundled gtk3vice/bin/x64sc)
+    "vs64.viceExecutable": "C:/path/to/VICE/bin/x64sc",
+
+    // Optional: extra VICE flags (vs64.viceArgs), appended to every VICE launch
+    // (both the F5 flows and tools/launch-vice.ps1). Example - a system-file
+    // search path when the C64 ROMs are not where VICE looks by default:
+    //   "-directory /home/you/.local/share/vice:/usr/share/vice"
+    "vs64.viceArgs": "",
+
+    // Not a path — keeps VS Code from reformatting the .asm sources on save.
+    "editor.formatOnSave": false
+}

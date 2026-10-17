@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question, or a hardware/protocol puzzle
+    url: mailto:besim.atalay@gmail.com
+    about: Anything that is not a bug report or a feature request.
+  - name: GordonOS Development Facebook group
+    url: https://www.facebook.com/groups/1486946993399861
+    about: Discussion and work in progress. Private group - request to join.
+  - name: Read the documentation first
+    url: https://github.com/GordonOS/gordon-os/blob/main/docs/development.md
+    about: Setup, the toolchain, the build stages and the gates.
