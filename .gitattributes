@@ -1,0 +1,18 @@
+# One line-ending policy for every host. The tree is LF today and the toolchain does not
+# care either way (KickAssembler under Java, pwsh 7, Python and check-ascii.py all read
+# either), so a CRLF round-trip through a Windows editor would be a whole-file diff for
+# nothing.
+* text=auto eol=lf
+
+# Data files are byte-exact and stay that way: never normalised, never diffed as text.
+*.anm binary
+*.prg binary
+*.bin binary
+*.fnt binary
+*.mus binary
+*.pic binary
+*.spr binary
+*.bnr binary
+*.bas binary
+*.png binary
+*.gif binary

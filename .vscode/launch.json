@@ -1,0 +1,48 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "vice",
+            "request": "launch",
+            "name": "Build & Launch with REU",
+            "preLaunchTask": "VS64: Build",
+            "args": "-speed 200 -reu -reusize 16384 -reuimage ${workspaceFolder}/reu/REU.bin -reuimagerw"
+        },
+        {
+            "type": "vice",
+            "request": "launch",
+            "name": "Build & Launch with fresh REU",
+            "preLaunchTask": "Prepare fresh REU",
+            "args": "-speed 200 -reu -reusize 16384 -reuimage ${workspaceFolder}/reu/REU.bin -reuimagerw"
+        },
+        {
+            "type": "vice",
+            "request": "launch",
+            "name": "Build & Launch with REU (1351 mouse)",
+            "preLaunchTask": "VS64: Build",
+            "args": "-speed 200 -reu -reusize 16384 -reuimage ${workspaceFolder}/reu/REU.bin -reuimagerw -controlport2device 1351 -mouse"
+        },
+        {
+            "type": "vice",
+            "request": "launch",
+            "name": "Build & Launch with fresh REU (1351 mouse)",
+            "preLaunchTask": "Prepare fresh REU",
+            "args": "-speed 200 -reu -reusize 16384 -reuimage ${workspaceFolder}/reu/REU.bin -reuimagerw -controlport2device 1351 -mouse"
+        },
+        {
+            "type": "6502",
+            "request": "launch",
+            "name": "Build & Launch 6502 (Built-in)",
+            "preLaunchTask": "${defaultBuildTask}"
+        },
+        {
+            "type": "debugpy",
+            "request": "launch",
+            "name": "Publish binaries",
+            "preLaunchTask": "VS64: Build",
+            "program": "${workspaceFolder}/tools/publish.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

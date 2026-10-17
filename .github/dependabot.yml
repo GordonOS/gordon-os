@@ -1,0 +1,10 @@
+# Keep the commit-pinned GitHub Actions current. Dependabot understands the
+# `uses: owner/action@<sha>  # vX.Y.Z` form and opens a PR when the tag moves.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
