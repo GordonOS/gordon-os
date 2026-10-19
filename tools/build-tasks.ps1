@@ -69,6 +69,13 @@ if ($PythonExe -eq '') {
     Write-Error "no Python 3 interpreter found - install one, or create the repo .venv, to run tools/check-task-headers.py"
     exit 1
 }
+
+# Generated-table gate: musedit's piano glyphs and the pixel->semitone hit tables
+# are both derived from one geometry table, so a stale .inc would draw one
+# keyboard and test another. `-Check` regenerates in memory and fails on a diff.
+& $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-glyphs.py') -Check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 & $PythonExe (Join-Path $PSScriptRoot 'check-task-headers.py') --quiet
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

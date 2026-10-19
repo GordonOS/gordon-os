@@ -293,6 +293,12 @@
 .pc = $5000 + SHIFT
 .import source "src/tasks/dynamic/granim.asm"
 
+// --- musedit - KF_TAKES_ARGS + KF_NOT_EVICTABLE ($49) - the tracker-style .mus editor; no ZP of its own; libMask $01A2 (filesys + sid lazy, sprite + mouse eager); the screen, the layout and the eight-octave piano are drawn with the routed fixed-cell writers ---
+.segmentdef museditOut [outBin="../tasks-out/temp/musedit." + variant + ".bin"]
+.segment museditOut
+.pc = $5000 + SHIFT
+.import source "src/tasks/dynamic/musedit.asm"
+
 // --- dynamic libraries ---
 // --- timelib - lib 0 (eager), relocatable ---
 .segmentdef timelibOut [outBin="../tasks-out/temp/timelib." + variant + ".bin"]

@@ -64,6 +64,7 @@ $LiveLazy = @{
     'banner'  = @('filesys.lib')                     # reads the .bnr
     'fstest'  = @('filesys.lib')                     # its whole job
     'sidplay' = @('filesys.lib', 'sid.lib')          # loads the tune, then plays it
+    'musedit' = @('filesys.lib', 'sid.lib')          # opens the tune, plays it
     'ipctest' = @('ipc.lib')                         # its whole job
     # --- resident tasks: the load happens in the startup sequence ---
     'shell'   = @('filesys.lib', 'string.lib')       # the boot target runs "runbatch boot"
