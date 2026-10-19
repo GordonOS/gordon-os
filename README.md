@@ -71,7 +71,7 @@ guides to the shell and its applications. From this repository, grab the pre-bui
 `build/gordon-os.prg` and load it in VICE (**3.9 or later**, with REU support):
 
 ```bash
-x64sc -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/reu/REU.bin -reuimagerw build/gordon-os.prg
+x64sc -autostartprgmode 1 -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/reu/REU.bin -reuimagerw build/gordon-os.prg
 ```
 
 `-speed 200` runs VICE at **200% of real time**, which is what `reu/REU.bin` is built
@@ -211,7 +211,7 @@ The program itself — the band, the thirteen tiles, the palette and the undo ri
 host-pointer grab:
 
 ```bash
-x64sc -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/REU.bin -reuimagerw \
+x64sc -autostartprgmode 1 -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/REU.bin -reuimagerw \
       -controlport2device 1351 -mouse build/gordon-os.prg
 ```
 

@@ -15,7 +15,7 @@
 2. Launch VICE **3.9 or later** with REU support and the bundled image
    (**absolute path** required for `-reuimage`):
    ```bash
-   x64sc -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/reu/REU.bin -reuimagerw build/gordon-os.prg
+   x64sc -autostartprgmode 1 -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/reu/REU.bin -reuimagerw build/gordon-os.prg
    ```
    `-reuimagerw` writes the REU image back to disk on exit so saved files
    persist. Dragging the `.prg` into the VICE window alone is **not** enough
@@ -313,8 +313,13 @@ GordonOS ships a pre-built REU image (`reu/REU.bin`, produced by `tools/build-re
 ### Launch VICE with REU.bin
 
 ```bash
-x64sc -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/reu/REU.bin -reuimagerw build/gordon-os.prg
+x64sc -autostartprgmode 1 -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/reu/REU.bin -reuimagerw build/gordon-os.prg
 ```
+
+`-autostartprgmode 1` injects the PRG straight into RAM. Without it VICE's autostart
+loads through the KERNAL, which cannot place the kernel's `$A000-$BFFF` data, its I/O-band
+bytes or its `$E000` jump table — the screen stays black and the console shows
+`AUTOSTART: Entered ROM at $e5d1`.
 
 `-speed 200` runs the emulator at 200% of real time — the speed the blink and
 keyboard-repeat timings are tuned for, so see **VICE speed, and the blink / repeat
@@ -330,7 +335,7 @@ one (`? mouse off - run 'mouse 1351'`) — see [gordonpaint.md](gordonpaint.md).
 host-pointer grab:
 
 ```bash
-x64sc -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/reu/REU.bin -reuimagerw \
+x64sc -autostartprgmode 1 -speed 200 -reu -reusize 16384 -reuimage /absolute/path/to/reu/REU.bin -reuimagerw \
       -controlport2device 1351 -mouse build/gordon-os.prg
 ```
 

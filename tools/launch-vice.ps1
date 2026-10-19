@@ -80,4 +80,11 @@ if ($Mode -like "*Scratch*") {
     }
 }
 
-& $vice @viceArgList -speed $ViceSpeed -reu -reusize 16384 -reuimage $reuImage -reuimagerw @mouseArgs build/gordon-os.prg
+#  -autostartprgmode 1 = inject the PRG straight into RAM. VICE's default
+#  autostart loads it through the KERNAL, and that load cannot place the kernel's
+#  data ($A000-$BFFF sits under BASIC ROM), anything in the I/O band ($D000-$DFFF
+#  writes reach the VIC/SID/CIA) or its $E000 jump table (under the KERNAL ROM):
+#  the machine stops on a black screen and the console shows "AUTOSTART: Entered
+#  ROM at $e5d1". Never rely on AutostartPrgMode in vicerc -- a fresh install
+#  has neither, which is exactly how a new user meets the black screen.
+& $vice @viceArgList -autostartprgmode 1 -speed $ViceSpeed -reu -reusize 16384 -reuimage $reuImage -reuimagerw @mouseArgs build/gordon-os.prg

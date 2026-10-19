@@ -31,3 +31,7 @@ __pycache__/
 # tools/scan-history.py writes one report per Rule-14 category plus a summary.
 # They are a lint read-out, regenerated on every run, never committed.
 tools/hist_*.txt
+
+# KickAssembler/JVM crash dumps: a failed build leaves hs_err_pidNNNN.log beside
+# the source being assembled. They are diagnostics for that run, not source.
+hs_err_pid*.log

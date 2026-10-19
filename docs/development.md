@@ -17,7 +17,7 @@
 | **KickAssembler** | v5.25 | the assembler — used for the kernel *and* for every task and library |
 | **Java JDK** | 8+ (tested with 26) | runs KickAssembler |
 | **Ninja** | ships inside VS64 | runs the kernel build |
-| **VICE** | 3.9+ (GTK3) | the emulator, `x64sc`, driven with the REU image and `-speed 200` |
+| **VICE** | 3.9+ (GTK3) | the emulator, `x64sc`, driven with the REU image, `-autostartprgmode 1` and `-speed 200` |
 | **Python** | 3.9+ in `.venv` | the generator, gate and publish tools |
 | **PowerShell** | 5.1 | every script under `tools/` |
 
@@ -403,7 +403,7 @@ flows add `-controlport2device 1351 -mouse`, and **Alt-M** toggles that grab whi
 runs — and it is worth knowing by heart:
 
 ```bash
-x64sc -speed 200 -reu -reusize 16384 -reuimage <abs>/reu/REU.bin -reuimagerw build/gordon-os.prg
+x64sc -autostartprgmode 1 -speed 200 -reu -reusize 16384 -reuimage <abs>/reu/REU.bin -reuimagerw build/gordon-os.prg
 ```
 
 `-reuimage` needs an **absolute** path. `-speed 200` is the speed `REU.bin` declares,
