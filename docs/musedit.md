@@ -152,6 +152,14 @@ The armed values are shown on the control bar and stay armed until you change th
 current tempo cannot express them as whole jiffies — a dotted note needs an even base length,
 a double-dotted one a base divisible by four.
 
+### The timing line
+
+`B` prints what the tempo in force can express, using the player's own arithmetic: `W`, `H`,
+`Q`, `8`, `16`, `32` and `64` in jiffies, with `-` for a length that tempo cannot express, and
+under it the tempo byte the tune's `TEM` command set, the triplet quarter, the row unit in
+jiffies and the rows a bar has. Those numbers are what the grid is measured in, so a question
+about how many rows a length takes is answered there.
+
 ### Utility lengths
 
 `8` arms the **UTL** length and `9` the **UTV** length. A note entered with one of these takes

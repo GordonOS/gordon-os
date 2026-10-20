@@ -10,7 +10,7 @@
 
 // The instance buffer's size. Declared here because the header needs it before
 // the body is imported; musedit.inc's zero loop uses the same constant.
-.const MU_DATA_SIZE = 41
+.const MU_DATA_SIZE = 53
 
 museditBinStart:
     .word HDR_MAGIC              // +0:  magic 'G','O' (LE)
@@ -31,4 +31,5 @@ museditNameEnd:
 
 .import source "musedit.inc"
 .import source "musedit-glyphs.inc"
+.import source "musedit-tables.inc"
 .label museditEnd = *

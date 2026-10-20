@@ -8,7 +8,7 @@
 //  counters, the drain counter) lives in the code image, which the loader copies
 //  per instance, so it is per-instance RAM.
 
-// --- instance data: offsets into the 41-byte instance buffer ---
+// --- instance data: offsets into the 53-byte instance buffer ---
 //  Offsets 0-11 keep the loader's argument bytes; the name is copied out into
 //  the code image at entry, so state starts at 12.
 .const MU_ROW       = 12      // cursor row (a screen row, 2..19)
@@ -33,6 +33,12 @@
 .const MU_FRAME     = 38      // frameCount at the last sample
 .const MU_BTN       = 39      // MOUSE_READ's button byte (active low)
 .const MU_HOV       = 40      // pitch under the pointer, $ff = none
+.const MU_IMG       = 41      // the kMalloc block holding the whole file
+.const MU_LEN       = 43      // bytes in that image (load address included)
+.const MU_FLEN      = 45      // the on-disk size kReuOpen reported
+.const MU_PAGES     = 47      // pages the block has, from kMalloc's kArg+4 echo
+.const MU_FREC      = 48      // 5-byte file record: size lo/hi, base lo/mid/hi
+.const MU_STATE_TOP = MU_FREC+4  // the highest state byte: the zero loop starts here
 
 // --- screen layout ---
 .const MU_GRID_TOP  = 2
@@ -61,8 +67,11 @@
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
 .const MU_STAT_FRAMES = 50    // about a second of displayed frames
+.const MU_DUR_COLS = 7        // the duration columns the timing line prints
+.const MU_UNIT_N   = 7        // the row unit's candidates, shortest first
 .const MU_BAR_TODO  = 1       // hit-map code: nothing is behind that cell yet
 .const MU_BAR_Q     = 2       // ...and this one quits
+.const MU_BAR_SAVE  = 3       // ...and this one writes the image back
 
 // --- tiny instance helpers (offsets are constants, so these stay inline) ---
 .macro muSet(field, value) {
@@ -86,7 +95,13 @@ museditMain:
     jsr muScreen                // allocate, take the display, clear, zero state
     jsr muParseName             // C=1: no name, or longer than 7 characters
     bcs muBadName
+    jsr muNameSetup             // <base>.mus, in screen codes
     jsr muPtrInit               // the pointer, or a refusal when there is no mouse
+    jsr muLoad                  // the tune, or a refusal when it cannot be had
+    bcc muMainGo
+    jmp muPtrRefuse             // muLoad left the reason in MU_STR
+muMainGo:
+    jsr muFindTempo             // the tempo the first note will hear
     jsr muDrawAll
     jmp muKeyLoop
 muBadName:
@@ -131,7 +146,7 @@ muScrOk:
     jsr kDisableCursor
     jsr kClearScreen            // a recycled slot keeps the previous bitmap
     // zero the instance state from MU_ROW upward
-    ldy #MU_HOV
+    ldy #MU_STATE_TOP
     lda #0
 muScrZero:
     sta (dataPtr),y
@@ -178,6 +193,742 @@ muPnBad:
     sec
     rts
 
+// --- muNameSetup -- the FS name: the base name with .mus on the end ---
+//  FS names are SCREEN CODES, so the letters come from character literals under
+//  the file's encoding, not from a PETSCII string. A 7-character base reaches
+//  exactly the 11 the filesystem allows.
+muNameSetup:
+    ldx #0
+muNsLp:
+    cpx muNameLen
+    beq muNsExt
+    lda muName,x
+    sta muFsName,x
+    inx
+    bne muNsLp                  // a 7-character name ends the loop, never wraps
+muNsExt:
+    lda #'.'
+    sta muFsName,x
+    lda #'m'
+    sta muFsName+1,x
+    lda #'u'
+    sta muFsName+2,x
+    lda #'s'
+    sta muFsName+3,x
+    lda #0
+    sta muFsName+4,x
+    rts
+
+// ==========================================
+//  The tune image
+// ==========================================
+//  The whole file -- load address, the three length words, the three streams and
+//  the description after them -- lives in one kMalloc block for the task's life:
+//  playback hands those very bytes to sid.lib, and a save writes them back
+//  unchanged, which is what makes an untouched file round-trip byte for byte.
+//  MU_LEN is the image's length; MU_FLEN is what the file on disk holds, which
+//  includes the slack a created file carries.
+
+// --- muFsArg -- kArg = the FS name ---
+muFsArg:
+    lda #<muFsName
+    sta kArg
+    lda #>muFsName
+    sta kArg+1
+    rts
+
+// --- muFrecPt -- kPtr = the five-byte file record in the instance buffer ---
+muFrecPt:
+    lda dataPtr
+    clc
+    adc #MU_FREC
+    sta kPtr
+    lda dataPtr+1
+    adc #0
+    sta kPtr+1
+    rts
+
+// --- muRecArg -- kArg = the same record, which is what readAt/writeAt take ---
+muRecArg:
+    lda dataPtr
+    clc
+    adc #MU_FREC
+    sta kArg
+    lda dataPtr+1
+    adc #0
+    sta kArg+1
+    rts
+
+// --- muImgToKPtr -- kPtr = the image block ---
+//  Re-derived every time: every FS call and every kMalloc clobbers kPtr.
+muImgToKPtr:
+    ldy #MU_IMG
+    lda (dataPtr),y
+    sta kPtr
+    ldy #MU_IMG+1
+    lda (dataPtr),y
+    sta kPtr+1
+    rts
+
+// --- muLoad -- the tune the name stands for, or a new one ---
+//  Out: C=0 the image is in the block; C=1 MU_STR holds the reason.
+muLoad:
+    lda reuFsEnabled            // kReuOpen's code 6 means not found OR no FS, so
+    cmp #REU_FS_SIGNATURE       // presence has to be its own test -- otherwise every
+    beq muLdTry                 // new tune would be refused as a missing filesystem
+    muStr(muSNoFs)
+    sec
+    rts
+muLdTry:
+    jsr muFsArg
+    jsr muFrecPt
+    jsr kReuOpen
+    bcc muLdOpen
+    jmp muLdNew                 // not there: a new tune
+muLdOpen:
+    //  --- the file's size is the record's first two bytes ---
+    jsr muFrecPt
+    ldy #0
+    lda (kPtr),y
+    ldy #MU_FLEN
+    sta (dataPtr),y
+    ldy #1
+    lda (kPtr),y
+    ldy #MU_FLEN+1
+    sta (dataPtr),y
+    //  --- pages = ceil(size / 256), never zero ---
+    ldy #MU_FLEN
+    lda (dataPtr),y
+    clc
+    adc #$ff
+    ldy #MU_FLEN+1
+    lda (dataPtr),y
+    adc #0
+    bne muLdPages
+    lda #1
+muLdPages:
+    jsr kMalloc
+    bcs muLdNoRoom
+    //  kPtr's low byte is ALWAYS 0 -- a block is page-aligned -- so the address
+    //  has to be taken as a pair; the high byte is the whole of it.
+    ldy #MU_IMG
+    lda kPtr
+    sta (dataPtr),y
+    ldy #MU_IMG+1
+    lda kPtr+1
+    sta (dataPtr),y
+    ldy #MU_PAGES
+    lda kArg+4                  // the page echo: never a register, allocFromPool clobbers X
+    sta (dataPtr),y
+    //  --- and the image itself ---
+    jsr muFsArg
+    jsr muImgToKPtr
+    jsr kReuLoad
+    bcs muLdRead
+    //  --- MU_LEN is the file's length, and the slack behind it becomes zeroes ---
+    ldy #MU_FLEN
+    lda (dataPtr),y
+    ldy #MU_LEN
+    sta (dataPtr),y
+    ldy #MU_FLEN+1
+    lda (dataPtr),y
+    ldy #MU_LEN+1
+    sta (dataPtr),y
+    jsr muBlockPad
+    jmp muLdCheck
+muLdRead:
+    muStr(muSNoRead)
+    sec
+    rts
+muLdNoRoom:
+    muStr(muSNoRoom)
+    sec
+    rts
+
+// --- muLdNew -- the blank tune a name with no file stands for ---
+muLdNew:
+    lda #1
+    jsr kMalloc
+    bcs muLdNoRoom
+    ldy #MU_IMG                 // the pair again: kPtr's low byte is always 0
+    lda kPtr
+    sta (dataPtr),y
+    ldy #MU_IMG+1
+    lda kPtr+1
+    sta (dataPtr),y
+    ldy #MU_PAGES
+    lda kArg+4
+    sta (dataPtr),y
+    ldy #MU_LEN
+    lda #<(muNewTuneEnd - muNewTune)
+    sta (dataPtr),y
+    lda #0
+    ldy #MU_LEN+1
+    sta (dataPtr),y
+    ldy #MU_FLEN
+    sta (dataPtr),y
+    ldy #MU_FLEN+1
+    sta (dataPtr),y             // nothing on disk yet
+    jsr muImgToKPtr
+    ldy #0
+muLdNewLp:
+    lda muNewTune,y
+    sta (kPtr),y
+    iny
+    cpy #(muNewTuneEnd - muNewTune)
+    bne muLdNewLp
+    jmp muBlockPad
+
+// --- muLdCheck -- a file too short to hold even the header is not a tune ---
+muLdCheck:
+    ldy #MU_LEN+1
+    lda (dataPtr),y
+    bne muLdGood
+    ldy #MU_LEN
+    lda (dataPtr),y
+    cmp #8
+    bcs muLdGood
+    muStr(muSNoTune)
+    sec
+    rts
+muLdGood:
+    clc
+    rts
+
+// --- muBlockPad -- zero the block from the image's end to its last page ---
+//  A save writes a whole file out of this block, slack included, so the bytes
+//  behind the image have to be zeroes rather than whatever the pool handed back.
+muBlockPad:
+    ldy #MU_IMG
+    lda (dataPtr),y
+    ldy #MU_LEN
+    clc
+    adc (dataPtr),y
+    sta kPtr
+    ldy #MU_IMG+1
+    lda (dataPtr),y
+    ldy #MU_LEN+1
+    adc (dataPtr),y
+    sta kPtr+1
+    ldy #MU_PAGES
+    lda (dataPtr),y
+    sta muTmpH                  // pages: the count's high byte before the borrow
+    lda #0
+    ldy #MU_LEN
+    sec
+    sbc (dataPtr),y
+    sta kArg                    // count lo
+    lda muTmpH
+    ldy #MU_LEN+1
+    sbc (dataPtr),y
+    sta kArg+1                  // count hi
+    lda kArg
+    ora kArg+1
+    beq muPadDone
+    lda #0
+    jsr kReuFillC64
+muPadDone:
+    clc
+    rts
+
+// --- muSaveNow -- write the image back to <base>.mus ---
+//  In place when the file can hold it -- the record already points at it -- and
+//  otherwise created at a whole number of pages, so a later edit that grows the
+//  image still saves in place.
+//  Out: C=0 saved; C=1 MU_STR holds the reason.
+muSaveNow:
+    jsr muFsArg
+    jsr muFrecPt
+    jsr kReuOpen
+    bcs muSvCreate
+    //  --- the record's size is the file's: does the image fit? ---
+    ldy #0
+    lda (kPtr),y
+    sta muTmpL
+    ldy #1
+    lda (kPtr),y
+    sta muTmpH
+    ldy #MU_LEN+1
+    lda (dataPtr),y
+    cmp muTmpH
+    bcc muSvInPlace             // a smaller high byte: it fits
+    bne muSvCreate              // ...or a larger one: it does not
+    ldy #MU_LEN
+    lda (dataPtr),y
+    cmp muTmpL
+    bcc muSvInPlace
+    bne muSvCreate
+muSvInPlace:
+    //  --- the file's whole length, out of the block ---
+    jsr muRecArg
+    lda #0
+    sta kArg+2
+    sta kArg+3                  // pos = 0
+    lda muTmpL
+    sta kArg+6
+    lda muTmpH
+    sta kArg+7                  // len = the file's size
+    jsr muImgToKPtr
+    jsr kReuWriteAt
+    bcs muSvWriteBad
+    clc
+    rts
+muSvWriteBad:
+    muStr(muSNoWrite)
+    sec
+    rts
+
+muSvCreate:
+    //  --- pages for the image; and the room for them BEFORE anything is deleted ---
+    ldy #MU_LEN
+    lda (dataPtr),y
+    clc
+    adc #$ff
+    ldy #MU_LEN+1
+    lda (dataPtr),y
+    adc #0
+    bne muSvPages
+    lda #1
+muSvPages:
+    sta muNeedPage
+    jsr muFreeSpace
+    bcs muSvNoFs
+    lda muFreeHi
+    bne muSvRoom
+    lda muFreeMid
+    cmp muNeedPage
+    bcc muSvNoRoom
+muSvRoom:
+    jsr muFsArg
+    jsr kReuDelete              // a tombstone frees neither slot nor data, so it costs nothing
+    jsr muFsArg
+    lda #0
+    sta kArg+2
+    lda muNeedPage
+    sta kArg+3                  // size = pages x 256
+    jsr kReuCreate
+    bcs muSvCreateBad
+    jsr muFsArg
+    jsr muFrecPt
+    jsr kReuOpen                // it was just made, so this cannot fail
+    bcs muSvCreateBad
+    //  --- the new file's whole length, out of the block ---
+    jsr muRecArg
+    lda #0
+    sta kArg+2
+    sta kArg+3
+    sta kArg+6                  // len lo = 0
+    lda muNeedPage
+    sta kArg+7                  // len = pages x 256
+    jsr muImgToKPtr
+    jsr kReuWriteAt
+    bcs muSvWriteBad
+    clc
+    rts
+muSvCreateBad:
+    lda kArg+6
+    cmp #1
+    beq muSvNoRoom
+    cmp #2
+    beq muSvDirFull
+    muStr(muSNoWrite)
+    sec
+    rts
+muSvNoFs:
+    muStr(muSNoFs)
+    sec
+    rts
+muSvNoRoom:
+    muStr(muSNoRoom)
+    sec
+    rts
+muSvDirFull:
+    muStr(muSDirFull)
+    sec
+    rts
+
+// --- muFreeSpace -- capacity - nextFreeOffset, as far as a page count can tell ---
+//  A delete frees neither slot nor data, so what a new file can use is the
+//  capacity minus the allocator's high-water mark -- and that has to cover the new
+//  file BEFORE the old one is deleted, or the tune is gone and its replacement
+//  never arrives. Every file this task creates is a whole number of pages, so only
+//  the two upper bytes of the difference can decide, and the low byte is dropped.
+//  Out: C=0 ok (MU_FREEMID/MU_FREEHI); C=1 the filesystem is not there.
+muFreeSpace:
+    lda #<muDirName
+    sta kPtr
+    lda #>muDirName
+    sta kPtr+1
+    lda #0
+    ldx #0
+    jsr kReuDirEntry            // slot 0: kArg+3/+4/+5 = nextFreeOffset
+    bcs muFsRts
+    sec
+    lda reuFsCapacityLo
+    sbc kArg+3
+    lda reuFsCapacityHi
+    sbc kArg+4
+    sta muFreeMid
+    lda reuFsCapacity2
+    sbc kArg+5
+    sta muFreeHi
+    clc
+muFsRts:
+    rts
+
+// --- muSaveTry -- SAVE, from the key or from the bar ---
+//  A `jsr` entry: it ends in a tail jump into the status line, whose last routine
+//  returns, so the frame it returns through has to be this one.
+muSaveTry:
+    jsr muSaveNow
+    bcc muSvTold
+    jmp muStatus                // MU_STR is the reason
+muSvTold:
+    muStr(muSSaved)
+    jmp muStatus
+
+// ==========================================
+//  Timing
+// ==========================================
+//  Every row on the grid is one row unit, and a row unit is the shortest note
+//  the tempo can express. The arithmetic here is the player's own (sidplay.inc's
+//  calculateNoteDuration), because a length musedit draws has to be a length the
+//  player will play. tools/check-mus-timing.py re-implements the same routine
+//  and sweeps all 8,192 tempo/class/state combinations.
+
+// --- muTempoBase -- A = the triplet base for the tempo in force ---
+//  DataTempoTable[tempo >> 3], the table musedit carries a copy of.
+muTempoBase:
+    lda muTempo
+    lsr
+    lsr
+    lsr
+    tay
+    lda muTempoTable,y
+    rts
+
+// --- muNoteJiffies -- how long the note with this duration byte plays ---
+//  In:  A = the duration byte (bits 2-4 class, 5 dotted, 7 triplet)
+//       muTempo = the tempo in force
+//  Out: C=0 A = jiffies; C=1 the tempo cannot express that length.
+//  A length that would drop a bit off the end of a byte is refused, which is why
+//  a 32nd at TEM $90 is not a value at all rather than 4.5 jiffies.
+muNoteJiffies:
+    sta muDurByte
+    and #$1c                    // the class, bits 2-4
+    lsr
+    lsr
+    bne muNjClass
+    //  --- class 0: the 64th, the one length that is rotated rather than
+    //      shifted, because at the tempos that allow it the whole note is only a
+    //      few jiffies long ---
+    lda muDurByte
+    bmi muNjTri64
+    lda muTempo
+    and #$3c
+    bne muNjBad
+    lda muTempo
+    asl
+    rol
+    rol
+    bne muNjOk
+    lda #4
+muNjOk:
+    clc
+    rts
+muNjTri64:
+    jsr muTempoBase
+    beq muNjBad
+    sta muJifT
+    and #$3f
+    bne muNjBad
+    lda muJifT
+    asl
+    rol
+    rol
+    bne muNjOk
+muNjBad:
+    sec
+    rts
+muNjClass:
+    cmp #1
+    bne muNjShift
+    //  --- class 1: a utility length. Its value is the tune's UTL/UTV, which the
+    //      command panel supplies; nothing can compute it from the duration byte
+    //      alone, so it is refused until then ---
+    jmp muNjBad
+muNjShift:
+    //  --- classes 2..7: the whole note down to the 32nd ---
+    sta muJifCls
+    lda muDurByte
+    and #$a0
+    cmp #$80
+    beq muNjTri
+    sta muJifSt                 // dotted bits: $00, $20 (dotted) or $A0
+    clc
+    lda muTempo
+    bne muNjRot
+    sec                         // tempo 0 seeds the carry: that is what makes
+muNjRot:                        //   its half note 128 rather than 0
+    ldy muJifCls
+    dey
+    dey
+    beq muNjRotDone
+muNjRotLp:
+    ror
+    bcs muNjBad                 // a bit fell off the end: not a length
+    dey
+    bne muNjRotLp
+muNjRotDone:
+    ldy muJifSt
+    sta muJifBase
+    beq muNjOk                  // a zero base is a zero length
+    lsr muJifBase
+    bcs muNjBad                 // a dotted length needs an even base
+    beq muNjBad
+    adc muJifBase               // dotted: base + base/2
+    bcs muNjBad
+    iny
+    bpl muNjOk                  // $20 became $21: a single dot
+    lsr muJifBase               // double dotted adds base/4 as well
+    bcs muNjBad
+    adc muJifBase
+    bcc muNjOk
+    jmp muNjBad
+muNjTri:
+    jsr muTempoBase
+    beq muNjBad
+    ldy muJifCls
+    dey
+    dey
+    beq muNjOk
+muNjTriLp:
+    lsr
+    bcs muNjBad
+    dey
+    bne muNjTriLp
+    clc
+    rts
+
+// --- muUnit -- A = the row unit in jiffies, X = the rows a bar has ---
+//  The shortest length the tempo can express wins, and the rows a bar has follow
+//  from which class won: a whole note is one bar, so the 8th is eight rows and
+//  the 64th sixty-four. The 64th is tried first because it is the shortest of
+//  them wherever the tempo allows it at all.
+muUnit:
+    lda #0
+    sta muUnIdx
+muUnLp:
+    ldy muUnIdx                 // re-read: muNoteJiffies owns Y
+    lda muUnitTab,y
+    jsr muNoteJiffies
+    bcc muUnHit
+    inc muUnIdx
+    lda muUnIdx
+    cmp #MU_UNIT_N
+    bcc muUnLp
+    lda #0                      // unreachable: every tempo has a length
+    ldx #0
+    sec
+    rts
+muUnHit:
+    ldy muUnIdx
+    ldx muUnitRows,y
+    clc
+    rts
+
+// --- muFindTempo -- the tempo in force when the first note plays ---
+//  The player runs each voice's leading commands before any of them reaches a
+//  note, so the tempo the first note hears is the LAST TEM of that leading run,
+//  taken in voice order. A note (bits 0-1 clear) or a HLT ends a voice's run.
+muFindTempo:
+    lda #0
+    sta muTempo
+    sta muScanV
+    sta muScanOff+1
+    lda #8
+    sta muScanOff               // voice 1 starts right after the header
+muFtVoice:
+    //  the voice's size word: image + 2 + 2 * voice
+    lda muScanV
+    asl
+    clc
+    adc #2
+    sta muJifT
+    ldy #MU_IMG
+    lda (dataPtr),y
+    clc
+    adc muJifT
+    sta srcPtr
+    ldy #MU_IMG+1
+    lda (dataPtr),y
+    adc #0
+    sta srcPtr+1
+    ldy #0
+    lda (srcPtr),y
+    sta muScanLen
+    iny
+    lda (srcPtr),y
+    sta muScanLen+1
+    lda muScanLen
+    sta muScanN
+    lda muScanLen+1
+    sta muScanN+1
+    //  and the stream itself
+    ldy #MU_IMG
+    lda (dataPtr),y
+    clc
+    adc muScanOff
+    sta srcPtr
+    ldy #MU_IMG+1
+    lda (dataPtr),y
+    adc muScanOff+1
+    sta srcPtr+1
+muFtWalk:
+    lda muScanN
+    ora muScanN+1
+    beq muFtVoiceDone           // the stream ran out
+    ldy #0
+    lda (srcPtr),y
+    and #$03
+    beq muFtVoiceDone           // a note: the leading run is over
+    ldy #0
+    lda (srcPtr),y
+    cmp #$01
+    beq muFtVoiceDone           // HLT
+    cmp #$06
+    bne muFtSkip
+    ldy #1
+    lda (srcPtr),y              // the TEM option
+    sta muTempo
+muFtSkip:
+    lda srcPtr
+    clc
+    adc #2
+    sta srcPtr
+    bcc muFtNoHi
+    inc srcPtr+1
+muFtNoHi:
+    lda muScanN
+    sec
+    sbc #2
+    sta muScanN
+    bcs muFtWalk
+    dec muScanN+1
+    dec muScanN                 // the low byte borrowed
+    jmp muFtWalk
+muFtVoiceDone:
+    //  the next voice starts right after this one
+    lda muScanOff
+    clc
+    adc muScanLen
+    sta muScanOff
+    lda muScanOff+1
+    adc muScanLen+1
+    sta muScanOff+1
+    inc muScanV
+    lda muScanV
+    cmp #3
+    bcs muFtRts                 // out of branch range: invert and jump
+    jmp muFtVoice
+muFtRts:
+    rts
+
+// ==========================================
+//  The timing line (a development aid)
+// ==========================================
+// --- muTimingShow -- B: the durations and the row unit for the tempo in force ---
+//  Printed in the same form tools/check-mus-timing.py prints them, so the two
+//  can be compared line for line: a `-` is a length this tempo cannot express.
+muTimingShow:
+    jsr muClearRow0
+    lda #0
+    sta muTimIdx
+muTsLp:
+    ldx muTimIdx
+    lda muDurTagLo,x
+    ldy #MU_STRLO
+    sta (dataPtr),y
+    lda muDurTagHi,x
+    ldy #MU_STRHI
+    sta (dataPtr),y
+    jsr muTextAt                // the tag, at the cursor
+    lda #':'
+    jsr muPutC
+    ldx muTimIdx
+    lda muDurTab,x
+    jsr muNoteJiffies
+    bcs muTsDash
+    ldx #0
+    jsr muNum16                 // A/X = the length
+    jmp muTsNext
+muTsDash:
+    lda #'-'
+    jsr muPutC
+muTsNext:
+    inc muTimIdx
+    lda muTimIdx
+    cmp #MU_DUR_COLS
+    beq muTsRow1
+    lda #' '
+    jsr muPutC
+    jmp muTsLp
+muTsRow1:
+    lda #1
+    sta muClrRow
+    jsr muClearRow
+    muSet(MU_CURCOL, 0)
+    muSet(MU_CURROW, 1)
+    muStr(muSTem)
+    jsr muTextAt
+    lda muTempo
+    jsr muHex8
+    muStr(muSTq)
+    jsr muTextAt
+    lda #$90                    // class 4 (a quarter) + bit 7: the triplet
+    jsr muNoteJiffies
+    bcs muTsTqDash
+    ldx #0
+    jsr muNum16
+    jmp muTsUnit
+muTsTqDash:
+    lda #'-'
+    jsr muPutC
+muTsUnit:
+    muStr(muSUnit)
+    jsr muTextAt
+    jsr muUnit                 // A = the unit, X = the rows a bar has
+    sta muUnitVal
+    stx muUnitBar
+    ldx #0
+    jsr muNum16
+    muStr(muSRowBar)
+    jsr muTextAt
+    lda muUnitBar
+    ldx #0
+    jsr muNum16
+    lda #MU_STAT_FRAMES
+    sta muStatT
+    rts
+
+// --- muHex8 -- print A as two hex digits ---
+muHex8:
+    pha
+    lsr
+    lsr
+    lsr
+    lsr
+    jsr muHexDig
+    pla
+    and #$0f
+muHexDig:
+    cmp #10
+    bcc muHexNum
+    adc #6                      // carry is set here: 10..15 -> 'A'..'F'
+muHexNum:
+    adc #'0'
+    jmp muPutC
+
 // ==========================================
 //  Drawing
 // ==========================================
@@ -192,11 +943,60 @@ muDrawAll:
     jsr muCursorShow
     rts
 
+// --- muDrawHead -- the name, then the three voice lengths ---
+//  LEN v1/v2/v3 is the image's own header read back: it is what shows a load put
+//  the file where it was expected, and it is the field the decoder's listing is
+//  compared against.
 muDrawHead:
     jsr muClearRow0
     jsr muNameAt
-    muStr(muSHead)
-    jmp muTextAt
+    muStr(muSLen)
+    jsr muTextAt
+    lda #0
+    sta muHdVoice
+    lda #2
+    sta muHdOff                 // the three length words start at image + 2
+muHdLp:
+    jsr muImgPtr                // srcPtr = image + muHdOff
+    ldy #0
+    lda (srcPtr),y
+    pha                         // the size's low byte
+    iny
+    lda (srcPtr),y
+    tax                         // ...and its high byte
+    pla
+    jsr muNum16
+    lda muHdVoice
+    cmp #2
+    beq muHdNext                // no separator after the last one
+    lda #'/'
+    jsr muPutC
+muHdNext:
+    inc muHdVoice
+    lda muHdOff
+    clc
+    adc #2
+    sta muHdOff
+    lda muHdVoice
+    cmp #3
+    bcc muHdLp
+    muSet(MU_HOV, $ff)          // no pitch yet: three blanks, until a hover says otherwise
+    jmp muHovDraw
+
+// --- muImgPtr -- srcPtr = image + muHdOff ---
+//  srcPtr is zero page, so `(srcPtr),y` is a real indirect read; a pointer kept in
+//  the code image would assemble as a plain indexed load and read the wrong thing.
+muImgPtr:
+    ldy #MU_IMG
+    lda (dataPtr),y
+    clc
+    adc muHdOff
+    sta srcPtr
+    ldy #MU_IMG+1
+    lda (dataPtr),y
+    adc #0
+    sta srcPtr+1
+    rts
 
 muDrawLanes:
     muAt(0, 1)
@@ -338,6 +1138,53 @@ muNum2D:
     adc #'0'
     jmp muPutC
 
+// --- muNum16 -- print A/X (lo/hi) in decimal, without leading zeroes ---
+//  Repeated subtraction against a five-entry power table: there is no divide on
+//  the 6502, and five digits cover every 16-bit value.
+muNum16:
+    sta muNumVal
+    stx muNumVal+1
+    lda #0
+    sta muNumSquash             // 0 = no digit printed yet
+    sta muNumPow
+muN16Pow:
+    lda #0
+    sta muNumDig
+muN16Sub:
+    ldx muNumPow
+    lda muNumVal
+    sec
+    sbc muPowLo,x
+    sta muTmpL
+    lda muNumVal+1
+    sbc muPowHi,x
+    bcc muN16Done               // it borrowed: the value stands as it was
+    sta muNumVal+1
+    lda muTmpL
+    sta muNumVal
+    inc muNumDig
+    jmp muN16Sub
+muN16Done:
+    lda muNumDig
+    ora muNumSquash
+    bne muN16Print
+    lda muNumPow
+    cmp #4                      // the ones always print
+    bne muN16Next
+muN16Print:
+    lda muNumDig
+    clc
+    adc #'0'
+    jsr muPutC
+    lda #1
+    sta muNumSquash
+muN16Next:
+    inc muNumPow
+    lda muNumPow
+    cmp #5
+    bcc muN16Pow
+    rts
+
 // --- muTextAt -- print the NUL-terminated string at (MU_STRLO/MU_STRHI) ---
 //  srcPtr is reloaded before every character because kPrintCharAt clobbers it,
 //  and the index lives in the instance because it clobbers Y as well.
@@ -413,8 +1260,13 @@ muNameDone:
 //  The column counter lives in the instance and the loop index on the stack,
 //  because kPrintCharAt clobbers A, X and Y.
 muClearRow0:
+    lda #0
+    sta muClrRow
+muClearRow:
+    lda muClrRow
+    ldy #MU_CURROW
+    sta (dataPtr),y
     muSet(MU_CURCOL, 0)
-    muSet(MU_CURROW, 0)
     ldx #MU_SCREEN_COLS
 muClrLp:
     txa
@@ -443,9 +1295,8 @@ muStatusTick:
     beq muStatTickRts
     dec muStatT
     bne muStatTickRts
-    jsr muDrawHead              // the name and the head are back
-    muSet(MU_HOV, $ff)          // ...and so is the readout, on the next change
-    jmp muHovDraw
+    jsr muDrawHead              // the name, the lengths and the readout are back
+    jmp muDrawLanes             // ...and the lane headers, which a status may cover
 muStatTickRts:
     rts
 
@@ -487,6 +1338,16 @@ muKeyLoop:
     bne muKeyNotQ
     jmp muQuit                  // out of branch range: invert and jump
 muKeyNotQ:
+    cmp #$53                    // SHIFT+S: save
+    bne muKeyNotSave
+    jsr muSaveTry
+    jmp muKeyIdle
+muKeyNotSave:
+    cmp #'b'                    // B: the timing line (a development aid)
+    bne muKeyNotB
+    jsr muTimingShow
+    jmp muKeyIdle
+muKeyNotB:
     cmp #$84                    // CRSR down
     beq muCurDown
     cmp #$85                    // CRSR up
@@ -1020,10 +1881,15 @@ muClickAct:
     ldx muXl                    // the bar: one code per column
     lda muBarMap,x
     beq muClkRts                // a blank cell answers nothing
+    cmp #MU_BAR_SAVE
+    beq muBarSave
     cmp #MU_BAR_Q
     beq muQuit
     muStr(muSNotYet)            // a labelled cell with nothing behind it yet
     jmp muStatus
+muBarSave:
+    jsr muSaveTry
+    rts
 muClkGrid:
     cmp #MU_GRID_TOP
     bcc muClkRts
@@ -1103,7 +1969,7 @@ muGdRts:
 // ==========================================
 //  Strings and code-image state
 // ==========================================
-muSHead:    .text "  TEM---  BAR 1  ROW 000"
+muSLen:     .text " LEN "
             .byte 0
 muSLanes:   .text "ROW VOICE 1    |VOICE 2    |VOICE 3"
             .byte 0
@@ -1119,13 +1985,77 @@ muSNoMouse: .text "? no mouse - mouse 1351 first"
             .byte 0
 muSNotYet:  .text "? not yet"
             .byte 0
+muSSaved:   .text "? saved"
+            .byte 0
+muSNoRoom:  .text "? no space"
+            .byte 0
+muSNoFs:    .text "? no fs"
+            .byte 0
+muSNoRead:  .text "? unreadable"
+            .byte 0
+muSNoWrite: .text "? write failed"
+            .byte 0
+muSNoTune:  .text "? not a tune"
+            .byte 0
+muSDirFull: .text "? dir full"
+            .byte 0
+
+// The image a name with no file stands for: load address, the three voice
+// lengths, three one-event streams (HLT each) and an empty description.
+muNewTune:
+    .byte $00,$c0               // load address $C000 (the format ignores it)
+    .byte 2,0, 2,0, 2,0         // one HLT each
+    .byte $01,$4f               // HLT, voice 1
+    .byte $01,$4f               // HLT, voice 2
+    .byte $01,$4f               // HLT, voice 3
+    .byte 0                     // an empty description
+muNewTuneEnd:
+.assert "the new-tune image", (muNewTuneEnd - muNewTune) == 15 ? 1 : 0, 1
+
+muFsName:   .fill 12, 0         // <base>.mus in screen codes + NUL
+muDirName:  .fill 12, 0         // kReuDirEntry's name buffer (slot 0 only)
+// The powers muNum16 subtracts: five cover every 16-bit value.
+muPowLo:    .byte <10000, <1000, <100, <10, <1
+muPowHi:    .byte >10000, >1000, >100, >10, >1
+
+// The duration columns the timing line prints, W .. 64th, and the class each
+// one wears. The 64th last: it is the shortest, but it is only a length at the
+// tempos whose whole note is a few jiffies.
+muDurTab:   .byte $08, $0c, $10, $14, $18, $1c, $00   // W H Q 8 16 32 64
+muDurTagLo: .byte <muT0, <muT1, <muT2, <muT3, <muT4, <muT5, <muT6
+muDurTagHi: .byte >muT0, >muT1, >muT2, >muT3, >muT4, >muT5, >muT6
+muT0:       .text "W"
+            .byte 0
+muT1:       .text "H"
+            .byte 0
+muT2:       .text "Q"
+            .byte 0
+muT3:       .text "8"
+            .byte 0
+muT4:       .text "16"
+            .byte 0
+muT5:       .text "32"
+            .byte 0
+muT6:       .text "64"
+            .byte 0
+// The same seven, as the row unit's candidates, shortest first.
+muUnitTab:  .byte $00, $1c, $18, $14, $10, $0c, $08
+muUnitRows: .byte 64, 32, 16, 8, 4, 2, 1
+muSTem:     .text "TEM $"
+            .byte 0
+muSTq:      .text " TQ="
+            .byte 0
+muSUnit:    .text " UNIT="
+            .byte 0
+muSRowBar:  .text " ROW/BAR="
+            .byte 0
 // The control bar's hit map: one code per column of row 24, tested by column.
 // A blank cell between two labels is deliberately 0, so nothing answers there.
 muBarMap:
     .byte 1,1,1, 0, 1,1,1, 0            // 0-7    DUR, the value, the dot
     .byte 1,1,1,1, 0,0, 1,1,1,1, 0,0    // 8-19   TIE-, PLAY
     .byte 1,1,1, 0,0, 1,1,1,1, 0,0      // 20-30  CMD, UNDO
-    .byte 1,1,1,1, 0,0, 2, 0,0          // 31-39  SAVE, Q
+    .byte 3,3,3,3, 0,0, 2, 0,0          // 31-39  SAVE, Q
 muBarMapEnd:
 // A code per column, all 40 of them, and the text ends one column before the
 // map's last entry, where Q is -- so an edit to either has to keep up with the
@@ -1149,6 +2079,32 @@ muPRow:     .byte 0
 muPCell:    .byte 0
 muPCol:     .byte 0
 muNumOnes:  .byte 0
+muNumVal:   .word 0
+muNumDig:   .byte 0
+muNumPow:   .byte 0
+muNumSquash: .byte 0
+muHdVoice:  .byte 0
+muHdOff:    .byte 0
+muTmpL:     .byte 0
+muTmpH:     .byte 0
+muNeedPage: .byte 0
+muFreeMid:  .byte 0
+muFreeHi:   .byte 0
+muClrRow:   .byte 0
+muTempo:    .byte 0             // the tempo in force at the first note
+muDurByte:  .byte 0
+muJifCls:   .byte 0
+muJifSt:    .byte 0
+muJifBase:  .byte 0
+muJifT:     .byte 0
+muTimIdx:   .byte 0
+muUnIdx:    .byte 0
+muUnitVal:  .byte 0
+muUnitBar:  .byte 0
+muScanV:    .byte 0
+muScanOff:  .word 0
+muScanLen:  .word 0
+muScanN:    .word 0
 muDrain:    .byte 0
 muStatT:    .byte 0             // displayed frames left before the head returns
 muFoldN:    .byte 0

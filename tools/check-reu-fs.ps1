@@ -19,13 +19,25 @@
 #   entry: byte 0 flags (bit 7 = deleted), 1-16 name (screen codes, space
 #          padded), 17-19 data offset (24-bit), 20-21 size
 #
+# -Extract <fsName> -Out <path> writes one file's bytes out of the image, so a
+# file a task SAVED can be hashed against the source it came from (the round trip
+# tools/check-reu-current.ps1 cannot answer: that one only compares the binaries
+# the build produced).
+#
+#   powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-reu-fs.ps1 `
+#       -Extract commodo.mus -Out temp/x.mus
+#
 # -Strict additionally requires the data area to be TIGHTLY packed, failing on
 # any gap. The default tolerates gaps, because tools/build-reu.ps1 deliberately
 # reserves one: fscross.bin is placed at the next $10000 bank boundary + $1FF8
 # so the fstest window spans the wrap, leaving ~39 KB unused before it.
 # Overlap and a wrong nextFreeOffset are hard errors in both modes.
 
-param([switch]$Strict = $false)
+param(
+    [switch]$Strict = $false,
+    [string]$Extract = "",
+    [string]$Out = ""
+)
 
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path -Parent $PSScriptRoot)   # project root (tools/..)
@@ -35,6 +47,7 @@ if (-not (Test-Path $image)) { throw "missing $image - run tools/build-reu.ps1" 
 
 $img = [IO.File]::ReadAllBytes((Join-Path (Get-Location) $image))
 $DirBase = 5 * 65536 + 0x9000
+$DataBase = 5 * 65536 + 0xD000   # file offsets are RELATIVE to this
 $entrySize = 32
 
 # PowerShell notes: cast to [int] before shifting (a [byte] -shl 8 wraps to
@@ -100,3 +113,24 @@ if ($bad -gt 0) {
     exit 1
 }
 "layout OK: $count entries, data ends at $lastEnd (== nextFreeOffset)"
+
+if ($Extract) {
+    if (-not $Out) { throw "-Extract needs -Out <path>" }
+    for ($slot = 1; $slot -lt 512; $slot++) {
+        $e = $DirBase + $slot * $entrySize
+        if ($img[$e] -band 0x80) { continue }
+        if ((Decode-Name $e) -ne $Extract) { continue }
+        $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
+        $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
+        $bytes = New-Object byte[] $size
+        [Array]::Copy($img, $DataBase + $off, $bytes, 0, $size)
+        $dest = Join-Path (Get-Location) $Out
+        $dir = Split-Path -Parent $dest
+        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+        [IO.File]::WriteAllBytes($dest, $bytes)
+        "extracted $Extract ($size bytes) to $Out"
+        exit 0
+    }
+    Write-Error "no such file in the image: $Extract"
+    exit 1
+}

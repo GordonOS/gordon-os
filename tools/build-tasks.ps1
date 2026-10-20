@@ -76,6 +76,18 @@ if ($PythonExe -eq '') {
 & $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-glyphs.py') -Check
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# The tempo table is the player's own (src/libs/sidplay.inc), copied rather than
+# restated: a stale copy would make musedit measure notes the player plays
+# differently.
+& $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-tables.py') -Check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# The duration arithmetic: the tool re-implements the player's routine, checks it
+# against the published tempo table and against the generated copy above, and
+# sweeps all 8,192 tempo/class/state combinations.
+& $PythonExe (Join-Path $PSScriptRoot 'check-mus-timing.py')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 & $PythonExe (Join-Path $PSScriptRoot 'check-task-headers.py') --quiet
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
