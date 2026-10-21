@@ -2735,10 +2735,14 @@ muCurUpIn:
 
 // --- muCurRedraw -- the window moved: draw it again, head and cursor last ---
 muCurRedraw:
+    jsr muRedrawAll
+    jmp muKeyIdle
+
+// --- muRedrawAll -- the grid, the head and the cursor, ending balanced ---
+muRedrawAll:
     jsr muDrawGrid
     jsr muDrawHead
-    jsr muCursorShow
-    jmp muKeyIdle
+    jmp muCursorShow
 
 muCurRight:
     ldy #MU_VOICE
@@ -2768,9 +2772,11 @@ muCurDone:
 //  the row the player would be playing.
 //  Out: MU_SEKKIND = 0 an event starts on that row (replace it),
 //                   1 the row is inside an event (split it),
-//                   2 the row is in a gap or past the last timed event (fill it),
-//                   3 the row is before the first event;
+//                   2 the row is in a gap or past the last timed event (fill it);
 //       MU_SEKLO/HI = that event's offset in the image, MU_SEKSPAN its rows.
+//  The record is primed with a virtual zero-length event at the voice's start,
+//  so an empty voice reports every row as a gap measured from row 0 and the
+//  fill inserts at the voice's first pair.
 muSeek:
     jsr muSimInit
     ldx #2
@@ -2781,11 +2787,16 @@ muSkZero:
     sta muVRem,x
     dex
     bpl muSkZero
-    lda #3
-    sta muSekKind               // "before the first", until an event says otherwise
     ldy #MU_VOICE
     lda (dataPtr),y
     sta muSkV
+    sta muSv                    // the prime: row 0, span 0, at the voice's start
+    lda #0
+    sta muSpan
+    sta muSpan+1
+    sta muTmpL
+    sta muTmpH
+    jsr muSkRecord
     jsr muCursorAbs
     sta muTgtLo
     stx muTgtHi
@@ -2798,7 +2809,7 @@ muSkLp:
     cpx muSkV
     bne muSkAdv
     lda muOn,x
-    beq muSkStop                // the voice halted: nothing follows its last event
+    beq muSkCovered             // the voice halted: gap or inside its last event
     lda muVRow,x
     sta muTmpL
     lda muVRowHi,x
@@ -2821,11 +2832,8 @@ muSkAtOrAfter:
     jsr muSkRecord
     lda #0
     sta muSekKind               // an onset on this very row
-    jmp muSkStop
+    rts
 muSkCovered:
-    lda muSekKind
-    cmp #3
-    beq muSkStop                // nothing recorded: the row is before the first
     //  --- the recorded event may have ended before this row: that is a gap,
     //      which takes inserted rests rather than a split ---
     lda muTgtLo
@@ -2836,26 +2844,14 @@ muSkCovered:
     bcs muSkGap
     lda #1
     sta muSekKind               // the recorded event runs past this row
-    jmp muSkStop
+    rts
 muSkGap:
     lda #2
     sta muSekKind
-    jmp muSkStop
+    rts
 muSkAdv:
     jsr muGdAdv
     jmp muSkLp
-muSkStop:
-    lda muSekKind
-    cmp #0
-    beq muSkRts
-    cmp #1
-    beq muSkRts
-    cmp #3
-    beq muSkRts
-    lda #2
-    sta muSekKind               // the walk ran out: past the last timed event
-muSkRts:
-    rts
 
 // --- muSkRecord -- remember the event that just played, as an image offset ---
 muSkRecord:
@@ -2894,7 +2890,7 @@ muSkRecord:
     lda muSimT                  // the tempo the event played at
     sta muSekTem
     lda #1
-    sta muSekKind               // something was recorded: the row is not before it
+    sta muSekKind               // provisionally inside: muSkCovered decides gap vs split
     rts
 
 // --- muSeekKPtr -- kPtr = the image at MU_SEKLO/HI ---
@@ -2935,9 +2931,7 @@ muNoteClick:
     bne muNcKind2
     jmp muNcSplit
 muNcKind2:
-    //  muFillNote is written but not verified: on the test tune the click does
-    //  not even reach it, so a gap still refuses.
-    jmp muNcNotYet
+    jmp muFillNote              // a gap, or past the voice's last event
 muNcReplace:
     jsr muSeekKPtr
     ldy #0
@@ -2950,13 +2944,9 @@ muNcReplace:
     lda (dataPtr),y
     tax
     inx
-    jsr muRedrawRows
-    jmp muKeyIdle
+    jmp muRedrawRows            // tail: its rts balances the jsr that entered
 muNcIllegal:
     muStr(muSIllegal)
-    jmp muStatus
-muNcNotYet:
-    muStr(muSNotYet)
     jmp muStatus
 muNcRts:
     rts
@@ -3153,8 +3143,7 @@ muNsWrite:
     sta muGdTo                  // ...and ends where the old event did
     tax                         // X = one past the last row
     lda muGdFrom                // A = the first
-    jsr muRedrawRows
-    jmp muKeyIdle
+    jmp muRedrawRows            // tail: its rts balances the jsr that entered
 
 // --- muFillPlan -- the gap a fill has to cross, and how many events it takes ---
 //  In:  MU_SEKEND (the row after the recorded event), MU_TGT, MU_DURJIF
@@ -3256,7 +3245,7 @@ muFgRest:
     lda #0
     sta muLenJ+1
     jsr muLenEmit               // ...and the note
-    jmp muCurRedraw
+    jmp muRedrawAll             // tail: its rts balances the jsr that entered
 
 // --- muNoteOpt -- A = the option byte for the linear note in MU_HOV ---
 //  The format stores a letter (1..7), an accidental (10 plain, 01 sharp) and an
@@ -4447,7 +4436,7 @@ muKbdOct:   .byte 0             // the octave the note keys play in
 muNewOpt:   .byte 0             // the option byte being written
 muTgtLo:    .byte 0             // the row the cursor is on
 muTgtHi:    .byte 0
-muSekKind:  .byte 0             // 0 onset, 1 inside, 2 past the end, 3 before the first
+muSekKind:  .byte 0             // 0 onset, 1 inside, 2 past the end
 muSekLo:    .byte 0             // that event's offset in the image
 muSekHi:    .byte 0
 muSekSpan:  .word 0

@@ -1,24 +1,28 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: STEP 6 in progress.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 9,128 bytes of code, 1,391
-> fixups, 54 code pages, 55 pages of margin. Verified working: the screen, the layout, the
+> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 9,091 bytes of code, 1,387
+> fixups, 62 code pages, 47 pages of margin. Verified working: the screen, the layout, the
 > eight-octave piano, the key loop, the pointer, the pitch hover, the load/save path, the
 > timing module, the resumable three-voice walk, the tracker grid, the editing seek, the
-> length writer, the gap opener, **replace at an onset (6.1)** and **split (6.2)**, plus a
-> clipped redraw so an edit repaints only its own rows, and a status line whose lifetime is
-> counted in displayed frames so refusals are readable.
+> length writer, the gap opener, **replace at an onset (6.1)**, **split (6.2)**, **fill
+> (6.3)** and **append (6.4)** — on an empty voice too — plus a clipped redraw so an edit
+> repaints only its own rows, and a status line whose lifetime is counted in displayed
+> frames so refusals are readable.
 >
-> **Where the next session starts.** The fill (6.3/6.4) is written (`muFillPlan`,
-> `muFillNote`) but parked behind `? not yet`, because it cannot yet be measured: on the
-> purpose-built test tune a note key does nothing at all — the click never reaches
-> `muNoteClick`, so `muKeyNote` is reporting "not a note key" and the dispatch falls through
-> to the CRSR keys. The same key works on `commodo`. The first job is therefore to print, from
-> `muKeyNotPlus`, the screen code received and `muKeyNotes[0]` plus the carry `muKeyNote`
-> returns, and only then re-test the fill. `tools/mus-sim.py` remains the host model for every
-> check, and `temp/` holds the harness (`vicesim.py` screenshots, `probe.py` reads the live
-> image out of RAM, `drive2.py` leaves VICE running on a copy of the REU).
-> follow, and a save of an image that GREW is still to be wired.
+> **Where the next session starts.** 6.5 (rest) and 6.6 (delete). The "note key does
+> nothing on the test tune" mystery is solved and was never the key dispatch: `muSeek`'s
+> halted-voice arm returned with `muSekKind` still 1 (set by `muSkRecord`), so a row past
+> the last event of a halted voice — every tune's tail — ran the SPLIT planner beyond the
+> event's end and corrupted the image (`len0` became garbage and an `HLT` was lost), after
+> which every later key looked dead. The arm now branches to `muSkCovered`'s gap test, the
+> seek primes a virtual zero-length event at the voice's start (so kind 3 is gone and an
+> empty voice is an ordinary gap from row 0), and the fill is unparked. The fill instrument
+> is `music/filltst.mus` (one quarter C, HLT, two empty voices — rows 0-3 are the note,
+> row 4 on is the gap; `temp/gen-filltst.py` regenerates it). `tools/mus-sim.py` remains
+> the host model for every check, and `temp/` holds the harness (`vicesim.py` screenshots,
+> `probe.py` reads the live image out of RAM, `drive2.py` leaves VICE running on a copy of
+> the REU).
 > A prototype's skeleton, mouse layer and load/save path are also available in the history
 > bundle `C:\Dev\gordon-os-history-2026-10-17.bundle` (`refs/heads/musedit`, `9b32695`).
 >
@@ -751,8 +755,8 @@ performed with the pointer first; the same edits are reachable from the computer
 
 - [x] **6.1 Replace at an onset.** With the cursor on an existing note's row, click a piano key — the pair is replaced, the rows below do not move, and the decoder agrees. *Checked with the keyboard note map (the same writer a click uses): one byte of the image changed, the option `$00` -> `$A1` (C-4), the duration byte was already the armed one, and the edited image decodes to `C-4` at that row with the tie unchanged. The cursor starts on grid row 0 because `MU_ROW` holds a screen row (`MU_GRID_TOP`), not an offset.*
 - [x] **6.2 Split.** With the cursor inside a longer note, click a key - the longer note is shortened, the new note lands on the row, and the total length is unchanged. *Verified on commodo: one row into its opening 10-jiffy event the pair becomes `1c 00` + `1c a1` (a 5-jiffy rest then a 5-jiffy C-4), the voice-1 length word goes 852 -> 854, the saved image decodes to `C-4` on that row with every later event unmoved, and a save of an image that outgrew its file goes through the create path with the pages behind the image zeroed.*
-- [ ] **6.3 Fill.** *(written - `muFillPlan` + `muFillNote`, and `muSeek` reports a row past the last event as kind 2 - but parked behind `? not yet`: it cannot be measured yet, because on the purpose-built test tune a note key never reaches `muNoteClick`. Fix the instrument first: print the key code the handler received and the carry `muKeyNote` returns.)*
-- [ ] **6.4 Append.** Click past the last event — rests fill to the cursor and the note goes before `HLT`.
+- [x] **6.3 Fill.** *Verified on `filltst` (quarter C on rows 0-3, HLT): a click on row 5 writes a 16th rest (`18 00`) for row 4 and the note (`18 a1`) on row 5, `len0` 4 -> 8, HLT and the later voices unmoved; a 3-row gap on an empty voice decomposes greedily (`14 00 18 00` -- an 8th rest then a 16th). The blocker was `muSeek`, not the key dispatch: its halted-voice arm kept `muSekKind` = 1 from `muSkRecord`, so a row past a halted voice's last event ran the split planner beyond the event's end and corrupted the image. The arm now takes `muSkCovered`'s gap test, and the seek primes a virtual zero-length event at the voice's start so kind 3 (before the first) is gone -- an empty voice is an ordinary gap from row 0 and the fill inserts at the voice's first pair. The host model agrees row for row, and the note-entry tails now end in `jmp muRedrawRows`/`muRedrawAll` (balanced tail calls) instead of `jmp muKeyIdle`, which leaked the `jsr muNoteClick` return address -- two stack bytes per note entered.*
+- [x] **6.4 Append.** *Verified on `filltst`: a click on row 4 (right after the note) inserts `18 a1` before the `HLT` with no rests, `len0` 4 -> 6; on an empty voice a click on row 0 lands the note at the voice's first pair (`len1` 2 -> 4). Replace (6.1) and split (6.2) re-verified after the seek change: byte-identical to their recorded results.*
 - [ ] **6.5 Rest.** Click `DEL rest` (or `INST/DEL`) — the note becomes a rest of the same length; the timing of every later event is unchanged.
 - [ ] **6.6 Delete.** `SHIFT+INST/DEL` removes the event and closes the gap; refused on `HLT`.
 - [ ] **6.7 Legality.** An armed 32nd at `TEM $90`, a dotted length with an odd base, and a triplet at a non-triplet tempo are each refused with `ILLEGAL DURATION` and nothing is written.
