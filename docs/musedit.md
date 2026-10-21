@@ -100,8 +100,9 @@ The piano at the bottom of the screen is how notes go in.
 1. **Click a cell in the grid.** The cursor goes there; row 0 shows the row and voice.
 2. **Point at a key.** Row 0 names the pitch under the pointer (`C-4`, `C#4`) and the key is
    highlighted, so you always know what a click will enter.
-3. **Click.** The note is entered at the cursor with the armed duration, the cursor advances by
-   the note's length, and — with the tune stopped — the note sounds.
+3. **Click.** With the cursor on a row where a note starts, the event's pitch becomes the key's
+   and its length is kept, so nothing below it moves. A row where no note starts is not
+   written; the status line reports `? not yet`.
 
 The keys are narrow — about 5.7 pixels per white key — because all eight octaves share the
 320-pixel width. The black keys are short bars on the boundaries: C# between C and D, D#
@@ -132,9 +133,11 @@ editor to work in. With no mouse in the system the editor refuses with `? no mou
 ### From the computer keyboard
 
 The piano can also be played from the computer keyboard, which is quicker once you know a
-tune: the home row `A S D F G H J K L ;` plays the white keys, `W E T Y U O P` the black keys,
-`;` is the top C, and `-`/`+` choose the octave. The note keys enter at the cursor exactly as
-a click does, and the pointer still works alongside them.
+tune: the home row plays the white keys — `A S D F G H J` is one octave, `C` to `B`, and
+`K L ;` continue into the next at `C`, `D`, `E` — while `W E T Y U O P` play the black keys
+between them (`C# D# F# G# A#` and the next `C# D#`). The map starts at octave 4 and `-`/`+`
+move it. A note key enters its pitch at the cursor exactly as a click does, and the pointer
+still works alongside it.
 
 ### Octave and modifiers
 
@@ -145,7 +148,8 @@ a click does, and the pointer still works alongside them.
 | `.` | cycle the dot state: none → dotted → double-dotted → triplet |
 | `,` | tie to the next note on/off |
 
-The armed values are shown on the control bar and stay armed until you change them.
+The armed values are shown on the control bar and stay armed until you change them. The armed
+length is a 16th: the duration, dot and tie keys are not read.
 
 **Triplets** are only available at tempos that support them (the entry is refused with
 `ILLEGAL DURATION` elsewhere). **Dotted** and **double-dotted** lengths are refused when the
@@ -159,6 +163,13 @@ a double-dotted one a base divisible by four.
 under it the tempo byte the tune's `TEM` command set, the triplet quarter, the row unit in
 jiffies and the rows a bar has. Those numbers are what the grid is measured in, so a question
 about how many rows a length takes is answered there.
+
+Two more keys read the simulation the grid is built from. `V` walks the whole tune and prints
+the tick the last event plays on, how many events each voice played, and whether the walk ended
+by every voice halting or by a refusal — a `TEM`, the utility lengths and the number of voices
+still playing follow on the second row. `X` prints the first eighteen events, one per grid row,
+as `t=` the tick, `v` the voice, `o=` the event's offset in the file and the two bytes found
+there, which is how the walk is compared against `tools/mus-sim.py`'s own trace.
 
 ### Utility lengths
 

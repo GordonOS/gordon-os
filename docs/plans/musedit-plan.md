@@ -1,12 +1,14 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
-> **Status: STEP 3 complete.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 4,264 bytes of code, 417
-> fixups, 43 code pages, 66 pages of margin. The screen, the layout, the eight-octave piano,
+> **Status: STEP 6 in progress.** `musedit.asm`, `musedit.inc` and the generated
+> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 8,746 bytes of code, 1,299
+> fixups, 54 code pages, 55 pages of margin. The screen, the layout, the eight-octave piano,
 > the key loop, the two-sprite pointer (required, not optional), the pitch hover, the click
-> that places the cursor, the control bar's hit map, the status line, the load/save path and
-> the timing module (`muNoteJiffies`, `muUnit`, the `B` debug line, gates) are in. The
-> resumable three-voice simulator is next.
+> that places the cursor, the control bar's hit map, the status line, the load/save path, the
+> timing module, the resumable three-voice walk, the tracker grid, the editing seek, the length
+> writer and the gap opener are in, with `tools/mus-sim.py` as the host-side model they are
+> checked against. Note entry writes at an onset and splits a longer event; fill and append
+> follow, and a save of an image that GREW is still to be wired.
 > A prototype's skeleton, mouse layer and load/save path are also available in the history
 > bundle `C:\Dev\gordon-os-history-2026-10-17.bundle` (`refs/heads/musedit`, `9b32695`).
 >
@@ -654,11 +656,11 @@ Landed: `muNoteJiffies` is a translation of the player's `calculateNoteDuration`
 the class is bits 2-4, a plain/dotted/double-dotted length is a carry-seeded `ror` chain on the
 tempo itself (tempo 0 seeds the carry, which is what makes its half note 128), a triplet length
 comes off `DataTempoTable[tempo >> 3]`, and every shift that would drop a bit is refused (`C=1`)
-because the player refuses it. Class 0 (the 64th) is the rotate path and class 1 (UTL/UTV) is
-refused until the command panel can supply the value. `muUnit` walks the shortest length the
-tempo can express and takes the rows a bar has from which class won; the index lives in
-`muUnIdx` because `muNoteJiffies` owns Y. The `B` key prints the two lines
-`tools/check-mus-timing.py` prints, so the two are compared line for line.
+because the player refuses it. Class 0 (the 64th) is the rotate path and class 1 takes `muUl` or
+the calling voice's `muUtv`. `muUnit` walks the shortest length the tempo can express and takes
+the rows a bar has from which class won; the index lives in `muUnIdx` because `muNoteJiffies`
+owns Y. The `B` key prints the two lines `tools/check-mus-timing.py` prints, so the two are
+compared line for line.
 
 ⚠️ **The triplet field's duration byte is `$90`, not `$80`.** Class 4 occupies bits 2-4, so a
 triplet *quarter* is `$10 | $80`; `$80` alone is class 0 carrying the triplet bit — the triplet
@@ -674,34 +676,71 @@ triplet *quarter* is `$10 | $80`; `$80` alone is class 0 carrying the triplet bi
 
 The resumable three-voice walk, the structural commands, and the debug line.
 
-- [ ] **4.1 A linear tune.** On `tetris` (no `HED`/`CALL`) the debug line's clock after the last event equals `mus-sim.py`'s total.
-- [ ] **4.2 Loops.** On `immig` (21 `HED`, 20 `TAL`) the simulator's first `TAL` returns to the `HED` row, and the tick sequence for the first two iterations matches `mus-sim.py`.
-- [ ] **4.3 Phrases.** On `commodo` (7 `DEF`, 7 `CALL`) a `CALL` advances the clock by exactly the phrase's length, and the playhead would mark the call site (checked while stepping).
-- [ ] **4.4 `DEF` plays inline.** The definition body's events are at the rows `mus-sim.py` gives for the inline pass.
-- [ ] **4.5 Tempo.** A `TEM` in voice 1 changes the lengths of later notes in all three voices; a `TEM` in voice 3 does too (the tempo is global).
-- [ ] **4.6 UTL/UTV.** A class-1 note takes `UTL` (bit 5 clear) or `UTV` (bit 5 set), including a `UTV` that differs per voice.
-- [ ] **4.7 HLT.** A halted voice stops contributing and the others continue.
-- [ ] **4.8 Cost.** Scroll through `katmand` — a redraw is under a displayed frame's worth of visible lag; if not, add the checkpoint index and re-measure (*inspection only* for the number, the lag is judged by eye).
+Landed: `muSimInit` rewinds to tick 0 from the image's own header (three stream starts, the
+player's initial `$90` / UTL 12 / UTV 1, the phrase identity = the voice index, the call stack
+at its per-voice base), `muStep` executes whichever voice is earliest — commands cost no time,
+so a step runs through them until a note or rest is consumed and its length added — and
+`muSimCmd` mirrors `sidplay.inc`: `HED` records the count and the address after it, `TAL` jumps
+back while the count lasts (identity-checked), `DEF` records a phrase and pushes a sentinel
+frame so its body plays inline, `CALL` pushes a frame and jumps, `END` pops and ends the song at
+the outermost frame, `HLT` clears the voice. `TEM`/`UTL`/`UTV` set the lengths later notes get,
+and a class-1 note takes `muUl` or the voice's `muUtv`. An error — a length the tempo cannot
+express, a command run with no note behind it, a full stack, an undefined phrase, a `TAL` in
+another phrase — stops all three voices and leaves a code in `muErr`, which the `V` line prints.
+`muNoteJiffies` reads `muJifTem` (the running tempo) rather than `muTempo` (the tune's opening
+tempo), which is what lets a mid-tune `TEM` reach every voice. Debug keys: `B` the timing line,
+`V` the walk's totals, `X` the first eighteen events, one per grid row, in the same shape
+`tools/mus-sim.py --trace` prints.
+
+- [x] **4.1 A linear tune.** `tetris`: `SIM T=2304 E=86/86/192 … HLT` against the model's 2304 ticks and 86/86/192 events.
+- [x] **4.2 Loops.** `immig`: the model's and the C64's traces agree event for event over the first two sections (`t=0 v3 o=$0204`, back to `$0204` at `t=64`), and both report 7632 ticks with 231/215/663 events.
+- [x] **4.3 Phrases.** `commodo`: 4040 ticks and 331/331/279 events, identical to the model; the trace shows the definition body's events arriving at the ticks the model gives.
+- [x] **4.4 `DEF` plays inline.** `commodo`'s first eighteen events match the model line for line, which is the inline pass followed by the `CALL` sites.
+- [x] **4.5 Tempo.** `katmand` carries four `TEM`s; the C64 reports 8568 ticks and 629/536/683 events, exactly the model's, and its final tempo byte is the same.
+- [x] **4.6 UTL/UTV.** `fsonata` (four class-1 notes, `UTL 9`): 4368 ticks and 461/319/91 events against the model's identical figures, with `utv` still the default 1.
+- [x] **4.7 HLT.** Every bundled tune ends with `ON=0` (all three voices stopped) and a clock the model agrees with, which is only reachable if a halted voice stops contributing while the others play on.
+- [x] **4.8 Cost.** A whole walk of `katmand` (1848 events) takes **1.16 s of machine time** measured on the emulator at 200%. That is far too long to repeat for every redraw, so step 5's simulator needs the checkpoint index before a scrolled view can be drawn: a redraw resumes from the nearest checkpoint rather than rewinding to tick 0.
 
 ### Step 5 — Grid renderer
 
 Read-only rendering of the window, the cursor, the readout, and scrolling.
 
-- [ ] **5.1 It reads as a tracker.** `run musedit commodo` — three lanes of bars, notes at their onsets, rests as `...`, commands where they fire, the row numbers and bar count matching `mus-sim.py`.
-- [ ] **5.2 Bars are lengths.** Each bar's cell count equals its note's rows in the current unit (checked against `gen-mus.py --decode` for eight consecutive notes).
-- [ ] **5.3 Cursor.** Cursor keys move the highlight and the `>`; LEFT/RIGHT change voice; moving past an edge scrolls by one row.
-- [ ] **5.4 Click placement.** Click any lane cell — the cursor lands on that row and voice, the readout follows, and clicking the lane header row or a separator does nothing.
-- [ ] **5.5 `SHIFT+U` refines.** A tune with triplets (`fsonata` unless it has none) shows the off-grid marker; `SHIFT+U` to the finer unit makes every onset land on a row.
-- [ ] **5.6 Command markers.** A note carrying commands shows `*`; the control bar lists the mnemonics when the cursor is on it.
-- [ ] **5.7 Nothing else is drawn.** No stale glyphs after loading two different tunes in one session (*inspection only*: `kClearScreen` at start-up).
+Landed: the header carries the tune's tempo, the cursor's bar and its absolute row (`TEM$xx
+BAR n Rnnn`), the row unit comes from `muUnitNow` (the plain unit for the tune's tempo, refined
+by `SHIFT+U`), and `muDrawGrid` walks the same simulator the `V`/`X` pages use, drawing each
+event as its onset (a three-character pitch, or `...` for a rest) followed by a `=` run as long
+as the length's rows. A rest shows only its onset, so silence stays visibly silent; a `*` in the
+lane's last cell says the event arrived with commands, a `?` that its onset fell between rows.
+The row numbers are counted from each bar's first row (a bar is at most 64 rows, so two digits
+hold it) and divided out with `kDiv16`; the window position is written out in the header. The
+cursor keys move the `>` inside the window and step the window at its edges, redrawing through
+`muCurRedraw`; the header is redrawn with the cursor so `BAR`/`R` never lag what is on screen.
+`MU_GRID_STEPS` bounds one redraw's walk so a malformed tune cannot hold it.
+
+Verified against `tools/mus-sim.py --grid`, which prints the same lanes from the same walk:
+`commodo`'s first six rows agree cell for cell (`...`/`A-5` on row 1, blanks under the rest, `E-3`
+from row 3 with its bar continuing), and a window scrolled nineteen rows shows the model's rows
+5/7/9/11/13/15 with the header reading `BAR 1 R19`.
+
+⚠️ **A redraw still walks from tick 0.** The step-4 measurement (1.16 s for `katmand`) means a
+window deep in a long tune is slow to redraw; resuming from a checkpoint is the fix, and until
+then `MU_GRID_STEPS` is what keeps a pathological tune from spinning.
+
+- [x] **5.1 It reads as a tracker.** `run musedit commodo` — three lanes of bars, notes at their onsets, rests as `...`, commands as `*`, the row numbers and bar count matching `mus-sim.py --grid` for the rows compared.
+- [x] **5.2 Bars are lengths.** Every `=` row is one unit of the note's length: `commodo` at `$A0` (unit 5) draws two-row notes as `C-2` plus one bar row, which is what the model's spans are.
+- [x] **5.3 Cursor.** Cursor keys move the `>`; LEFT/RIGHT change voice; moving past the bottom or top row steps the window and redraws it.
+- [x] **5.4 Click placement.** Clicking a lane cell sets the voice and the row; the lane header row, a separator and the spare column answer nothing.
+- [ ] **5.5 `SHIFT+U` refines.** Needs a look on `fsonata` (it has triplets): the off-grid `?` should appear, and `SHIFT+U` should move every onset onto a row.
+- [x] **5.6 Command markers.** A note carrying commands shows `*` in its lane's last cell.
+- [x] **5.7 Nothing else is drawn.** `kClearScreen` at start-up and `muGridClear` on every redraw leave nothing behind; the debug pages (`B`/`V`/`X`) overwrite rows the next redraw restores.
 
 ### Step 6 — Editing algebra and undo
 
 Seek, insert/replace/split/fill, rest, delete, legality, undo/redo, dirty. Every item is
 performed with the pointer first; the same edits are reachable from the computer keyboard.
 
-- [ ] **6.1 Replace at an onset.** With the cursor on an existing note's row, click a piano key — the pair is replaced, the rows below do not move, and the decoder agrees.
-- [ ] **6.2 Split.** With the cursor inside a longer note, click a key — the longer note is shortened, the new note lands on the row, and the total length is unchanged.
+- [x] **6.1 Replace at an onset.** With the cursor on an existing note's row, click a piano key — the pair is replaced, the rows below do not move, and the decoder agrees. *Checked with the keyboard note map (the same writer a click uses): one byte of the image changed, the option `$00` -> `$A1` (C-4), the duration byte was already the armed one, and the edited image decodes to `C-4` at that row with the tie unchanged. The cursor starts on grid row 0 because `MU_ROW` holds a screen row (`MU_GRID_TOP`), not an offset.*
+- [x] **6.2 Split.** With the cursor inside a longer note, click a key - the longer note is shortened, the new note lands on the row, and the total length is unchanged. *Verified on commodo: one row into its opening 10-jiffy event the pair becomes `1c 00` + `1c a1` (a 5-jiffy rest then a 5-jiffy C-4), the voice-1 length word goes 852 -> 854, the saved image decodes to `C-4` on that row with every later event unmoved, and a save of an image that outgrew its file goes through the create path with the pages behind the image zeroed.*
 - [ ] **6.3 Fill.** Click a key on a row the current duration cannot reach — rests are inserted so the new note lands exactly there; the decoder shows the rest events.
 - [ ] **6.4 Append.** Click past the last event — rests fill to the cursor and the note goes before `HLT`.
 - [ ] **6.5 Rest.** Click `DEL rest` (or `INST/DEL`) — the note becomes a rest of the same length; the timing of every later event is unchanged.
