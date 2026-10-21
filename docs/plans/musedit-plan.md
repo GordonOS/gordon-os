@@ -1,16 +1,17 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: STEP 6 in progress.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 9,091 bytes of code, 1,387
-> fixups, 62 code pages, 47 pages of margin. Verified working: the screen, the layout, the
+> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 9,378 bytes of code, 1,432
+> fixups, 63 code pages, 46 pages of margin. Verified working: the screen, the layout, the
 > eight-octave piano, the key loop, the pointer, the pitch hover, the load/save path, the
 > timing module, the resumable three-voice walk, the tracker grid, the editing seek, the
 > length writer, the gap opener, **replace at an onset (6.1)**, **split (6.2)**, **fill
-> (6.3)** and **append (6.4)** — on an empty voice too — plus a clipped redraw so an edit
-> repaints only its own rows, and a status line whose lifetime is counted in displayed
-> frames so refusals are readable.
+> (6.3)**, **append (6.4)** — on an empty voice too — **rest (6.5)** and **delete (6.6)**,
+> plus a clipped redraw so an edit repaints only its own rows, and a status line whose
+> lifetime is counted in displayed frames so refusals are readable.
 >
-> **Where the next session starts.** 6.5 (rest) and 6.6 (delete). The "note key does
+> **Where the next session starts.** 6.7 (legality refusals) and 6.8 (tempo flags on the
+> grid); undo (6.9/6.10), dirty (6.11) and the rest of step 6 follow. The "note key does
 > nothing on the test tune" mystery is solved and was never the key dispatch: `muSeek`'s
 > halted-voice arm returned with `muSekKind` still 1 (set by `muSkRecord`), so a row past
 > the last event of a halted voice — every tune's tail — ran the SPLIT planner beyond the
@@ -757,8 +758,8 @@ performed with the pointer first; the same edits are reachable from the computer
 - [x] **6.2 Split.** With the cursor inside a longer note, click a key - the longer note is shortened, the new note lands on the row, and the total length is unchanged. *Verified on commodo: one row into its opening 10-jiffy event the pair becomes `1c 00` + `1c a1` (a 5-jiffy rest then a 5-jiffy C-4), the voice-1 length word goes 852 -> 854, the saved image decodes to `C-4` on that row with every later event unmoved, and a save of an image that outgrew its file goes through the create path with the pages behind the image zeroed.*
 - [x] **6.3 Fill.** *Verified on `filltst` (quarter C on rows 0-3, HLT): a click on row 5 writes a 16th rest (`18 00`) for row 4 and the note (`18 a1`) on row 5, `len0` 4 -> 8, HLT and the later voices unmoved; a 3-row gap on an empty voice decomposes greedily (`14 00 18 00` -- an 8th rest then a 16th). The blocker was `muSeek`, not the key dispatch: its halted-voice arm kept `muSekKind` = 1 from `muSkRecord`, so a row past a halted voice's last event ran the split planner beyond the event's end and corrupted the image. The arm now takes `muSkCovered`'s gap test, and the seek primes a virtual zero-length event at the voice's start so kind 3 (before the first) is gone -- an empty voice is an ordinary gap from row 0 and the fill inserts at the voice's first pair. The host model agrees row for row, and the note-entry tails now end in `jmp muRedrawRows`/`muRedrawAll` (balanced tail calls) instead of `jmp muKeyIdle`, which leaked the `jsr muNoteClick` return address -- two stack bytes per note entered.*
 - [x] **6.4 Append.** *Verified on `filltst`: a click on row 4 (right after the note) inserts `18 a1` before the `HLT` with no rests, `len0` 4 -> 6; on an empty voice a click on row 0 lands the note at the voice's first pair (`len1` 2 -> 4). Replace (6.1) and split (6.2) re-verified after the seek change: byte-identical to their recorded results.*
-- [ ] **6.5 Rest.** Click `DEL rest` (or `INST/DEL`) — the note becomes a rest of the same length; the timing of every later event is unchanged.
-- [ ] **6.6 Delete.** `SHIFT+INST/DEL` removes the event and closes the gap; refused on `HLT`.
+- [x] **6.5 Rest.** *Verified: `INST/DEL` on `filltst`'s note turns `10 99` into `10 00` -- the duration byte stays, so the length and everything after it is unchanged -- and on `commodo` the first note (`18 9b`, row 2 at its `TEM $a0` unit) becomes `18 00` with no other byte moved. The writer clears the tie bit (a rest is silence, not a held note). A row inside an event and a row in a gap are refused with `? no event here` and write nothing -- `commodo`'s row 1 sits inside its opening 10-jiffy rest and refuses, which is the seek agreeing with the timing.*
+- [x] **6.6 Delete.** *Verified: `SHIFT+INST/DEL` ($88) on `filltst`'s note removes the pair, `len0` 4 -> 2, and the later voices and the description move down two bytes with their length words untouched (`muDelGap`, the inverse of `muInsGap`). Only an onset answers, and the HLT pair is never a timed event, so the terminator cannot be deleted: inside-an-event, in-a-gap and empty-voice presses all refuse byte-clean.*
 - [ ] **6.7 Legality.** An armed 32nd at `TEM $90`, a dotted length with an odd base, and a triplet at a non-triplet tempo are each refused with `ILLEGAL DURATION` and nothing is written.
 - [ ] **6.8 Tempo flags.** Insert a `TEM` that makes a later row illegal — that row is flagged on the grid; delete the `TEM` and the flag clears. Repeat with the `TEM` in another voice.
 - [ ] **6.9 Undo/redo.** 50 mixed actions, undo all, save, extract, hash against the starting file — identical; redo all and it is the edited file.

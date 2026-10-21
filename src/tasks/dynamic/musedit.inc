@@ -2665,6 +2665,16 @@ muKeyNotPlus:
     jmp muKeyIdle
 muKeyNotNote:
     lda muTmp2                  // the key as it came in
+    cmp #$80                    // INST/DEL: the event at the cursor becomes a rest
+    bne muKeyNotRest
+    jsr muRestKey
+    jmp muKeyIdle
+muKeyNotRest:
+    cmp #$88                    // SHIFT+INST/DEL: delete the event, close the gap
+    bne muKeyNotDel
+    jsr muDelKey
+    jmp muKeyIdle
+muKeyNotDel:
     cmp #$84                    // CRSR down
     bne muKeyN1
     jmp muCurDown
@@ -3247,6 +3257,48 @@ muFgRest:
     jsr muLenEmit               // ...and the note
     jmp muRedrawAll             // tail: its rts balances the jsr that entered
 
+// --- muRestKey -- the event at the cursor becomes a rest of the same length ---
+//  Only an onset answers. The duration byte stays, so the length -- and the dots
+//  and the triplet with it -- is unchanged and nothing after the event moves;
+//  the tie bit is cleared (a rest is silence, not a held note) and the option
+//  byte becomes 0, the pair the player reads as a rest.
+muRestKey:
+    jsr muSeek
+    lda muSekKind
+    beq muRkGo
+    muStr(muSNoEvent)
+    jmp muStatus
+muRkGo:
+    jsr muSeekKPtr
+    ldy #0
+    lda (kPtr),y
+    and #$bf                    // bit 6 is the tie
+    sta (kPtr),y
+    iny
+    lda #0
+    sta (kPtr),y
+    jmp muRedrawAll
+
+// --- muDelKey -- remove the event at the cursor and close the gap ---
+//  Only an onset answers, and the HLT pair is never a timed event, so the
+//  terminator cannot be deleted and the voice keeps its last pair.
+muDelKey:
+    jsr muSeek
+    lda muSekKind
+    beq muDkGo
+    muStr(muSNoEvent)
+    jmp muStatus
+muDkGo:
+    lda #2
+    sta muInsN
+    lda muSekLo
+    sta muInsLo
+    lda muSekHi
+    sta muInsHi
+    lda muSkV
+    jsr muDelGap
+    jmp muRedrawAll
+
 // --- muNoteOpt -- A = the option byte for the linear note in MU_HOV ---
 //  The format stores a letter (1..7), an accidental (10 plain, 01 sharp) and an
 //  octave; a black key is written as the sharp of the letter below it.
@@ -3605,6 +3657,96 @@ muInOk:
     jsr muImgToKPtr
     clc
 muInRts:
+    rts
+
+// --- muDelGap -- close MU_INSN bytes at MU_INSLO/HI ---
+//  In: MU_INSLO/HI the offset (an event boundary), MU_INSN the byte count,
+//      A = the voice whose length word shrinks. The tail behind the gap -- the
+//      rest of this voice, the later voices, the description -- moves down as
+//      one piece, so nothing in the image has to be patched.
+muDelGap:
+    sta muInsV
+    jsr muImgToKPtr
+    lda kPtr                // srcPtr = image + MU_INSLO: where the tail lands
+    clc
+    adc muInsLo
+    sta srcPtr
+    lda kPtr+1
+    adc muInsHi
+    sta srcPtr+1
+    lda srcPtr              // kPtr = past the gap: where the tail is now
+    clc
+    adc muInsN
+    sta kPtr
+    lda srcPtr+1
+    adc #0
+    sta kPtr+1
+    ldy #MU_LEN             // count = MU_LEN - MU_INSLO - MU_INSN
+    lda (dataPtr),y
+    sec
+    sbc muInsLo
+    sta muCountLo
+    ldy #MU_LEN+1
+    lda (dataPtr),y
+    sbc muInsHi
+    sta muCountHi
+    lda muCountLo
+    sec
+    sbc muInsN
+    sta muCountLo
+    bcs muDgLp
+    dec muCountHi
+muDgLp:
+    lda muCountLo
+    ora muCountHi
+    beq muDgMoved
+    ldy #0
+    lda (kPtr),y
+    sta (srcPtr),y
+    inc kPtr
+    bne muDgS
+    inc kPtr+1
+muDgS:
+    inc srcPtr
+    bne muDgD
+    inc srcPtr+1
+muDgD:
+    lda muCountLo
+    bne muDgC
+    dec muCountHi
+muDgC:
+    dec muCountLo
+    jmp muDgLp
+muDgMoved:
+    //  --- the voice's length word, at image offset 2 + 2 * voice ---
+    jsr muImgToKPtr             // first: it sets Y itself
+    lda muInsV
+    asl
+    clc
+    adc #2
+    tay
+    lda (kPtr),y
+    sec
+    sbc muInsN
+    sta (kPtr),y
+    bcs muDgLenHi
+    iny
+    lda (kPtr),y
+    sbc #0
+    sta (kPtr),y
+muDgLenHi:
+    //  --- and the image length ---
+    ldy #MU_LEN
+    lda (dataPtr),y
+    sec
+    sbc muInsN
+    sta (dataPtr),y
+    bcs muDgOk
+    ldy #MU_LEN+1
+    lda (dataPtr),y
+    sbc #0
+    sta (dataPtr),y
+muDgOk:
     rts
 
 // --- muKeyNote -- a note key, or nothing ---
@@ -4246,6 +4388,8 @@ muSNoMouse: .text "? no mouse - mouse 1351 first"
 muSNotYet:  .text "? not yet"
             .byte 0
 muSIllegal: .text "? illegal duration"
+            .byte 0
+muSNoEvent: .text "? no event here"
             .byte 0
 // A black key is written as the sharp of the letter below it: one letter and a
 // sharp flag per semitone, indexed by the semitone inside the octave.
