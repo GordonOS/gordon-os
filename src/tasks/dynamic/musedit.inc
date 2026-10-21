@@ -1086,8 +1086,7 @@ muTsUnit:
     lda muUnitBar
     ldx #0
     jsr muNum16
-    lda #MU_STAT_FRAMES
-    sta muStatT
+    jsr muStatArm
     rts
 
 // --- muHex8 -- print A as two hex digits ---
@@ -1653,8 +1652,7 @@ muShowHlt:
     muStr(muSSimHlt)
     jsr muTextAt
 muShowFrame:
-    lda #MU_STAT_FRAMES
-    sta muStatT
+    jsr muStatArm
     rts
 
 // --- muSimCounts -- the three event counts, separated by '/' ---
@@ -1753,8 +1751,7 @@ muTrGo:
     bcs muTrDone
     jmp muTrLp
 muTrDone:
-    lda #MU_STAT_FRAMES
-    sta muStatT
+    jsr muStatArm
     rts
 
 // ==========================================
@@ -1845,7 +1842,10 @@ muDrawLanes:
 //  run from its onset row to the row its length reaches, which is what makes a
 //  lane read as a bar chart.
 muDrawGrid:
+    lda muGdClip
+    bne muDgWalk
     jsr muGridClear
+muDgWalk:
     jsr muSimInit
     lda #<MU_GRID_STEPS
     sta muGdSteps
@@ -1880,6 +1880,26 @@ muGdLp:
     bne muGdLp
 muGdRows:
     jmp muGdNums
+
+// --- muRedrawRows -- draw the grid for a band of screen rows only ---
+//  In: A = the first screen row, X = one past the last. The walk still runs, but
+//  a cell outside the band is not written, so an edit repaints its own rows
+//  instead of the whole window.
+muRedrawRows:
+    sta muGdFrom
+    stx muGdTo
+    lda #1
+    sta muGdClip
+    lda muGdFrom
+    sta muClrRow
+muRrClr:
+    jsr muClearRow
+    inc muClrRow
+    lda muClrRow
+    cmp muGdTo
+    bcc muRrClr
+    jsr muDrawGrid
+    rts
 
 // --- muGridClear -- blank the eighteen grid rows ---
 muGridClear:
@@ -2257,6 +2277,8 @@ muGdNLp:
     inc muGdIdx
     jmp muGdNLp
 muGdNRts:
+    lda #0
+    sta muGdClip
     rts
 
 // --- muDrawPiano -- four rows of the generated glyphs ---
@@ -2329,7 +2351,16 @@ muDrawRefuse:
 //  kPrintCharAt clobbers A, X and Y, so the character rides the task's stack
 //  and the column is re-read afterwards.
 muPutC:
-    pha
+    pha                         // the character, while the clip is tested
+    lda muGdClip
+    beq muPutDraw
+    ldy #MU_CURROW
+    lda (dataPtr),y
+    cmp muGdFrom
+    bcc muPutSkip               // above the band: advance, do not draw
+    cmp muGdTo
+    bcs muPutSkip               // at or below its end
+muPutDraw:
     ldy #MU_CURCOL
     lda (dataPtr),y
     tax
@@ -2338,6 +2369,10 @@ muPutC:
     tay
     pla
     jsr kPrintCharAt
+    jmp muPutAdv
+muPutSkip:
+    pla                         // drop the character: the cell keeps what it has
+muPutAdv:
     ldy #MU_CURCOL
     lda (dataPtr),y
     clc
@@ -2512,14 +2547,29 @@ muClrLp:
 //  countdown runs out, so a status never outlives the next state change.
 muStatus:
     jsr muClearRow0
+    jsr muStatArm
+    jmp muTextAt
+
+// --- muStatArm -- start the status countdown ---
+//  Its lifetime is counted in DISPLAYED FRAMES, not in idle passes: the idle
+//  loop runs many times per frame, so a pass-based countdown retires a message
+//  in milliseconds and nothing can ever be read. FrameCount is 8-bit and wraps,
+//  so it is compared for change, never subtracted.
+muStatArm:
     lda #MU_STAT_FRAMES
     sta muStatT
-    jmp muTextAt
+    lda frameCount
+    sta muStatF
+    rts
 
 // --- muStatusTick -- once per idle pass: retire the status when it is due ---
 muStatusTick:
     lda muStatT
     beq muStatTickRts
+    lda frameCount
+    cmp muStatF
+    beq muStatTickRts           // not a new frame yet
+    sta muStatF
     dec muStatT
     bne muStatTickRts
     jsr muDrawHead              // the name, the lengths and the readout are back
@@ -2741,7 +2791,8 @@ muSkZero:
     stx muTgtHi
 muSkLp:
     jsr muStep
-    bcs muSkStop
+    bcs muSkCovered             // the walk ran out: the row is inside the last
+                                //   event, or past it -- the same test decides
     jsr muGdSpan
     ldx muSv
     cpx muSkV
@@ -2877,11 +2928,16 @@ muNoteClick:
     lda muDurArm
     jsr muNoteJiffies
     bcs muNcIllegal
+    sta muDurJif                // the armed length, for the ones below
     lda muSekKind
     beq muNcReplace            // an onset on this row: the pair is replaced
     cmp #1
-    bne muNcNotYet             // a split is far below: invert and jump
+    bne muNcKind2
     jmp muNcSplit
+muNcKind2:
+    //  muFillNote is written but not verified: on the test tune the click does
+    //  not even reach it, so a gap still refuses.
+    jmp muNcNotYet
 muNcReplace:
     jsr muSeekKPtr
     ldy #0
@@ -2890,7 +2946,12 @@ muNcReplace:
     iny
     lda muNewOpt
     sta (kPtr),y
-    jmp muCurRedraw
+    ldy #MU_ROW                 // the pitch is the only thing that moved
+    lda (dataPtr),y
+    tax
+    inx
+    jsr muRedrawRows
+    jmp muKeyIdle
 muNcIllegal:
     muStr(muSIllegal)
     jmp muStatus
@@ -2898,6 +2959,39 @@ muNcNotYet:
     muStr(muSNotYet)
     jmp muStatus
 muNcRts:
+    rts
+
+
+// --- muRowsToJif -- A = rows x the row unit, in jiffies ---
+//  In: A/X = rows. Out: A = the jiffies, also left in muValLo; C=1 the value
+//  does not fit one byte, so no duration can express it.
+muRowsToJif:
+    sta muCountLo
+    stx muCountHi
+    lda #0
+    sta muValLo
+muRjLp:
+    lda muCountLo
+    ora muCountHi
+    beq muRjDone
+    lda muValLo
+    clc
+    adc muUnitVal
+    bcs muRjBig
+    sta muValLo
+    lda muCountLo
+    bne muRjDec
+    dec muCountHi
+muRjDec:
+    dec muCountLo
+    jmp muRjLp
+muRjDone:
+    lda muValLo
+    clc
+    rts
+muRjBig:
+    lda #$ff
+    sec
     rts
 
 // --- muSplitPlan -- the two halves of a split, and how many events they take ---
@@ -2909,8 +3003,6 @@ muSplitPlan:
     lda muSekDur
     jsr muNoteJiffies
     bcc muPlHave
-    sec                         // out of branch range: the tail is far away
-    rts
 muPlHave:
     sta muLenJ2                 // the event's whole length, in jiffies
     lda #0
@@ -2923,25 +3015,11 @@ muPlHave:
     lda muTgtHi
     sbc muSekRow+1
     sta muCountHi
-    lda #0
-    sta muValLo
-muPlMul:
-    lda muValLo
-    clc
-    adc muUnitVal
-    bcs muPlBig                 // longer than any event can be
-    sta muValLo
     lda muCountLo
-    bne muPlDec
-    dec muCountHi
-muPlDec:
-    dec muCountLo
-    lda muCountLo
-    ora muCountHi
-    bne muPlMul
-    jmp muPlFix
-muPlBig:
-    lda muLenJ2
+    ldx muCountHi
+    jsr muRowsToJif
+    bcc muPlFix                 // it fits: muValLo holds the jiffies
+    lda muLenJ2                 // too long for any length: clamp below
     sec
     sbc #1
     beq muPlOne
@@ -2980,7 +3058,8 @@ muPlSet:
     lda muSekOpt
     sta muLenOpt
     jsr muLenEmit
-    bcs muPlRts
+    bcc muPlOne2Ok
+muPlOne2Ok:
     sta muN1
     lda muLenJ2                 // J2 = J - J1
     sec
@@ -2992,7 +3071,8 @@ muPlSet:
     lda muNewOpt
     sta muLenOpt
     jsr muLenEmit
-    bcs muPlRts
+    bcc muPlTwoOk
+muPlTwoOk:
     sta muN2
     clc
     adc muN1
@@ -3060,6 +3140,122 @@ muNsWrite:
     lda muNewOpt
     sta muLenOpt
     jsr muLenEmit
+    //  --- only the rows from the cursor to the old event's end changed ---
+    lda muSekEnd
+    sec
+    sbc muTgtLo
+    sta muN1                    // the rows the new note occupies
+    ldy #MU_ROW
+    lda (dataPtr),y
+    sta muGdFrom                // the band starts on the cursor's row
+    clc
+    adc muN1
+    sta muGdTo                  // ...and ends where the old event did
+    tax                         // X = one past the last row
+    lda muGdFrom                // A = the first
+    jsr muRedrawRows
+    jmp muKeyIdle
+
+// --- muFillPlan -- the gap a fill has to cross, and how many events it takes ---
+//  In:  MU_SEKEND (the row after the recorded event), MU_TGT, MU_DURJIF
+//  Out: C=0 muGapJ = the gap in jiffies, muN1 = the rest events, muN2 = the
+//       note's; C=1 the tempo cannot express one of them.
+muFillPlan:
+    lda muTgtLo
+    sec
+    sbc muSekEnd
+    sta muCountLo
+    lda muTgtHi
+    sbc muSekEnd+1
+    sta muCountHi
+    lda muCountLo
+    ldx muCountHi
+    jsr muRowsToJif
+    bcs muFpRts
+    sta muGapJ
+    lda #0
+    sta muLenOpt
+    sta muLenTie
+    sta muLenMode               // counting pass
+    lda muGapJ
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit
+    bcs muFpRts
+    sta muN1
+    lda #1
+    sta muLenTie                // a note longer than one event ties its own tail
+    lda muNewOpt
+    sta muLenOpt
+    lda muDurJif
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit
+    bcs muFpRts
+    sta muN2
+    clc
+    adc muN1
+    cmp #MU_LEN_MAX
+    bcs muFpRts
+    clc
+muFpRts:
+    rts
+
+// --- muFillNote -- the row is a gap: rests to reach it, then the note ---
+//  The rests go in right after the event that ran past the row - before the HLT
+//  when that event was the voice's last - so the note lands on the cursor's row
+//  and every later event keeps its timing.
+muFillNote:
+    jsr muFillPlan
+    bcc muFgGo
+    jmp muNcIllegal
+muFgGo:
+    lda muN1                    // k pairs at two bytes each, behind the event
+    clc
+    adc muN2
+    asl
+    sta muInsN
+    lda muSekLo
+    clc
+    adc #2
+    sta muInsLo
+    lda muSekHi
+    adc #0
+    sta muInsHi
+    lda muSkV
+    jsr muInsGap
+    bcc muFgW
+    jmp muStatus                // muInsGap left the reason in MU_STR
+muFgW:
+    jsr muSeekKPtr
+    lda kPtr                    // step over the event that is already there
+    clc
+    adc #2
+    sta kPtr
+    bcc muFgRest
+    inc kPtr+1
+muFgRest:
+    lda #1
+    sta muLenMode
+    lda #0
+    sta muLenTie
+    sta muLenOpt
+    lda muGapJ
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit               // the rests
+    lda #1
+    sta muLenTie
+    lda muNewOpt
+    sta muLenOpt
+    lda muDurJif
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit               // ...and the note
     jmp muCurRedraw
 
 // --- muNoteOpt -- A = the option byte for the linear note in MU_HOV ---
@@ -3139,6 +3335,8 @@ muLeTry:
     jsr muNoteJiffies
     bcs muLeNext            // not a length at this tempo
     sta muLpJ
+    cmp #0                  // a store leaves the flags alone: test the value
+    beq muLeNext            // a zero-jiffy length would never subtract: skip it
     lda muValHi
     bne muLeFit             // 256 or more left: the longest legal length fits
     lda muLpJ
@@ -4207,6 +4405,10 @@ muScanLen:  .word 0
 muScanN:    .word 0
 muDrain:    .byte 0
 muStatT:    .byte 0             // displayed frames left before the head returns
+muStatF:    .byte 0             // frameCount at the last counted frame
+muGdClip:   .byte 0             // 1 while only MU_GDFROM..MU_GDTO is drawn
+muGdFrom:   .byte 0             // the band, in screen rows (the end exclusive)
+muGdTo:     .byte 0
 muFoldN:    .byte 0
 muTmp:      .byte 0
 muHRow:     .byte 0
@@ -4239,6 +4441,8 @@ muGdSteps:  .word 0
 
 // --- editing state ---
 muDurArm:   .byte 0             // the length a new note is written with
+muDurJif:   .byte 0             // ...and that length in jiffies, at the cursor's tempo
+muGapJ:     .byte 0             // the gap a fill has to cross, in jiffies
 muKbdOct:   .byte 0             // the octave the note keys play in
 muNewOpt:   .byte 0             // the option byte being written
 muTgtLo:    .byte 0             // the row the cursor is on

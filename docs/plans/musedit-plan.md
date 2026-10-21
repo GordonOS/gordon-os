@@ -1,13 +1,23 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: STEP 6 in progress.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 8,746 bytes of code, 1,299
-> fixups, 54 code pages, 55 pages of margin. The screen, the layout, the eight-octave piano,
-> the key loop, the two-sprite pointer (required, not optional), the pitch hover, the click
-> that places the cursor, the control bar's hit map, the status line, the load/save path, the
-> timing module, the resumable three-voice walk, the tracker grid, the editing seek, the length
-> writer and the gap opener are in, with `tools/mus-sim.py` as the host-side model they are
-> checked against. Note entry writes at an onset and splits a longer event; fill and append
+> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 9,128 bytes of code, 1,391
+> fixups, 54 code pages, 55 pages of margin. Verified working: the screen, the layout, the
+> eight-octave piano, the key loop, the pointer, the pitch hover, the load/save path, the
+> timing module, the resumable three-voice walk, the tracker grid, the editing seek, the
+> length writer, the gap opener, **replace at an onset (6.1)** and **split (6.2)**, plus a
+> clipped redraw so an edit repaints only its own rows, and a status line whose lifetime is
+> counted in displayed frames so refusals are readable.
+>
+> **Where the next session starts.** The fill (6.3/6.4) is written (`muFillPlan`,
+> `muFillNote`) but parked behind `? not yet`, because it cannot yet be measured: on the
+> purpose-built test tune a note key does nothing at all — the click never reaches
+> `muNoteClick`, so `muKeyNote` is reporting "not a note key" and the dispatch falls through
+> to the CRSR keys. The same key works on `commodo`. The first job is therefore to print, from
+> `muKeyNotPlus`, the screen code received and `muKeyNotes[0]` plus the carry `muKeyNote`
+> returns, and only then re-test the fill. `tools/mus-sim.py` remains the host model for every
+> check, and `temp/` holds the harness (`vicesim.py` screenshots, `probe.py` reads the live
+> image out of RAM, `drive2.py` leaves VICE running on a copy of the REU).
 > follow, and a save of an image that GREW is still to be wired.
 > A prototype's skeleton, mouse layer and load/save path are also available in the history
 > bundle `C:\Dev\gordon-os-history-2026-10-17.bundle` (`refs/heads/musedit`, `9b32695`).
@@ -741,7 +751,7 @@ performed with the pointer first; the same edits are reachable from the computer
 
 - [x] **6.1 Replace at an onset.** With the cursor on an existing note's row, click a piano key — the pair is replaced, the rows below do not move, and the decoder agrees. *Checked with the keyboard note map (the same writer a click uses): one byte of the image changed, the option `$00` -> `$A1` (C-4), the duration byte was already the armed one, and the edited image decodes to `C-4` at that row with the tie unchanged. The cursor starts on grid row 0 because `MU_ROW` holds a screen row (`MU_GRID_TOP`), not an offset.*
 - [x] **6.2 Split.** With the cursor inside a longer note, click a key - the longer note is shortened, the new note lands on the row, and the total length is unchanged. *Verified on commodo: one row into its opening 10-jiffy event the pair becomes `1c 00` + `1c a1` (a 5-jiffy rest then a 5-jiffy C-4), the voice-1 length word goes 852 -> 854, the saved image decodes to `C-4` on that row with every later event unmoved, and a save of an image that outgrew its file goes through the create path with the pages behind the image zeroed.*
-- [ ] **6.3 Fill.** Click a key on a row the current duration cannot reach — rests are inserted so the new note lands exactly there; the decoder shows the rest events.
+- [ ] **6.3 Fill.** *(written - `muFillPlan` + `muFillNote`, and `muSeek` reports a row past the last event as kind 2 - but parked behind `? not yet`: it cannot be measured yet, because on the purpose-built test tune a note key never reaches `muNoteClick`. Fix the instrument first: print the key code the handler received and the carry `muKeyNote` returns.)*
 - [ ] **6.4 Append.** Click past the last event — rests fill to the cursor and the note goes before `HLT`.
 - [ ] **6.5 Rest.** Click `DEL rest` (or `INST/DEL`) — the note becomes a rest of the same length; the timing of every later event is unchanged.
 - [ ] **6.6 Delete.** `SHIFT+INST/DEL` removes the event and closes the gap; refused on `HLT`.
