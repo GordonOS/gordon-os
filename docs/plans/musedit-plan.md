@@ -1,8 +1,8 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
-> **Status: STEP 6 in progress.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 79 code pages, 30 pages of
-> margin. Verified working: the screen, the layout, the eight-octave
+> **Status: STEP 6 done; STEP 8 (playback) done.** `musedit.asm`, `musedit.inc` and the generated
+> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 58 code pages, 25 pages of
+> margin (84 of 109 with `sprite`/`mouse`/`filesys`/`sid`). Verified working: the screen, the layout, the eight-octave
 > piano, the key loop, the pointer, the pitch hover, the load/save path, the timing module,
 > the resumable three-voice walk, the tracker grid, the editing seek, the length writer, the
 > gap opener, **replace (6.1)**, **split (6.2)**, **fill (6.3)**, **append (6.4)** — on an
@@ -14,20 +14,23 @@
 > and **insert mode (6.19)** (`M`, `ovr`/`ins`), which splice rows of silence into all three
 > voices at the cursor as one grouped action -- the cursor voice taking the note in insert
 > mode -- plus a clipped redraw so an edit repaints only its own rows, a status line
-> counted in displayed frames, and **playback play/stop (Step 8, Phase B)**: a music thread
-> child plays the tune through `kSidPlay`, `SPACE` toggles it, every edit path reports
-> `? stop first` while it runs (6.12), `? no player` when there is no child, and the child is
-> reaped before the surface goes.
+> counted in displayed frames, and **playback (Step 8)**: a music thread child plays the tune
+> through `kSidPlay`, `SPACE` toggles it, `sidplay.inc` publishes each voice's position at
+> `$54A2`, a column-39 playhead tracks the sounding row each frame, `SHIFT+F` follows it, every
+> edit path reports `? stop first` while it runs (6.12), `? no player` when there is no child,
+> and the child is reaped before the surface goes.
 >
-> **Where the next session starts.** The **playhead** (Step 8, Phases A/C/D): publish the
-> player's position at `$54A2` from `sidplay.inc`, map each voice's pointer to a row through
-> the simulator, and follow it. 6.18 (`? in a phrase` needs CALL-block detection) and
-> 6.13/6.14 (mouse-only and keyboard note sessions) remain. The `,` tie key and the bar's
-> `DUR`/`TIE` click cells are still unwired.
-> **A harness lesson from 6.9:** the kernel's
+> **Where the next session starts.** 6.18 (`? in a phrase` needs CALL-block detection) and
+> 6.13/6.14 (mouse-only and keyboard note sessions) remain, plus the Step 8 checks not yet
+> filmed (8.4 loops, 8.7 rapid stop/play, 8.8 `? no player` with `sidplay` running, 8.10-8.12).
+> The `,` tie key and the bar's `DUR`/`TIE` click cells are still unwired. Step 7 (the command
+> panel) is untouched.
+> **Two harness lessons:** the kernel's
 > 16-entry key ring drops keys pressed faster than a full-grid redraw finishes, so
 > `temp/probe.py` spaces keys with `KEY_GAP` (1.2-1.5s is safe); fast-pressed edits read as
-> swallowed, which is dropped input, not a logic fault. The "note key does
+> swallowed, which is dropped input, not a logic fault. And the VICE binary monitor stops the
+> CPU on a read, so a probe must `resume()` between samples or the player sits paused and its
+> published pointer looks frozen. The "note key does
 > nothing on the test tune" mystery is solved and was never the key dispatch: `muSeek`'s
 > halted-voice arm returned with `muSekKind` still 1 (set by `muSkRecord`), so a row past
 > the last event of a halted voice — every tune's tail — ran the SPLIT planner beyond the
@@ -811,30 +814,30 @@ The descriptor table and the five encoders; every command reachable.
 
 The published block, the thread child, stop/reap, follow.
 
-> **Phase B (play/stop) is in and verified.** A music thread child (`muMusicThread`, spawned
+> **Playback is in and verified (Phases A-D).** A music thread child (`muMusicThread`, spawned
 > at startup via `SYS_THREADSPAWN` with the child's own `$02-$0a` ZP window) reads the
 > parent's `muPlayOn`/`muPlayQuit`/`muTuneLo`/`muTuneHi` code bytes -- a thread child does not
 > share `dataPtr`, so the tune pointer is mirrored out of `MU_IMG` by `muTuneRefresh` at load
 > and after every block move. `SPACE` toggles play/stop (`muPlayToggle`): play sets the flag,
 > stop clears it and `kSidHush`es, with a second hush a slice later (`muPlayTick`) for the
 > claim-inside-`kSidPlay` race. `muMusicBye` reaps the child (yield-wait, `SYS_KILL` fallback)
-> before `kFreeScreen`. Verified in VICE: `SPACE` on `commodo` drives the SID (20 active
-> registers), stop releases all three gates, quit-while-playing returns cleanly to the shell.
-> **Phases A (publish `$54A2`), C (the playhead) and D (follow) remain** -- the items below that
-> name the playhead are blocked on them.
-
-**Phase A is in and verified** (8.1/8.2): `sidplay.inc` publishes each voice's next-command
-pointer at `$54A2` (`SID_POS_BLOCK`), the block is live and freezes on hush.
+> before `kFreeScreen`. `sidplay.inc` publishes each voice's next-command pointer at `$54A2`
+> (`SID_POS_BLOCK`); `muPlayhead` runs the grid's window-bounded walk each displayed frame and
+> marks the first row where the walk's pointer equals the published one, in the spare column 39.
+> `SHIFT+F` follows: the walk runs to every voice and `muPhFollow` recentres `muTop` when the
+> cursor voice leaves the window. **Harness note:** the VICE binary monitor stops the CPU on a
+> read, so a probe that does not `resume()` between samples leaves the player paused and the
+> pointer looks frozen -- resume between samples.
 
 - [x] **8.1 The block.** *`main.asm` asserts the 6-byte block is free of slot-shadow code at `$54A2` (`SID_POS_BLOCK` in `sid.asm`); `verify-map.ps1` passes with 119 and the 3-byte `54A8-54AA` pocket; `sid.lib` is 3324 bytes (still 13 pages), relocation verification OK -- the two literal `sta $54A2,x` / `sta $54A5,x` stores are position-independent, not fixups.*
 - [x] **8.2 It is live.** *Verified in VICE on `commodo`: while playing, `$54A2-$54A7` holds each voice's next-command pointer (valid tune-image addresses that advance over the run); on `SPACE` stop they freeze. Read only while our own child plays.*
-- [ ] **8.3 Play.** `SPACE` on `commodo` — the tune plays and the playhead tracks the sounding row on all three voices. *(Audio half done, Phase B; the playhead awaits Phase C.)*
-- [ ] **8.4 Loops.** On `immig` the playhead returns to the `HED` row at each `TAL`.
-- [ ] **8.5 Follow.** The window scrolls with the playhead while following; `SHIFT+F` stops it and the view stays put.
-- [ ] **8.6 Stop.** `SPACE` again — silence at once, the playhead is not drawn, and a new play works immediately. *(Silence + replay done, Phase B; the playhead awaits Phase C.)*
+- [x] **8.3 Play.** *Verified on `katmand`: `SPACE` plays and the column-39 marker tracks the sounding row down the grid (rows 8 -> 12 -> 15 -> 18 over the run). `filltst`'s single note holds the marker at row 0.*
+- [ ] **8.4 Loops.** On `immig` the playhead returns to the `HED` row at each `TAL`. *(The first-match walk gives this by construction -- a looped section reuses its pointers -- but not separately filmed.)*
+- [x] **8.5 Follow.** *Verified on `katmand`: with `SHIFT+F` on, the window scrolls to keep the marker in view (the top row-number glyph changes as `muTop` advances); off, the view stays put.*
+- [x] **8.6 Stop.** *Verified: a second `SPACE` silences at once, the marker is erased (`muPhClear`), and a new play works immediately.*
 - [ ] **8.7 Stop/play in the same instant.** Repeatedly — it always stops, the child never wedges, play always works afterwards. *(Second-hush guard in; needs the rapid-toggle run.)*
 - [ ] **8.8 No player.** With `sidplay` running, `SPACE` — `? no player`. *(`muPlayRefd` path in; `? no player` also shown when there is no child.)*
-- [ ] **8.9 No orphan.** Quit while playing — `ps` shows no child and `pool` shows the tune's pages returned.
+- [x] **8.9 No orphan.** *Verified: quit while playing (`SPACE` then `q` on `filltst`) reaps the child in `muMusicBye` before `kFreeScreen` and returns cleanly to the shell prompt.*
 - [ ] **8.10 ZP.** F-key away and back during playback — the music is unbroken and the other task still runs.
 - [ ] **8.11 Audition.** With the tune stopped, click piano keys across the whole range — each sounds at the pitch named in the readout (compare a few against `sidplay` playing a tune in that register), and no note sticks after about ten displayed frames.
 - [ ] **8.12 Audition stands down.** With `sidplay` playing from another screen, click keys — no sound, no error, the editor keeps working; then play our own tune and confirm it is unaffected.
