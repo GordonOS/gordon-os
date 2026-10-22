@@ -94,6 +94,8 @@
 .const MU_UNDO_SIZE = 2048    // the undo stack, in bytes (many small actions)
 .const MU_MUS_DELAY = 1       // one player tick per jiffy
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
+.const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
+.const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
 
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
@@ -5432,23 +5434,193 @@ muPlayStop:
     sta muPlayHush
     jmp kSidHush
 
-// --- muPlayTick -- once per idle pass: the second hush, and a refusal report ---
+// --- muPlayTick -- once per idle pass: refusal report, playhead, second hush ---
 muPlayTick:
     lda muPlayRefd              // the child met a busy SID: say so once
-    beq muPtHush
+    beq muPtCheck
     lda #0
     sta muPlayRefd
     sta muPlayOn
     muStr(muSNoPlayer)
     jsr muStatus
-muPtHush:
+muPtCheck:
     lda muPlayOn
-    bne muPtRts                 // still playing: the stop guard is not armed
+    beq muPtStopped
+    lda frameCount              // playing: move the playhead once per displayed frame
+    cmp muPhFrame
+    beq muPtRts
+    sta muPhFrame
+    jmp muPlayhead
+muPtStopped:
+    jsr muPhClear               // drop any markers still on screen
     lda muPlayHush
     bne muPtRts                 // the second hush already landed
     inc muPlayHush
     jmp kSidHush
 muPtRts:
+    rts
+
+// --- muPlayhead -- map each voice's published pointer to a row and draw it ---
+//  A window-bounded walk (the grid's own, without the drawing): for each voice
+//  the first row where the walk's pointer equals the player's published next-
+//  command pointer is the sounding row. A looped section reuses its pointers, so
+//  the match lands on the loop's visible rows and cycles there (the plan's
+//  HED-row return at each TAL). Read only while our own child is in kSidPlay.
+muPlayhead:
+    ldx #2
+muPhRead:
+    lda MU_POS_BLOCK,x
+    sta muPhTgtLo,x
+    lda MU_POS_BLOCK+3,x
+    sta muPhTgtHi,x
+    lda #0
+    sta muPhHave,x
+    dex
+    bpl muPhRead
+    jsr muSimInit
+    ldx #2
+muPhInit:
+    lda #0
+    sta muVRow,x
+    sta muVRowHi,x
+    sta muVRem,x
+    sta muCmdN,x
+    dex
+    bpl muPhInit
+    lda #<MU_GRID_STEPS
+    sta muGdSteps
+    lda #>MU_GRID_STEPS
+    sta muGdSteps+1
+muPhLp:
+    jsr muStep
+    bcs muPhRender
+    jsr muPhCapture
+    jsr muGdSpan
+    jsr muGdAdv
+    jsr muGdPast
+    bcs muPhRender
+    lda muGdSteps
+    sec
+    sbc #1
+    sta muGdSteps
+    lda muGdSteps+1
+    sbc #0
+    sta muGdSteps+1
+    lda muGdSteps
+    ora muGdSteps+1
+    bne muPhLp
+muPhRender:
+    jmp muPhDraw
+
+// --- muPhCapture -- the walk's pointer met the player's: record the onset row ---
+//  muStep left MU_SV = the voice and bumped its pointer past the event; the
+//  player's published pointer is likewise past the note it last played, so an
+//  equal pointer is the same event. muVRow is still the onset (muGdAdv is next).
+muPhCapture:
+    ldx muSv
+    lda muPhHave,x
+    bne muPhcRts                // that voice is already placed this frame
+    lda muPtrLo,x
+    cmp muPhTgtLo,x
+    bne muPhcRts
+    lda muPtrHi,x
+    cmp muPhTgtHi,x
+    bne muPhcRts
+    lda muVRow,x
+    sta muPhRowLo,x
+    lda muVRowHi,x
+    sta muPhRowHi,x
+    lda #1
+    sta muPhHave,x
+muPhcRts:
+    rts
+
+// --- muPhDraw -- erase last frame's markers, draw this frame's ---
+//  The spare column 39 is the playhead's alone in the grid rows, so a marker is
+//  a lone cell write: no cursor, no shadow (kPrintCharAt via muPutC).
+muPhDraw:
+    lda #0
+    sta muGdClip                // the markers are not inside a redraw band
+    ldx #2
+muPhErLp:
+    lda muPhPrev,x
+    cmp #$ff
+    beq muPhErNext
+    ldy #MU_CURROW
+    sta (dataPtr),y
+    lda #39
+    ldy #MU_CURCOL
+    sta (dataPtr),y
+    lda #MU_SPACE
+    jsr muPutC
+muPhErNext:
+    dex
+    bpl muPhErLp
+    ldx #2
+muPhDrLp:
+    lda #$ff
+    sta muPhScr,x               // no marker unless the row falls in the window
+    lda muPhHave,x
+    beq muPhDrNext
+    lda muPhRowLo,x             // screen row = timeline row - muTop + MU_GRID_TOP
+    sec
+    sbc muTop
+    sta muTmpL
+    lda muPhRowHi,x
+    sbc muTop+1
+    bne muPhDrNext              // above the window, or 256+ rows below it
+    lda muTmpL
+    cmp #MU_GRID_ROWS
+    bcs muPhDrNext              // below the window
+    clc
+    adc #MU_GRID_TOP
+    sta muPhScr,x
+    ldy #MU_CURROW
+    sta (dataPtr),y
+    lda #39
+    ldy #MU_CURCOL
+    sta (dataPtr),y
+    lda #MU_PH_CHAR
+    jsr muPutC
+muPhDrNext:
+    dex
+    bpl muPhDrLp
+    ldx #2
+muPhCpLp:
+    lda muPhScr,x
+    sta muPhPrev,x
+    dex
+    bpl muPhCpLp
+    rts
+
+// --- muPhClear -- erase every marker and forget them (stop / scroll) ---
+muPhClear:
+    lda muPhPrev                // nothing drawn: cheap no-op while stopped
+    and muPhPrev+1
+    and muPhPrev+2
+    cmp #$ff
+    beq muPhClRts
+    lda #0
+    sta muGdClip
+    ldx #2
+muPhClLp:
+    lda muPhPrev,x
+    cmp #$ff
+    beq muPhClNext
+    ldy #MU_CURROW
+    sta (dataPtr),y
+    lda #39
+    ldy #MU_CURCOL
+    sta (dataPtr),y
+    lda #MU_SPACE
+    jsr muPutC
+muPhClNext:
+    lda #$ff
+    sta muPhPrev,x
+    sta muPhScr,x
+    dex
+    bpl muPhClLp
+muPhClRts:
     rts
 
 // --- muPlaying -- C=1 and a "? stop first" status when the player is on ---
@@ -5910,6 +6082,15 @@ muPlayRefd: .byte 0             // the child sets this when the SID is busy
 muReapCnt:  .byte 0             // countdown while waiting for the child to exit
 muTuneLo:   .byte 0             // MU_IMG mirrored into code, for the child to read
 muTuneHi:   .byte 0
+// --- the playhead: the walk maps each voice's published pointer to a row ---
+muPhFrame:  .byte 0             // frameCount at the last playhead update
+muPhTgtLo:  .fill 3, 0          // each voice's published next-command pointer
+muPhTgtHi:  .fill 3, 0
+muPhRowLo:  .fill 3, 0          // the timeline row the walk matched the pointer on
+muPhRowHi:  .fill 3, 0
+muPhHave:   .fill 3, 0          // 1 = that voice's pointer was matched this frame
+muPhScr:    .byte $ff, $ff, $ff // the screen row each voice's marker is drawn at
+muPhPrev:   .byte $ff, $ff, $ff // ...and where it was drawn last frame, to erase
 
 // --- the undo stack and the dirty guard ---
 muDirty:    .byte 0             // an image byte changed since the last save
