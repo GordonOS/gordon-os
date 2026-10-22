@@ -1,17 +1,19 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: STEP 6 in progress.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 9,378 bytes of code, 1,432
-> fixups, 63 code pages, 46 pages of margin. Verified working: the screen, the layout, the
+> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 9,601 bytes of code, 1,459
+> fixups, 64 code pages, 45 pages of margin. Verified working: the screen, the layout, the
 > eight-octave piano, the key loop, the pointer, the pitch hover, the load/save path, the
 > timing module, the resumable three-voice walk, the tracker grid, the editing seek, the
 > length writer, the gap opener, **replace at an onset (6.1)**, **split (6.2)**, **fill
-> (6.3)**, **append (6.4)** — on an empty voice too — **rest (6.5)** and **delete (6.6)**,
-> plus a clipped redraw so an edit repaints only its own rows, and a status line whose
-> lifetime is counted in displayed frames so refusals are readable.
+> (6.3)**, **append (6.4)** — on an empty voice too — **rest (6.5)**, **delete (6.6)** and
+> **duration arming with its legality refusals (6.7)**, plus a clipped redraw so an edit
+> repaints only its own rows, and a status line whose lifetime is counted in displayed
+> frames so refusals are readable.
 >
-> **Where the next session starts.** 6.7 (legality refusals) and 6.8 (tempo flags on the
-> grid); undo (6.9/6.10), dirty (6.11) and the rest of step 6 follow. The "note key does
+> **Where the next session starts.** 6.8 (tempo flags on the grid), then undo (6.9/6.10),
+> dirty (6.11) and the rest of step 6. The `,` tie key and the bar's `DUR`/`TIE` click
+> cells are still unwired. The "note key does
 > nothing on the test tune" mystery is solved and was never the key dispatch: `muSeek`'s
 > halted-voice arm returned with `muSekKind` still 1 (set by `muSkRecord`), so a row past
 > the last event of a halted voice — every tune's tail — ran the SPLIT planner beyond the
@@ -760,7 +762,7 @@ performed with the pointer first; the same edits are reachable from the computer
 - [x] **6.4 Append.** *Verified on `filltst`: a click on row 4 (right after the note) inserts `18 a1` before the `HLT` with no rests, `len0` 4 -> 6; on an empty voice a click on row 0 lands the note at the voice's first pair (`len1` 2 -> 4). Replace (6.1) and split (6.2) re-verified after the seek change: byte-identical to their recorded results.*
 - [x] **6.5 Rest.** *Verified: `INST/DEL` on `filltst`'s note turns `10 99` into `10 00` -- the duration byte stays, so the length and everything after it is unchanged -- and on `commodo` the first note (`18 9b`, row 2 at its `TEM $a0` unit) becomes `18 00` with no other byte moved. The writer clears the tie bit (a rest is silence, not a held note). A row inside an event and a row in a gap are refused with `? no event here` and write nothing -- `commodo`'s row 1 sits inside its opening 10-jiffy rest and refuses, which is the seek agreeing with the timing.*
 - [x] **6.6 Delete.** *Verified: `SHIFT+INST/DEL` ($88) on `filltst`'s note removes the pair, `len0` 4 -> 2, and the later voices and the description move down two bytes with their length words untouched (`muDelGap`, the inverse of `muInsGap`). Only an onset answers, and the HLT pair is never a timed event, so the terminator cannot be deleted: inside-an-event, in-a-gap and empty-voice presses all refuse byte-clean.*
-- [ ] **6.7 Legality.** An armed 32nd at `TEM $90`, a dotted length with an odd base, and a triplet at a non-triplet tempo are each refused with `ILLEGAL DURATION` and nothing is written.
+- [x] **6.7 Legality.** *Verified: an armed 32nd at `TEM $90` (`filltst`, key `6`), a dotted 16th at `TEM $90` (odd 9-jiffy base, keys `5` `.`) and a triplet quarter at `TEM $a0` (`commodo`, whose `DataTempoTable` byte is 0 -- keys `3` `.` `.` `.`) each refuse with `? illegal duration` and write nothing. The positive controls write: a dotted quarter at `$90` enters as `30 a1` and a triplet quarter as `90 a1` -- the triplet byte is `$90`, class 4 bits 2-4 plus bit 7, never `$80` alone. Arming is keys `1`-`7` (plain classes, the dot state rides along), `8`/`9` (UTL/UTV, class 1 -- no dots, and `.` refuses to cycle there because bit 5 picks UTV), `.` cycles none -> dotted -> double-dotted -> triplet; `muDrawArm` repaints the bar's `DUR` value and dot cells through `kPrintCharAt`.*
 - [ ] **6.8 Tempo flags.** Insert a `TEM` that makes a later row illegal — that row is flagged on the grid; delete the `TEM` and the flag clears. Repeat with the `TEM` in another voice.
 - [ ] **6.9 Undo/redo.** 50 mixed actions, undo all, save, extract, hash against the starting file — identical; redo all and it is the edited file.
 - [ ] **6.10 Undo granularity.** A split undoes in one step.

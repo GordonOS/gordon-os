@@ -1765,6 +1765,7 @@ muDrawAll:
     jsr muDrawGrid
     jsr muDrawPiano
     jsr muDrawBar
+    jsr muDrawArm
     jsr muCursorShow
     rts
 
@@ -2336,6 +2337,55 @@ muDrawBar:
     muStr(muSBar)
     jmp muTextAt
 
+// --- muDrawArm -- the bar's DUR field: the value cells and the dot cell ---
+//  Columns 4-6 of the bar row, through kPrintCharAt -- the fixed-cell writer,
+//  so the bottom row cannot scroll. The dot cell shows ' ' plain, '.' dotted,
+//  ':' double-dotted, '3' triplet.
+muDrawArm:
+    lda muDurArm
+    and #$1c
+    lsr
+    lsr
+    cmp #1
+    bne muDaPlain
+    lda muDurArm                // class 1: UL or UV, bit 5 picks
+    and #$20
+    beq muDaUl
+    lda #'V'
+    bne muDaHave
+muDaUl:
+    lda #'L'
+muDaHave:
+    sta muTmp                   // the second cell's character
+    lda #'U'
+    bne muDaC1
+muDaPlain:
+    tax
+    lda muArmCh2,x
+    sta muTmp
+    lda muArmCh1,x
+muDaC1:
+    ldx #4
+    ldy #MU_BAR_ROW
+    jsr kPrintCharAt
+    lda muTmp
+    ldx #5
+    ldy #MU_BAR_ROW
+    jsr kPrintCharAt
+    lda muDurArm                // the dot cell: bits 5 and 7, packed to 0-5
+    and #$a0
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    tax
+    lda muDotCh,x
+    ldx #6
+    ldy #MU_BAR_ROW
+    jsr kPrintCharAt
+    rts
+
 muDrawRefuse:
     muAt(0, 0)
     muStr(muSUsage)
@@ -2659,6 +2709,18 @@ muKeyNotDash:
 muKnPlusDone:
     jmp muKeyIdle
 muKeyNotPlus:
+    cmp #'1'                    // 1-9: arm the duration a note is written with
+    bcc muKeyNotArm
+    cmp #'9'+1
+    bcs muKeyNotArm
+    jsr muArmKey
+    jmp muKeyIdle
+muKeyNotArm:
+    cmp #'.'                    // cycle the dots on the armed duration
+    bne muKeyNotDot
+    jsr muDotCycle
+    jmp muKeyIdle
+muKeyNotDot:
     jsr muKeyNote               // a note key enters its pitch at the cursor
     bcc muKeyNotNote
     jsr muNoteClick
@@ -3798,6 +3860,66 @@ muKeyNotes:
     .byte 'k',$0c, 'o',$0d, 'l',$0e, 'p',$0f, ';',$10
     .byte 0
 
+// --- muArmKey -- '1'..'9' arms the duration a new note is written with ---
+//  1-7 are the plain classes (whole ... 64th, muDurTab's order) and the dot
+//  state rides along; 8 and 9 are the utility lengths UTL and UTV -- class 1,
+//  where bit 5 picks UTV, so they carry no dots at all.
+muArmKey:
+    sec
+    sbc #'1'
+    cmp #7
+    bcs muAkUtil
+    tax
+    lda muDurArm
+    and #$a0
+    ora muDurTab,x
+    sta muDurArm
+    jmp muDrawArm
+muAkUtil:
+    cmp #8
+    beq muAkUtv
+    lda #$04                    // UTL
+    bne muAkSet
+muAkUtv:
+    lda #$24                    // UTV
+muAkSet:
+    sta muDurArm
+    jmp muDrawArm
+
+// --- muDotCycle -- '.': none -> dotted -> double-dotted -> triplet -> none ---
+//  The utility class does not cycle: its bit 5 picks UTV, not a dot.
+muDotCycle:
+    lda muDurArm
+    and #$1c
+    cmp #$04                    // class 1
+    beq muDcRts
+    lda muDurArm
+    and #$a0
+    beq muDcDot
+    cmp #$20
+    beq muDcDd
+    cmp #$a0
+    beq muDcTri
+    lda #$00                    // triplet -> plain
+    beq muDcSet
+muDcDot:
+    lda #$20
+    bne muDcSet
+muDcDd:
+    lda #$a0
+    bne muDcSet
+muDcTri:
+    lda #$80
+muDcSet:
+    sta muTmp
+    lda muDurArm
+    and #$1c
+    ora muTmp
+    sta muDurArm
+    jmp muDrawArm
+muDcRts:
+    rts
+
 // ==========================================
 //  The pointer
 // ==========================================
@@ -4375,7 +4497,7 @@ muSRow2:    .text " R"
 muLetterSem: .byte 0, 0, 2, 4, 5, 7, 9, 11
 muLaneCol:  .byte 3, 16, 28    // the first lane cell of each voice
 muLaneW:    .byte 12, 11, 11   // ...and how many cells it has
-muSBar:     .text "DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q"
+muSBar:     .text "DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q"
 muSBarEnd:  .byte 0
 muSUsage:   .text "? name - run musedit <name>"
             .byte 0
@@ -4432,6 +4554,11 @@ muPowHi:    .byte >10000, >1000, >100, >10, >1
 // one wears. The 64th last: it is the shortest, but it is only a length at the
 // tempos whose whole note is a few jiffies.
 muDurTab:   .byte $08, $0c, $10, $14, $18, $1c, $00   // W H Q 8 16 32 64
+// The DUR field's value cells, by class 0-7 (class 1 is UL/UV, drawn apart).
+muArmCh1:   .byte '6', 0, 'W', 'H', 'Q', '8', '1', '3'
+muArmCh2:   .byte '4', 0, ' ', ' ', ' ', ' ', '6', '2'
+// The dot cell by (dur & $a0) >> 5: plain, dotted, -, -, triplet, double-dotted.
+muDotCh:    .byte ' ', '.', 0, 0, '3', ':'
 muDurTagLo: .byte <muT0, <muT1, <muT2, <muT3, <muT4, <muT5, <muT6
 muDurTagHi: .byte >muT0, >muT1, >muT2, >muT3, >muT4, >muT5, >muT6
 muT0:       .text "W"

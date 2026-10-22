@@ -114,10 +114,10 @@ Every pitch the format allows is on screen at once — there is nothing to page 
 
 ### Duration, dots and tie
 
-The armed duration applies to the note you enter. Set it with the control bar (`DUR -` and
-`DUR +`) or with the number keys `1`–`7`. `.` cycles the dots (none, dotted, double-dotted,
-triplet) and `,` toggles the tie. The armed values are shown on the control bar, and the note
-they will produce is echoed in row 0.
+The armed duration applies to the note you enter. Set it with the number keys `1`–`7`
+(whole … 64th) or `8`/`9` (the utility lengths UTL/UTV). `.` cycles the dots (none, dotted,
+double-dotted, triplet). The armed value is shown in the control bar's `DUR` field — the dot
+cell shows `.` dotted, `:` double-dotted, `3` triplet.
 
 Some notes do not land exactly on a row — a triplet or a double-dotted note can be shorter
 than one step. Such an onset is drawn on the row it falls in, with `~` at the right edge.
@@ -145,14 +145,14 @@ still works alongside it.
 |---|---|
 | `-` / `+` | octave for the computer-keyboard note map (0 to 7) |
 | `1` … `7` | duration: whole, half, quarter, 8th, 16th, 32nd, 64th |
+| `8` / `9` | duration: the UTL / UTV utility length |
 | `.` | cycle the dot state: none → dotted → double-dotted → triplet |
-| `,` | tie to the next note on/off |
 
-The armed values are shown on the control bar and stay armed until you change them. The armed
-length is a 16th: the duration, dot and tie keys are not read.
+The armed values are shown on the control bar and stay armed until you change them. The
+editor starts with a plain 16th armed.
 
 **Triplets** are only available at tempos that support them (the entry is refused with
-`ILLEGAL DURATION` elsewhere). **Dotted** and **double-dotted** lengths are refused when the
+`? illegal duration` elsewhere). **Dotted** and **double-dotted** lengths are refused when the
 current tempo cannot express them as whole jiffies — a dotted note needs an even base length,
 a double-dotted one a base divisible by four.
 
