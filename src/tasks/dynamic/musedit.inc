@@ -92,6 +92,8 @@
 .const MU_ERR_PHR   = 4       // a call to a phrase that was never defined
 .const MU_ERR_TAL   = 5       // a TAL whose HED belongs to another phrase
 .const MU_UNDO_SIZE = 2048    // the undo stack, in bytes (many small actions)
+.const MU_MUS_DELAY = 1       // one player tick per jiffy
+.const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
@@ -132,6 +134,8 @@ museditMain:
 muMainGo:
     jsr muFindTempo             // the tempo the first note will hear
     jsr muUnitNow               // the row unit that tempo falls into
+    jsr muTuneRefresh           // publish the tune pointer for the child
+    jsr muMusicInit             // spawn the music child
     lda #$18                    // the armed length: a 16th until the bar says
     sta muDurArm                //   otherwise
     lda #4
@@ -2802,40 +2806,61 @@ muKeyNotArm:
 muKeyNotDot:
     jsr muKeyNote               // a note key enters its pitch at the cursor
     bcc muKeyNotNote
+    jsr muPlaying               // it IS a note key: refuse while the player runs
+    bcs muKndIdle
     jsr muNoteClick
+muKndIdle:
     jmp muKeyIdle
 muKeyNotNote:
     lda muTmp2                  // the key as it came in
     cmp #$80                    // INST/DEL: the event at the cursor becomes a rest
     bne muKeyNotRest
+    jsr muPlaying
+    bcs muKnrIdle
     jsr muRestKey
+muKnrIdle:
     jmp muKeyIdle
 muKeyNotRest:
     cmp #$88                    // SHIFT+INST/DEL: delete the event, close the gap
     bne muKeyNotDel
+    jsr muPlaying
+    bcs muKndlIdle
     jsr muDelKey
+muKndlIdle:
     jmp muKeyIdle
 muKeyNotDel:
     cmp #'z'                    // Z: undo
     bne muKeyNotZ
+    jsr muPlaying
+    bcs muKnzIdle
     jsr muUndo
+muKnzIdle:
     jmp muKeyIdle
 muKeyNotZ:
     cmp #'x'                    // X: redo
     bne muKeyNotRedo
+    jsr muPlaying
+    bcs muKnrdIdle
     jsr muRedo
+muKnrdIdle:
     jmp muKeyIdle
 muKeyNotRedo:
     cmp #'i'                    // I: insert one row at the cursor, all voices
     bne muKeyNotIns
+    jsr muPlaying
+    bcs muKniIdle
     lda #1
     jsr muInsertTime
+muKniIdle:
     jmp muKeyIdle
 muKeyNotIns:
     cmp #$49                    // SHIFT+I: insert a whole bar
     bne muKeyNotInsBar
+    jsr muPlaying
+    bcs muKnibIdle
     lda muUnitBar               // the rows a bar has at the grid's tempo
     jsr muInsertTime
+muKnibIdle:
     jmp muKeyIdle
 muKeyNotInsBar:
     cmp #'m'                    // M: toggle insert/overwrite mode
@@ -2846,6 +2871,11 @@ muKeyNotInsBar:
     jsr muDrawMode
     jmp muKeyIdle
 muKeyNotMode:
+    cmp #MU_SPACE               // SPACE: toggle play/stop
+    bne muKeyNotSpace
+    jsr muPlayToggle
+    jmp muKeyIdle
+muKeyNotSpace:
     cmp #$84                    // CRSR down
     bne muKeyN1
     jmp muCurDown
@@ -2864,6 +2894,7 @@ muKeyN3:
 muKeyIdle:
     jsr muPointerTick
     jsr muStatusTick
+    jsr muPlayTick
     lda #SYS_YIELD
     jsr syscall
     jmp muKeyLoop
@@ -3106,6 +3137,10 @@ muSeekKPtr:
 //  length is checked against the tempo in force at that row first, so an entry
 //  the player could not express writes nothing.
 muNoteClick:
+    jsr muPlaying               // a mouse click must not edit while playing
+    bcc muNcGo
+    rts
+muNcGo:
     ldy #MU_HOV
     lda (dataPtr),y
     cmp #$ff
@@ -4463,6 +4498,7 @@ muIgPages:
     lda muGrowPages
     sta (dataPtr),y
     jsr muImgToKPtr
+    jsr muTuneRefresh           // the block moved: the child must read the new one
     clc
     rts
 muIgRoom:
@@ -5278,7 +5314,9 @@ muClickAct:
     cmp #MU_BAR_SAVE
     beq muBarSave
     cmp #MU_BAR_Q
-    beq muQuit
+    bne muClkNotBarQ
+    jmp muQuit                  // out of branch range: invert and jump
+muClkNotBarQ:
     muStr(muSNotYet)            // a labelled cell with nothing behind it yet
     jmp muStatus
 muBarSave:
@@ -5329,6 +5367,168 @@ muClkRts:
     rts
 
 // ==========================================
+//  Playback
+// ==========================================
+//  The music runs in a thread CHILD. It shares this code page, so it reads the
+//  parent's bytes (muPlayOn, muPlayQuit, muTuneLo/Hi) and never the instance
+//  buffer -- a thread child does not share dataPtr. The parent mirrors MU_IMG
+//  into muTuneLo/Hi whenever the tune's block is placed or moved.
+
+// --- muMusicInit -- spawn the child once, at startup ---
+muMusicInit:
+    lda muTuneLo
+    ora muTuneHi
+    beq muMiNone                // no tune in RAM: no child, no music
+    lda #<muMusicThread
+    sta spawnPtr
+    lda #>muMusicThread
+    sta spawnPtr+1
+    lda #$02                    // the child's ZP window: sid.lib's scratch $02-$0a
+    sta kArg+6
+    lda #9
+    sta kArg+7
+    lda #SYS_THREADSPAWN
+    jsr syscall
+    bcs muMiNone                // no free slot: run without music
+    stx muPlaySlot
+    rts
+muMiNone:
+    lda #$ff
+    sta muPlaySlot
+    rts
+
+// --- muTuneRefresh -- copy MU_IMG into the code bytes the child reads ---
+muTuneRefresh:
+    ldy #MU_IMG
+    lda (dataPtr),y
+    sta muTuneLo
+    ldy #MU_IMG+1
+    lda (dataPtr),y
+    sta muTuneHi
+    rts
+
+// --- muPlayToggle -- SPACE: start when stopped, stop when playing ---
+muPlayToggle:
+    lda muPlayOn
+    bne muPlayStop
+    lda muPlaySlot
+    cmp #$ff
+    beq muPtNoChild             // no child: nothing can play
+    lda #1
+    sta muPlayOn
+    lda #0
+    sta muPlayHush              // arm a fresh stop
+    rts
+muPtNoChild:
+    muStr(muSNoPlayer)
+    jmp muStatus
+
+// --- muPlayStop -- silence the chip and ask the child to idle ---
+//  The child may be about to claim the SID inside kSidPlay; a single hush can
+//  land in that sliver. A second hush a slice later catches it (muKeyIdle).
+muPlayStop:
+    lda #0
+    sta muPlayOn
+    sta muPlayHush
+    jmp kSidHush
+
+// --- muPlayTick -- once per idle pass: the second hush, and a refusal report ---
+muPlayTick:
+    lda muPlayRefd              // the child met a busy SID: say so once
+    beq muPtHush
+    lda #0
+    sta muPlayRefd
+    sta muPlayOn
+    muStr(muSNoPlayer)
+    jsr muStatus
+muPtHush:
+    lda muPlayOn
+    bne muPtRts                 // still playing: the stop guard is not armed
+    lda muPlayHush
+    bne muPtRts                 // the second hush already landed
+    inc muPlayHush
+    jmp kSidHush
+muPtRts:
+    rts
+
+// --- muPlaying -- C=1 and a "? stop first" status when the player is on ---
+muPlaying:
+    lda muPlayOn
+    beq muPlNo
+    muStr(muSStopFirst)
+    jsr muStatus
+    sec
+    rts
+muPlNo:
+    clc
+    rts
+
+// --- muMusicBye -- leave the player for good and reap the child ---
+//  Called before kFreeScreen: the child can still be inside kSidPlay holding the
+//  tune pointer, so it must be gone before the surface or the block go.
+muMusicBye:
+    lda #1
+    sta muPlayQuit
+    lda #0
+    sta muPlayOn
+    jsr kSidHush
+    ldx muPlaySlot
+    cpx #$ff
+    beq muMbDone
+    lda #MU_MUS_REAP
+    sta muReapCnt
+muMbWait:
+    lda taskState,x
+    beq muMbGone                // the child reached SYS_EXIT
+    lda #SYS_YIELD
+    jsr syscall                 // X survives a yield; A and Y do not
+    dec muReapCnt
+    bne muMbWait
+    ldx muPlaySlot
+    lda #SYS_KILL
+    jsr syscall                 // it never woke: force it off our code page
+muMbGone:
+    lda #$ff
+    sta muPlaySlot
+muMbDone:
+    rts
+
+// --- muMusicThread -- the child ---
+//  Reached ONLY through spawnPtr. It reads the parent's bytes and writes only
+//  muPlayOn/muPlayRefd (to drop a request it cannot honour); the two share this
+//  page and never run at once.
+muMusicThread:
+    lda muPlayQuit
+    bne muMtExit
+    lda muPlayOn
+    beq muMtIdle
+    lda muTuneLo
+    sta kPtr
+    lda muTuneHi
+    sta kPtr+1
+    lda #MU_MUS_DELAY
+    sta kArg                    // ticks per jiffy
+    lda #0
+    sta kArg+1                  // 0 = the player repeats the tune when it ends
+    sta kArg+2                  // no transpose
+    sta kArg+3
+    jsr kSidPlay
+    bcc muMusicThread           // returned: hushed, or the tune finished
+    lda #0                      // refused: another task owns the SID
+    sta muPlayOn
+    lda #1
+    sta muPlayRefd
+    jmp muMusicThread
+muMtIdle:
+    lda #SYS_YIELD
+    jsr syscall
+    jmp muMusicThread
+muMtExit:
+    lda #SYS_EXIT
+    jsr syscall
+    jmp muMtExit                // SYS_EXIT never returns; this is the guard
+
+// ==========================================
 //  Exit
 // ==========================================
 muQuit:
@@ -5346,6 +5546,7 @@ muQuitDrain:
     jsr kReadKey
     dec muDrain
     bne muQuitDrain
+    jsr muMusicBye              // stop and reap the child before its page goes
     lda #MOUSE_DISABLE
     jsr kMouseCall              // stop tracking before the surface goes
     sprOn(0)                    // the pointer goes while we still own the display
@@ -5408,6 +5609,10 @@ muSNoEvent: .text "? no event here"
 muSNoUndo:  .text "? nothing to undo"
             .byte 0
 muSNoRedo:  .text "? nothing to redo"
+            .byte 0
+muSNoPlayer: .text "? no player"
+            .byte 0
+muSStopFirst: .text "? stop first"
             .byte 0
 muSUnsaved: .text "? unsaved - q again"
             .byte 0
@@ -5695,6 +5900,16 @@ muBestHi:   .byte 0
 muCapLo:    .byte 0
 muCapHi:    .byte 0
 muTmp2:     .byte 0, 0
+
+// --- playback: the parent and its music child share these code bytes ---
+muPlayOn:   .byte 0             // 1 = play, 0 = be silent  (parent -- child)
+muPlayQuit: .byte 0             // 1 = leave for good       (parent -- child)
+muPlaySlot: .byte $ff           // the child's slot, $ff = no child
+muPlayHush: .byte 0             // the stop second-hush guard
+muPlayRefd: .byte 0             // the child sets this when the SID is busy
+muReapCnt:  .byte 0             // countdown while waiting for the child to exit
+muTuneLo:   .byte 0             // MU_IMG mirrored into code, for the child to read
+muTuneHi:   .byte 0
 
 // --- the undo stack and the dirty guard ---
 muDirty:    .byte 0             // an image byte changed since the last save

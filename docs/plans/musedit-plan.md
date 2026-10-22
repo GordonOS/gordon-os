@@ -10,16 +10,20 @@
 > refusals (6.7)**, **the tempo flag (6.8)**, **undo/redo with the dirty guard
 > (6.9-6.11)** — a range-diff stack, each action one or more `(offset, voice, oldN, newN,
 > old, new)` records grouped by a bit-7 "group start" flag and replayed as single range
-> replaces — and **insert row / bar (6.15-6.17, 6.20)** via `muInsertTime` (`I` / `SHIFT+I`)
+> replaces — **insert row / bar (6.15-6.17, 6.20)** via `muInsertTime` (`I` / `SHIFT+I`)
 > and **insert mode (6.19)** (`M`, `ovr`/`ins`), which splice rows of silence into all three
 > voices at the cursor as one grouped action -- the cursor voice taking the note in insert
-> mode -- plus a clipped redraw so an edit repaints only its own rows, and a status line
-> counted in displayed frames.
+> mode -- plus a clipped redraw so an edit repaints only its own rows, a status line
+> counted in displayed frames, and **playback play/stop (Step 8, Phase B)**: a music thread
+> child plays the tune through `kSidPlay`, `SPACE` toggles it, every edit path reports
+> `? stop first` while it runs (6.12), `? no player` when there is no child, and the child is
+> reaped before the surface goes.
 >
-> **Where the next session starts.** 6.18 (insert refuses: `? in a phrase` needs CALL-block
-> detection; `? stop first` needs playback); 6.12 (no
-> edit while playing) and 6.13/6.14 (mouse-only and keyboard note sessions) also wait on
-> playback (Step 8). The `,` tie key and the bar's `DUR`/`TIE` click cells are still unwired.
+> **Where the next session starts.** The **playhead** (Step 8, Phases A/C/D): publish the
+> player's position at `$54A2` from `sidplay.inc`, map each voice's pointer to a row through
+> the simulator, and follow it. 6.18 (`? in a phrase` needs CALL-block detection) and
+> 6.13/6.14 (mouse-only and keyboard note sessions) remain. The `,` tie key and the bar's
+> `DUR`/`TIE` click cells are still unwired.
 > **A harness lesson from 6.9:** the kernel's
 > 16-entry key ring drops keys pressed faster than a full-grid redraw finishes, so
 > `temp/probe.py` spaces keys with `KEY_GAP` (1.2-1.5s is safe); fast-pressed edits read as
@@ -777,7 +781,7 @@ performed with the pointer first; the same edits are reachable from the computer
 - [x] **6.9 Undo/redo.** *Verified on `filltst`: a range-diff stack records every action as one `(offset, voice, oldN, newN, oldBytes, newBytes)` record, so undo and redo are each a single range-replace through `muInsGap`/`muDelGap` -- no multi-step offsets to keep in step as a gap shifts the tail. `a,DOWN,a,DOWN,a,z,z,z` returns byte-identical to the starting file; `...,x,x,x` rebuilds `18 a1 18 a1 18 a1` (the three edits). Replace, rest, delete, split and fill each undo and redo correctly. **Harness note:** the kernel's 16-entry key ring drops keys pressed faster than a full-grid redraw completes, so `temp/probe.py` must space keys (`KEY_GAP=1.2`); at machine-gun 0.45s spacing a redo looked swallowed -- it was dropped input, not a logic fault.*
 - [x] **6.10 Undo granularity.** *A split is one record (`oldN=2`, `newN=2+k`), so `DOWN,a,z` on `commodo`/`filltst` restores the original event in a single `Z`.*
 - [x] **6.11 Dirty.** *`muPushEdit` sets a dirty byte and clears the warn byte on every edit; `Q` while dirty prints `? unsaved - q again` and stays (the editor is still up after `a,q`), a second `Q` exits, and `SHIFT+S` clears both. The guard is in `muQuit`, before the key-drain.*
-- [ ] **6.12 No edit while playing.** Every edit path reports `? stop first` while the child is inside `kSidPlay`.
+- [x] **6.12 No edit while playing.** *Verified on `filltst` and `commodo`: `SPACE` starts the child, then every mutating path -- note (keyboard and mouse click), rest, delete, undo, redo, `I`/`SHIFT+I` insert -- reports `? stop first` and leaves the image byte-identical (`muPlaying` guards each dispatch arm and `muNoteClick` for the mouse). A second `SPACE` stops; edits work again. The guard also keeps the tune's `kMalloc` block from moving under the child (an insert reallocates).*
 - [ ] **6.13 A mouse-only session.** Enter twelve notes across three voices, change two pitches, rest one, undo two, save — never touching the computer keyboard — then decode. *Expect:* exactly those rows, and the same file as the same edits made from the keyboard.
 - [ ] **6.14 From the keyboard.** The same twelve notes using the computer-keyboard note map
   instead of clicks — same file.
@@ -807,14 +811,26 @@ The descriptor table and the five encoders; every command reachable.
 
 The published block, the thread child, stop/reap, follow.
 
+> **Phase B (play/stop) is in and verified.** A music thread child (`muMusicThread`, spawned
+> at startup via `SYS_THREADSPAWN` with the child's own `$02-$0a` ZP window) reads the
+> parent's `muPlayOn`/`muPlayQuit`/`muTuneLo`/`muTuneHi` code bytes -- a thread child does not
+> share `dataPtr`, so the tune pointer is mirrored out of `MU_IMG` by `muTuneRefresh` at load
+> and after every block move. `SPACE` toggles play/stop (`muPlayToggle`): play sets the flag,
+> stop clears it and `kSidHush`es, with a second hush a slice later (`muPlayTick`) for the
+> claim-inside-`kSidPlay` race. `muMusicBye` reaps the child (yield-wait, `SYS_KILL` fallback)
+> before `kFreeScreen`. Verified in VICE: `SPACE` on `commodo` drives the SID (20 active
+> registers), stop releases all three gates, quit-while-playing returns cleanly to the shell.
+> **Phases A (publish `$54A2`), C (the playhead) and D (follow) remain** -- the items below that
+> name the playhead are blocked on them.
+
 - [ ] **8.1 The block.** A `main.asm` assert places `$54A2`; `verify-map.ps1` passes with 119 and the 3-byte `54A8-54AA` pocket; `sid.lib` is still 13 pages.
 - [ ] **8.2 It is live.** With a tune playing, peek `$54A2-$54A7` in the VICE monitor several times — the three pointers advance; hush and they stop.
-- [ ] **8.3 Play.** `SPACE` on `commodo` — the tune plays and the playhead tracks the sounding row on all three voices.
+- [ ] **8.3 Play.** `SPACE` on `commodo` — the tune plays and the playhead tracks the sounding row on all three voices. *(Audio half done, Phase B; the playhead awaits Phase C.)*
 - [ ] **8.4 Loops.** On `immig` the playhead returns to the `HED` row at each `TAL`.
 - [ ] **8.5 Follow.** The window scrolls with the playhead while following; `SHIFT+F` stops it and the view stays put.
-- [ ] **8.6 Stop.** `SPACE` again — silence at once, the playhead is not drawn, and a new play works immediately.
-- [ ] **8.7 Stop/play in the same instant.** Repeatedly — it always stops, the child never wedges, play always works afterwards.
-- [ ] **8.8 No player.** With `sidplay` running, `SPACE` — `? no player`.
+- [ ] **8.6 Stop.** `SPACE` again — silence at once, the playhead is not drawn, and a new play works immediately. *(Silence + replay done, Phase B; the playhead awaits Phase C.)*
+- [ ] **8.7 Stop/play in the same instant.** Repeatedly — it always stops, the child never wedges, play always works afterwards. *(Second-hush guard in; needs the rapid-toggle run.)*
+- [ ] **8.8 No player.** With `sidplay` running, `SPACE` — `? no player`. *(`muPlayRefd` path in; `? no player` also shown when there is no child.)*
 - [ ] **8.9 No orphan.** Quit while playing — `ps` shows no child and `pool` shows the tune's pages returned.
 - [ ] **8.10 ZP.** F-key away and back during playback — the music is unbroken and the other task still runs.
 - [ ] **8.11 Audition.** With the tune stopped, click piano keys across the whole range — each sounds at the pitch named in the readout (compare a few against `sidplay` playing a tune in that register), and no note sticks after about ten displayed frames.
