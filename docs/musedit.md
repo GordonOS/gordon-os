@@ -100,9 +100,10 @@ The piano at the bottom of the screen is how notes go in.
 1. **Click a cell in the grid.** The cursor goes there; row 0 shows the row and voice.
 2. **Point at a key.** Row 0 names the pitch under the pointer (`C-4`, `C#4`) and the key is
    highlighted, so you always know what a click will enter.
-3. **Click.** With the cursor on a row where a note starts, the event's pitch becomes the key's
-   and its length is kept, so nothing below it moves. A row where no note starts is not
-   written; the status line reports `? not yet`.
+3. **Click.** With the cursor on a row where a note starts, the event's pitch becomes the
+   key's and its length is kept, so nothing below it moves. Inside a longer note the note is
+   split; past the last event (or in an empty voice) rests are filled in so the note lands on
+   the cursor's row — see *Editing* below.
 
 The keys are narrow — about 5.7 pixels per white key — because all eight octaves share the
 320-pixel width. The black keys are short bars on the boundaries: C# between C and D, D#
@@ -236,7 +237,7 @@ The mode is only about the *next* note: switching it changes nothing in the file
 
 ### Illegal durations
 
-A duration the current tempo cannot express is refused with `ILLEGAL DURATION`, and nothing is
+A duration the current tempo cannot express is refused with `? illegal duration`, and nothing is
 written. The classic case is a 32nd or 64th at a moderate tempo, or a triplet at a tempo that
 has no triplet table. Choose a longer value, or change the tempo first.
 
@@ -390,8 +391,8 @@ opening a tune resets the history.
 | `? no space` | the pool cannot hold the tune's new size; nothing was changed |
 | `? no player` | the SID is owned by another task, or `sid.lib` could not load |
 | `? stop first` | an edit was attempted during playback |
-| `ILLEGAL DURATION` | the current tempo cannot express that note length |
-| `? last row` | the `HLT` cannot be deleted |
+| `? illegal duration` | the current tempo cannot express that note length |
+| `? no event here` | the rest or delete key needs the cursor on a row where an event starts |
 | `? in a phrase` | an insert was attempted on a row that belongs to a `CALL` block — move off it first |
 | `? no pointer art` | the mouse is on but the pointer sprites could not be resolved — the REU image is stale |
 | `? no mouse - mouse 1351 first` | the system has no 1351: run `mouse 1351` from the shell, then start the editor again |

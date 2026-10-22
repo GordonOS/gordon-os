@@ -1311,6 +1311,12 @@ muStepNote:
     bcc muStepLen
     lda #MU_ERR_LEN             // the player refuses this length and stops
     sta muErr
+    ldx muSv                    // the flag: the voice and the onset row it died on
+    stx muErrV                  //   (the row is live only under the grid's walk,
+    lda muVRow,x                //   the one consumer that reads it)
+    sta muErrRow
+    lda muVRowHi,x
+    sta muErrRow+1
     jmp muSimStop
 muStepLen:
     ldx muSv
@@ -1561,12 +1567,13 @@ muCmDefGo:
 // --- muSimStop -- silence every voice: an error, or the song's own end ---
 //  A player error stops all three voices, which is what SID_STATUS does, and
 //  MU_ERR says which one it was (0 = the walk simply ran out of events).
+//  C=1: the stopping event never played, so the caller must not measure it.
 muSimStop:
     lda #0
     sta muOn
     sta muOn+1
     sta muOn+2
-    clc
+    sec
     rts
 
 // --- muSimRun -- walk the whole tune, up to MU_SIM_CAP events ---
@@ -1880,7 +1887,41 @@ muGdLp:
     ora muGdSteps+1
     bne muGdLp
 muGdRows:
+    jsr muGdFlag
     jmp muGdNums
+
+// --- muGdFlag -- '?' on the row whose length the tempo in force refused ---
+//  Drawn only when the walk stopped with MU_ERR_LEN. The row is the refused
+//  event's onset, captured at the refusal, and the cell is the voice's first
+//  lane column. muPutC owns the window clip, so a flag outside a clipped band
+//  costs nothing -- and the flag is re-derived by every redraw, so it clears
+//  as soon as the cause goes.
+muGdFlag:
+    lda muErr
+    cmp #MU_ERR_LEN
+    bne muGfRts
+    lda muErrRow                // screen row = row - muTop + MU_GRID_TOP
+    sec
+    sbc muTop
+    sta muTmpL
+    lda muErrRow+1
+    sbc muTop+1
+    bne muGfRts                 // above the window, or 256+ rows below
+    lda muTmpL
+    cmp #MU_GRID_ROWS
+    bcs muGfRts
+    clc
+    adc #MU_GRID_TOP
+    ldy #MU_CURROW
+    sta (dataPtr),y
+    ldx muErrV
+    lda muLaneCol,x
+    ldy #MU_CURCOL
+    sta (dataPtr),y
+    lda #'?'
+    jmp muPutC
+muGfRts:
+    rts
 
 // --- muRedrawRows -- draw the grid for a band of screen rows only ---
 //  In: A = the first screen row, X = one past the last. The walk still runs, but
@@ -4782,6 +4823,8 @@ muJifTem:   .byte 0             // ...and the copy muNoteJiffies reads
 muUl:       .byte 0
 muUtvC:     .byte 0
 muErr:      .byte 1
+muErrV:     .byte 0             // the voice whose length the tempo refused...
+muErrRow:   .word 0             // ...and the onset row it died on
 muSv:       .byte 0
 muSidx:     .byte 0
 muScmd:     .byte 0
