@@ -9,7 +9,7 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '125',
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '119',
     [Parameter(Mandatory = $false)][string]$ExpectPockets = '22'
 )
 
@@ -53,6 +53,10 @@ $occ += , @(0x02c0, 0x03ff)   # sprite slots 0-4 (fixed VIC blocks)
 #  block ends at $0EFD, so the gap below the band is the run $0EFE-$0EFF.
 $occ += , @(0x0f00, 0x0fbf)   # sprite slots 5-7
 $occ += , @(0x1d40, 0x1fff)   # data heap
+#  The SID player publishes a 6-byte playhead block at $54A2 (sid.asm's
+#  SID_POS_BLOCK); library code writes it, so the kernel map cannot show it. It
+#  takes the free pocket after the slot-shadow down to $54A8-$54AA (3B).
+$occ += , @(0x54a2, 0x54a7)   # sid.lib player-position block (SID_POS_BLOCK)
 $occ += , @(0x2000, 0x3fff)   # framebuffer
 $occ += , @(0x5700, 0xc3ff)   # task pool
 $occ += , @(0xd000, 0xdfff)   # I/O
@@ -167,9 +171,10 @@ Check 'sprite state CFA4 :' (Occupied 0xcfa4 0xcfff) 'the per-task sprite state 
 Check 'sprite API CA2F    :' (Occupied 0xca2f 0xca6a) 'kSpriteCollide + clearSlotSprite are 60B above the pinned dyn tables'
 Check 'dlEvMaybeSelf     :' (Occupied 0xCA8C 0xCA98) 'dlEvMaybeSelf is 13B at the top of the free run after sprite.inc, not in the core growth headroom'
 #  The four loader-band helpers share one band: $5340 font-help, $53F2 pool-top,
-#  $5457 cursor-helpers, $5482 slot-shadow (32B), ending flush at $54AA.
-$hit = @($runs | Where-Object { $_.Range -eq '54A2-54AA' })
-Check 'pocket 54A2-54AA :' ($hit.Count -eq 1 -and $hit[0].Size -eq 9) ('{0} bytes (slot-shadow 32B at $5482)' -f ($hit | ForEach-Object { $_.Size }))
+#  $5457 cursor-helpers, $5482 slot-shadow (32B), ending flush at $54A1. The SID
+#  player's 6-byte playhead block ($54A2-$54A7) then leaves a 3-byte pocket.
+$hit = @($runs | Where-Object { $_.Range -eq '54A8-54AA' })
+Check 'pocket 54A8-54AA :' ($hit.Count -eq 1 -and $hit[0].Size -eq 3) ('{0} bytes (slot-shadow 32B at $5482, SID_POS_BLOCK 6B at $54A2)' -f ($hit | ForEach-Object { $_.Size }))
 #  The REU DMA band's own tail: the routines end at $CA1A and the sprite API
 #  starts at $CA2F, so this run belongs to neither and stays free.
 $hit = @($runs | Where-Object { $_.Range -eq 'CA2C-CA2E' })

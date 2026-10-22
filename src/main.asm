@@ -712,6 +712,12 @@ reuDirBuf:
 .import source "kernel/slot-shadow.inc"
 .assert "slot-shadow helpers fit below scrollScreenSlot", (slotShadowEnd <= $54AB) ? 1 : 0, 1
 
+//  The SID player publishes each voice's next-command pointer in the 6 bytes at
+//  $54A2 (sid.asm's SID_POS_BLOCK), which a reader's playhead maps to a row. The
+//  slot-shadow code must not reach into it; verify-map.ps1 tracks the 3-byte
+//  $54A8-$54AA pocket that is left.
+.assert "sid player-position block ($54A2) is free of slot-shadow code", (slotShadowEnd <= $54A2) ? 1 : 0, 1
+
 //  The kernel core ($0810+) is bounded by reuDirBuf, pinned at $13D4. Nothing
 //  guarded this before: syscall.inc is the last core file, so if it grew past
 //  $13D4 the .pc = $13D4 above would silently collide with it and the build

@@ -3,7 +3,7 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**127B across 22 pockets**) and asserts the pinned pockets.
+> and their total (**121B across 22 pockets**) and asserts the pinned pockets.
 > A green build makes **230 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
@@ -151,7 +151,8 @@ main.asm  .pc=$0801  →  BASIC loader
 | `$53F2-$5456` | 101B | `pool-top.inc` | Library pool placement + caller-eviction accounting: `dlLibCore`, `allocFromPoolTop`, `dlAllocCode`, `dlCallerAddLibs`, `dlCallerLibPages` |
 | `$5457-$5481` | 43B | `cursor-helpers.inc` | `dlFindMaster` (`$5457`), `dlInstallCursor` (`$546F`), end `$5482` |
 | `$5482-$54A1` | 32B | `slot-shadow.inc` | `clearSlotShadows` — zeroes a slot's per-task ZP shadow when the slot is spawned, so a recycled id cannot inherit the previous occupant's ZP window |
-| `$54A2-$54AA` | 9B | | ✓ Free |
+| `$54A2-$54A7` | 6B | `SID_POS_BLOCK` (sid.asm) | The SID player publishes each voice's next-command pointer here (`WorkNxtCmdLo[3]` then `WorkNxtCmdHi[3]`); a reader's playhead maps `(ptr − 2)` to the sounding event's row. Written by library code, pinned by an assert in `main.asm` |
+| `$54A8-$54AA` | 3B | | ✓ Free |
 | **scrollScreenSlot + Task Pool** — `$54AB-$C3FF` | | | |
 | `$54AB-$567C` | 466B | `scrollScreenSlot` | Per-row background slot scroll up; guarded by `.assert scrollSlotEnd <= POOL_BASE` |
 | `$567D-$56FD` | 129B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembled from the per-sprite X-MSB flags, sprite pointers → `$07F8-$07FF`, collision latch, `$D015` masked by `sprPubMask`, the `inc sprFrameCount` clock, and the deadline guard |
@@ -610,7 +611,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 127
 | `$1D14-$1D15` | 2B | Free — the tail of the frame routine's pocket, above `sprFrameDma` (86B) and below `kLibHold` |
 | `$52C1-$52CC` | 11B used + 1B free | `kbScreenGate` (11B, `$52C1-$52CB`) — the switch path's entry for a display change the key scan recorded — then 1B free at `$52CC` |
 | `$5337-$533F` | 9B | Free — the loader's growth budget: after `sprInstall` + the state mover (`$52DC-$5336`) and before `font-help.inc` at `$5340` |
-| `$54A2-$54AA` | 9B | Free (rest of the loader band after `cursor-helpers.inc`: `pool-top.inc` 101B at `$53F2-$5456`, `cursor-helpers.inc` 43B at `$5457-$5481`, `slot-shadow.inc` 32B at `$5482-$54A1`) |
+| `$54A8-$54AA` | 3B | Free (tail of the loader band after the `SID_POS_BLOCK` playhead block at `$54A2-$54A7`; the band holds `pool-top.inc` 101B at `$53F2-$5456`, `cursor-helpers.inc` 43B at `$5457-$5481`, `slot-shadow.inc` 32B at `$5482-$54A1`) |
 | `$56FB-$56FF` | 5B | Free — headroom below the pool, after `rasterCommit` (126B at `$567D-$56FA`) |
 | `$CA1B-$CA2B` | 17B | `warmClearBufRecs` (kernel/warm-boot-reset.inc) — clears every slot's `taskDataSize`/`taskDataPtrLo/Hi` at a warm reboot, `jsr`-ed from `warmBootReset`. Between the REU DMA routines in `reu.inc` (ending `$CA1A`) and the sprite API (`$CA2F`) |
 | `$CA2C-$CA2E` | 3B | Free — the tail of that run |
@@ -624,7 +625,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 127
 | `$ECBD-$ECDB` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router, filling the pocket above `gfx.inc`'s anchor exactly |
 | `$FC3A-$FC3E` | 5B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF5` | 13B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`); `$FFF6-$FFF9` free above the library-entry block and `kLibHold` |
-| **Total (fixed headroom)** | **127B across 22 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 35 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 60 + `sprFrameDma` 86 + `rasterCommit` 126), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
+| **Total (fixed headroom)** | **121B across 22 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 35 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 60 + `sprFrameDma` 86 + `rasterCommit` 126), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
 
 Usable beyond the fixed headroom:
 
@@ -710,5 +711,6 @@ pages.
 | `$FC3F-$FF7D` | gfx.lib scratch — flood-fill + `kEll*` + `kCircle*`, one block (no pin) |
 | `$5457-$5481` | `cursor-helpers.inc` (`dlFindMaster`/`dlInstallCursor`) — loader band |
 | `$5482-$54A1` | `slot-shadow.inc` (`clearSlotShadows` — zeroes a recycled slot's ZP shadow) |
+| `$54A2-$54A7` | `SID_POS_BLOCK` — the SID player's published per-voice playhead pointers |
 | `$FF70-$FF7D` | gfx.lib circle scratch (`kCircle*`) — part of the `$FC3F-$FF7D` block |
 | `$FFFA-$FFFF` | Hardware vectors |

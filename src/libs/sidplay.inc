@@ -843,10 +843,12 @@ ProcessCurrentCmd:      lda SID_STATUS
                         adc #$02
                         sta $08                         // Store lo addrss of next comand
                         sta WorkNxtCmdLo,x
+                        sta SID_POS_BLOCK,x             // publish for a reader's playhead
                         lda $09
                         adc #$00
                         sta $09                         // Store hi address of next command
                         sta WorkNxtCmdHi,x
+                        sta SID_POS_BLOCK+3,x          // publish the high byte too
                         lda $0a                         // $ff=Current command to execute  A=Command Y=Option X=voice # (0..2)
 DecodeCommand:          and #%00000011                  // ****
                         bne ProcessCmdLoop              // Notes always end in 00.  01,10 and 11 are commands.

@@ -823,8 +823,11 @@ The published block, the thread child, stop/reap, follow.
 > **Phases A (publish `$54A2`), C (the playhead) and D (follow) remain** -- the items below that
 > name the playhead are blocked on them.
 
-- [ ] **8.1 The block.** A `main.asm` assert places `$54A2`; `verify-map.ps1` passes with 119 and the 3-byte `54A8-54AA` pocket; `sid.lib` is still 13 pages.
-- [ ] **8.2 It is live.** With a tune playing, peek `$54A2-$54A7` in the VICE monitor several times — the three pointers advance; hush and they stop.
+**Phase A is in and verified** (8.1/8.2): `sidplay.inc` publishes each voice's next-command
+pointer at `$54A2` (`SID_POS_BLOCK`), the block is live and freezes on hush.
+
+- [x] **8.1 The block.** *`main.asm` asserts the 6-byte block is free of slot-shadow code at `$54A2` (`SID_POS_BLOCK` in `sid.asm`); `verify-map.ps1` passes with 119 and the 3-byte `54A8-54AA` pocket; `sid.lib` is 3324 bytes (still 13 pages), relocation verification OK -- the two literal `sta $54A2,x` / `sta $54A5,x` stores are position-independent, not fixups.*
+- [x] **8.2 It is live.** *Verified in VICE on `commodo`: while playing, `$54A2-$54A7` holds each voice's next-command pointer (valid tune-image addresses that advance over the run); on `SPACE` stop they freeze. Read only while our own child plays.*
 - [ ] **8.3 Play.** `SPACE` on `commodo` — the tune plays and the playhead tracks the sounding row on all three voices. *(Audio half done, Phase B; the playhead awaits Phase C.)*
 - [ ] **8.4 Loops.** On `immig` the playhead returns to the `HED` row at each `TAL`.
 - [ ] **8.5 Follow.** The window scrolls with the playhead while following; `SHIFT+F` stops it and the view stays put.

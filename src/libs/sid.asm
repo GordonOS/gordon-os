@@ -262,6 +262,12 @@ sidTuneHi:   .byte 0
 sidDelay:    .byte 1             // ticks slept per jiffy
 sidRepeats:  .byte 1             // 0 = forever, else plays remaining
 
+// The player publishes each voice's next-command pointer here for a playhead:
+// WorkNxtCmdLo[3] at SID_POS_BLOCK, WorkNxtCmdHi[3] at SID_POS_BLOCK+3. A reader
+// (musedit) maps (ptr - 2) to the sounding event's row, and reads it only while
+// its own child is inside kSidPlay. Fixed RAM, pinned by an assert in main.asm.
+.const SID_POS_BLOCK = $54A2
+
 .import source "sidplay.inc"
 
 .label sidEnd = *
