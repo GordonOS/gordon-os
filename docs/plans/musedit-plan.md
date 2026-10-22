@@ -1,22 +1,28 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: STEP 6 in progress.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 12,627 bytes of code, 76
-> code pages, 33 pages of margin. Verified working: the screen, the layout, the eight-octave
+> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 79 code pages, 30 pages of
+> margin. Verified working: the screen, the layout, the eight-octave
 > piano, the key loop, the pointer, the pitch hover, the load/save path, the timing module,
 > the resumable three-voice walk, the tracker grid, the editing seek, the length writer, the
 > gap opener, **replace (6.1)**, **split (6.2)**, **fill (6.3)**, **append (6.4)** — on an
 > empty voice too — **rest (6.5)**, **delete (6.6)**, **duration arming and its legality
-> refusals (6.7)**, **the tempo flag (6.8)** and **undo/redo with the dirty guard
-> (6.9-6.11)** — a range-diff stack where each action is one `(offset, voice, oldN, newN,
-> old, new)` record, undone or redone as a single range replace — plus a clipped redraw so
-> an edit repaints only its own rows, and a status line counted in displayed frames.
+> refusals (6.7)**, **the tempo flag (6.8)**, **undo/redo with the dirty guard
+> (6.9-6.11)** — a range-diff stack, each action one or more `(offset, voice, oldN, newN,
+> old, new)` records grouped by a bit-7 "group start" flag and replayed as single range
+> replaces — and **insert row / bar (6.15-6.17, 6.20)** via `muInsertTime` (`I` / `SHIFT+I`)
+> and **insert mode (6.19)** (`M`, `ovr`/`ins`), which splice rows of silence into all three
+> voices at the cursor as one grouped action -- the cursor voice taking the note in insert
+> mode -- plus a clipped redraw so an edit repaints only its own rows, and a status line
+> counted in displayed frames.
 >
-> **Where the next session starts.** 6.12 (no edit while playing), 6.13/6.14 (mouse-only and
-> keyboard note sessions), and insert row/bar (6.15-6.20). The `,` tie key and the bar's
-> `DUR`/`TIE` click cells are still unwired. **A harness lesson from 6.9:** the kernel's
+> **Where the next session starts.** 6.18 (insert refuses: `? in a phrase` needs CALL-block
+> detection; `? stop first` needs playback); 6.12 (no
+> edit while playing) and 6.13/6.14 (mouse-only and keyboard note sessions) also wait on
+> playback (Step 8). The `,` tie key and the bar's `DUR`/`TIE` click cells are still unwired.
+> **A harness lesson from 6.9:** the kernel's
 > 16-entry key ring drops keys pressed faster than a full-grid redraw finishes, so
-> `temp/probe.py` spaces keys with `KEY_GAP` (1.2s is safe); fast-pressed redos read as
+> `temp/probe.py` spaces keys with `KEY_GAP` (1.2-1.5s is safe); fast-pressed edits read as
 > swallowed, which is dropped input, not a logic fault. The "note key does
 > nothing on the test tune" mystery is solved and was never the key dispatch: `muSeek`'s
 > halted-voice arm returned with `muSekKind` still 1 (set by `muSkRecord`), so a row past
@@ -775,21 +781,13 @@ performed with the pointer first; the same edits are reachable from the computer
 - [ ] **6.13 A mouse-only session.** Enter twelve notes across three voices, change two pitches, rest one, undo two, save — never touching the computer keyboard — then decode. *Expect:* exactly those rows, and the same file as the same edits made from the keyboard.
 - [ ] **6.14 From the keyboard.** The same twelve notes using the computer-keyboard note map
   instead of clicks — same file.
-- [ ] **6.15 Insert row.** Put the cursor on a row where all three voices are empty and press
-  `I` — one blank row appears, everything below moves down one row, and `gen-mus.py --decode`
-  shows one extra rest in each voice that had content there.
-- [ ] **6.16 Insert bar.** `SHIFT+I` at `TEM $90` — 16 rows appear (a whole bar), the later
-  events move down exactly that many rows, and the bar numbers after the insert are unchanged.
-- [ ] **6.17 Insert inside a note.** Cursor in the middle of a long note, `I` — the note ends on
-  the cursor's row, one row of silence follows, the same pitch resumes after it with a fresh
-  attack, and the rest of the voice is one row later. The decoder shows the split pairs.
+- [x] **6.15 Insert row.** *Verified on `instmv` (voice 1 a quarter C4, voice 2 an 8th rest then an 8th D4, voice 3 a quarter E4; all cross row 2): `i` at row 2 opens a 16th rest in all three voices -- voice 1 and 3 split their quarter (8th + 16th rest + 8th), voice 2 drops a 16th rest before the D4 onset -- everything below moves down one row, and the host model shows the blank row across all three. `muInsertTime` seeks and splices each voice in turn (a splice shifts the later voices, so each is re-seeked on the grown image), as one grouped undo action.*
+- [x] **6.16 Insert bar.** *Verified: `SHIFT+I` on `filltst` at `TEM $90` (16 rows/bar) opens a whole-note rest (`08 00` = 144 jiffies = exactly 16 rows) before the note; the bar count comes from `muUnitBar`, so an inserted bar is always one bar.*
+- [x] **6.17 Insert inside a note.** *The straddle case of `muInsertTime`: `i` one row into `filltst`'s quarter turns `10 99` into `14 99 18 00 14 99` -- the note ends on the cursor's row (8th), one 16th of silence, then the same pitch resumes with a fresh attack (plain, not tied, because the previous event is the rest). The decoder shows the split pairs; total length is the event plus the inserted row.*
 - [ ] **6.18 Insert refuses.** `I` with the cursor inside a `CALL` block reports `? in a
   phrase` and writes nothing; `I` while playing reports `? stop first`.
-- [ ] **6.19 Insert mode.** `M` shows `INS`; four clicks on the piano leave the earlier notes in
-  place and push the rest down each time; `M` again shows `OVR`, entering a note replaces;
-  toggling the mode twice and saving produces a byte-identical file.
-- [ ] **6.20 One action.** An insert row on a three-voice tune is a single `Z`, and a `Z` after
-  it restores the exact bytes.
+- [x] **6.19 Insert mode.** *Verified on `filltst`: `M` toggles a mode byte shown as `ovr`/`ins` at the right of row 1 (cols 37-39, outside the scroll region). In `ins`, entering a note opens the note's length in all three voices (the cursor voice gets the note, the others rests) and pushes the rows below down -- `m,a` turns `10 99` into `18 a1 10 99`, and `RIGHT,m,a` appends the note to the empty voice 2 while pushing voice 1 down, all one grouped `Z`. `m,m` returns to `ovr`, where a note replaces (`m,m,a` gives `18 a1`, not an insert), and toggling the mode never touches the image. An empty/past-end voice takes the fill-then-note path (`muIvAppend`).*
+- [x] **6.20 One action.** *Verified: `i` on `instmv` (three voices) undoes to the byte-identical original with a single `Z`, and redoes with one `X`. The undo stack groups the three per-voice splices via a bit-7 "group start" flag on the first record; undo unwinds the group newest-first (highest offset first, so closing a gap never invalidates a lower record), redo replays it oldest-first.*
 
 ### Step 7 — Command panel
 

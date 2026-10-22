@@ -1773,6 +1773,7 @@ muDrawAll:
     jsr kSetTextColor
     jsr muDrawHead
     jsr muDrawLanes
+    jsr muDrawMode
     jsr muDrawGrid
     jsr muDrawPiano
     jsr muDrawBar
@@ -1846,6 +1847,38 @@ muDrawLanes:
     muAt(0, 1)
     muStr(muSLanes)
     jmp muTextAt
+
+// --- muDrawMode -- OVR or INS at the right of row 1 (outside the scroll area) ---
+muDrawMode:
+    lda muInsMode
+    beq muDmOvr
+    lda #'I'
+    ldx #37
+    ldy #1
+    jsr kPrintCharAt
+    lda #'N'
+    ldx #38
+    ldy #1
+    jsr kPrintCharAt
+    lda #'S'
+    ldx #39
+    ldy #1
+    jsr kPrintCharAt
+    rts
+muDmOvr:
+    lda #'O'
+    ldx #37
+    ldy #1
+    jsr kPrintCharAt
+    lda #'V'
+    ldx #38
+    ldy #1
+    jsr kPrintCharAt
+    lda #'R'
+    ldx #39
+    ldy #1
+    jsr kPrintCharAt
+    rts
 
 // --- muDrawGrid -- the window at MU_TOP: notes, rests, bars and the row numbers ---
 //  The row unit is fixed for the whole view, so rows are counted in jiffies
@@ -2793,6 +2826,26 @@ muKeyNotZ:
     jsr muRedo
     jmp muKeyIdle
 muKeyNotRedo:
+    cmp #'i'                    // I: insert one row at the cursor, all voices
+    bne muKeyNotIns
+    lda #1
+    jsr muInsertTime
+    jmp muKeyIdle
+muKeyNotIns:
+    cmp #$49                    // SHIFT+I: insert a whole bar
+    bne muKeyNotInsBar
+    lda muUnitBar               // the rows a bar has at the grid's tempo
+    jsr muInsertTime
+    jmp muKeyIdle
+muKeyNotInsBar:
+    cmp #'m'                    // M: toggle insert/overwrite mode
+    bne muKeyNotMode
+    lda muInsMode
+    eor #1
+    sta muInsMode
+    jsr muDrawMode
+    jmp muKeyIdle
+muKeyNotMode:
     cmp #$84                    // CRSR down
     bne muKeyN1
     jmp muCurDown
@@ -2915,6 +2968,16 @@ muCurDone:
 //  so an empty voice reports every row as a gap measured from row 0 and the
 //  fill inserts at the voice's first pair.
 muSeek:
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    sta muSkV
+    jsr muCursorAbs
+    sta muTgtLo
+    stx muTgtHi
+// --- muSeekAt -- where a given voice's row MU_TGT falls, like muSeek ---
+//  In: muSkV = voice, muTgtLo/Hi = the absolute timeline row. Out: as muSeek.
+//  Insert seeks each of the three voices at the cursor's row through this.
+muSeekAt:
     jsr muSimInit
     ldx #2
 muSkZero:
@@ -2924,9 +2987,7 @@ muSkZero:
     sta muVRem,x
     dex
     bpl muSkZero
-    ldy #MU_VOICE
-    lda (dataPtr),y
-    sta muSkV
+    lda muSkV
     sta muSv                    // the prime: row 0, span 0, at the voice's start
     lda #0
     sta muSpan
@@ -2934,9 +2995,6 @@ muSkZero:
     sta muTmpL
     sta muTmpH
     jsr muSkRecord
-    jsr muCursorAbs
-    sta muTgtLo
-    stx muTgtHi
 muSkLp:
     jsr muStep
     bcs muSkCovered             // the walk ran out: the row is inside the last
@@ -3062,6 +3120,10 @@ muNoteClick:
     jsr muNoteJiffies
     bcs muNcIllegal
     sta muDurJif                // the armed length, for the ones below
+    lda muInsMode
+    beq muNcOvr
+    jmp muNoteInsMode           // insert mode: push the rows below down
+muNcOvr:
     lda muSekKind
     beq muNcReplace            // an onset on this row: the pair is replaced
     cmp #1
@@ -3423,7 +3485,357 @@ muFgRest:
     ldx #MU_GRID_BOT+1
     jmp muRedrawRows
 
-// --- muRestKey -- the event at the cursor becomes a rest of the same length ---
+// ==========================================
+//  Inserting time -- open rows of silence in all three voices at once
+// ==========================================
+//  The cursor's row is a shared boundary T0; MU_INSROWS rows of silence open
+//  there in every voice, so the three lanes stay in step. Each voice is seeked
+//  and spliced in turn -- a splice shifts the later voices' offsets, so the next
+//  voice is re-seeked on the grown image -- and the three splices are one grouped
+//  undo action. A voice that has stopped before T0 contributes nothing.
+
+// --- muInsertTime -- A = the rows of silence to open at the cursor row ---
+//  The I / SHIFT+I entry: every voice gets rests (muInsNoteV = $ff). Insert mode
+//  enters at muInsGo with muInsNoteV = the cursor voice and muInsJif = the note.
+muInsertTime:
+    sta muInsRows
+    jsr muCursorAbs
+    sta muInsT0
+    stx muInsT0+1
+    lda muInsRows               // the silence, in jiffies = rows x the row unit
+    ldx #0
+    jsr muRowsToJif
+    bcs muItIllegal
+    sta muInsJif
+    lda #$ff
+    sta muInsNoteV
+muInsGo:
+    lda #1
+    sta muInsFirst              // the first splice opens the grouped action
+    lda #0
+    sta muItV
+muItVLoop:
+    lda muItV                   // the note voice writes the note, the rest rests
+    cmp muInsNoteV
+    bne muItVRest
+    lda muNewOpt
+    sta muInsOpt
+    lda #1
+    sta muInsTie
+    jmp muItVDo
+muItVRest:
+    lda #0
+    sta muInsOpt
+    sta muInsTie
+muItVDo:
+    jsr muInsOneVoice
+    inc muItV
+    lda muItV
+    cmp #3
+    bcc muItVLoop
+    jmp muRedrawNoHead
+muItIllegal:
+    muStr(muSIllegal)
+    jmp muStatus
+
+// --- muNoteInsMode -- insert mode: open the note in all voices, note in ours ---
+//  The cursor voice gets the armed note (muNewOpt), the other two get rests of
+//  the same length, so the lanes stay in step and the tune grows from the top.
+muNoteInsMode:
+    jsr muCursorAbs
+    sta muInsT0
+    stx muInsT0+1
+    lda muDurJif
+    sta muInsJif
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    sta muInsNoteV
+    jmp muInsGo
+
+// --- muInsPush -- push the splice just written, first as a group start ---
+muInsPush:
+    lda #1
+    sta muRecCont
+    lda muInsFirst
+    beq muIpGo
+    lda #0                      // the first splice starts the action
+    sta muRecCont
+    sta muInsFirst
+muIpGo:
+    jmp muPushEdit
+
+// --- muInsOneVoice -- splice MU_INSJIF jiffies of silence into MU_ITV at T0 ---
+muInsOneVoice:
+    lda muItV
+    sta muSkV
+    lda muInsT0
+    sta muTgtLo
+    lda muInsT0+1
+    sta muTgtHi
+    jsr muSeekAt
+    lda muSekKind
+    bne muIvNot0
+    jmp muIvOnset
+muIvNot0:
+    cmp #1
+    bne muIvNot1
+    jmp muIvStraddle
+muIvNot1:
+    lda muItV                   // kind 2: a rest voice has nothing to push...
+    cmp muInsNoteV
+    beq muIvAppend              // ...but the note voice appends the note here
+    rts
+
+// --- muIvAppend -- INS mode in an empty/past-end voice: fill, then the note ---
+muIvAppend:
+    lda muSekTem
+    sta muJifTem
+    jsr muFillPlan              // muGapJ rests, then muN2 note events
+    bcc muIvAppFit
+    rts
+muIvAppFit:
+    lda muN1
+    clc
+    adc muN2
+    asl
+    sta muInsN
+    lda muSekLo
+    clc
+    adc #2
+    sta muInsLo
+    lda muSekHi
+    adc #0
+    sta muInsHi
+    lda muInsLo
+    sta muRecOff
+    lda muInsHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    lda #0
+    sta muRecOldN
+    lda muSkV
+    jsr muInsGap
+    bcs muIvAppRts
+    jsr muSeekKPtr
+    lda kPtr                    // step past the event that ran before T0
+    clc
+    adc #2
+    sta kPtr
+    bcc muIvApR
+    inc kPtr+1
+muIvApR:
+    lda #1
+    sta muLenMode
+    lda #0
+    sta muLenTie
+    sta muLenOpt
+    lda muGapJ
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit               // the rests up to the cursor
+    lda #1
+    sta muLenTie
+    lda muNewOpt
+    sta muLenOpt
+    lda muDurJif
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit               // ...and the note
+    lda muInsN
+    sta muRecNewN
+    jsr muInsPush
+muIvAppRts:
+    rts
+
+// --- muIvOnset -- an event starts exactly at T0: rests go in before it ---
+muIvOnset:
+    lda muSekTem                // the tempo in force, for the rest durations
+    sta muJifTem
+    lda #0
+    sta muLenOpt
+    sta muLenTie
+    sta muLenMode               // count the rest events
+    lda muInsJif
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit
+    bcs muIvRts                 // this tempo cannot express the silence: skip
+    asl
+    sta muInsN                  // the rest events, in bytes
+    lda muSekLo
+    sta muRecOff
+    lda muSekHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    lda #0
+    sta muRecOldN               // nothing is replaced
+    lda muSekLo
+    sta muInsLo
+    lda muSekHi
+    sta muInsHi
+    lda muSkV
+    jsr muInsGap
+    bcs muIvRts                 // no room: skip this voice
+    jsr muSeekKPtr              // kPtr = the gap just opened
+    lda #1
+    sta muLenMode
+    lda muInsTie                // rests, or the note in insert mode
+    sta muLenTie
+    lda muInsOpt
+    sta muLenOpt
+    lda muInsJif
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit               // the inserted content
+    lda muInsN
+    sta muRecNewN
+    jsr muInsPush
+muIvRts:
+    rts
+
+// --- muIvStraddle -- T0 is inside an event: front, then rests, then remainder ---
+//  The event is replaced by three runs: the part up to T0 on its own pitch, the
+//  inserted silence, and the part from T0 on (its remainder) with a fresh attack.
+//  The three together last exactly the event's length plus the inserted silence.
+muIvStraddle:
+    jsr muSeekKPtr
+    ldy #0
+    lda (kPtr),y
+    sta muSekDur                // the straddling pair, read before it moves
+    iny
+    lda (kPtr),y
+    sta muSekOpt
+    lda muSekTem
+    sta muJifTem
+    //  --- the event's length and the front J1 (rows before T0) ---
+    lda muSekDur
+    jsr muNoteJiffies           // the walk already played it: always a length
+    sta muLenJ2                 // eventJ
+    lda #0
+    sta muLenJ2+1
+    lda muTgtLo                 // J1 rows = T0 - the event's onset row
+    sec
+    sbc muSekRow
+    ldx #0
+    jsr muRowsToJif
+    bcs muIvsBail
+    sta muItJ1                  // J1 jiffies
+    //  --- count: front(J1) + rests(insJif) + remainder(eventJ - J1) ---
+    lda #1
+    sta muLenTie
+    lda #0
+    sta muLenMode
+    lda muSekOpt
+    sta muLenOpt
+    lda muItJ1
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit
+    bcs muIvsBail
+    sta muItN1
+    lda #0
+    sta muLenTie
+    sta muLenOpt
+    lda muInsJif
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit
+    bcs muIvsBail
+    sta muItNr
+    lda muLenJ2                 // J2 = eventJ - J1
+    sec
+    sbc muItJ1
+    sta muItJ2
+    lda #1
+    sta muLenTie
+    lda muSekOpt
+    sta muLenOpt
+    lda muItJ2
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit
+    bcs muIvsBail
+    sta muItN2
+    jmp muIvsWrite
+muIvsBail:
+    rts
+muIvsWrite:
+    //  --- open the extra bytes and write the three runs at the event ---
+    clc
+    adc muItN1
+    adc muItNr                  // total events
+    asl                         // ...in bytes
+    sec
+    sbc #2                      // the event already holds one pair
+    sta muInsN
+    lda muSekLo
+    clc
+    adc #2
+    sta muInsLo
+    lda muSekHi
+    adc #0
+    sta muInsHi
+    lda muSekLo
+    sta muRecOff
+    lda muSekHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    lda #2
+    sta muRecOldN
+    jsr muCapOld                // the old pair, for undo
+    lda muSkV
+    jsr muInsGap
+    bcs muIvsBail
+    jsr muSeekKPtr
+    lda #1
+    sta muLenMode
+    lda #1
+    sta muLenTie
+    lda muSekOpt
+    sta muLenOpt
+    lda muItJ1
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit               // the front
+    lda muInsTie                // the middle: silence, or the note in insert mode
+    sta muLenTie
+    lda muInsOpt
+    sta muLenOpt
+    lda muInsJif
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit               // the silence
+    lda #1
+    sta muLenTie
+    lda muSekOpt
+    sta muLenOpt
+    lda muItJ2
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jsr muLenEmit               // the remainder, a fresh attack
+    lda muItN1                  // the new byte count = all three runs x 2
+    clc
+    adc muItNr
+    adc muItN2
+    asl
+    sta muRecNewN
+    jsr muInsPush
+    rts
+
+
 //  Only an onset answers. The duration byte stays, so the length -- and the dots
 //  and the triplet with it -- is unchanged and nothing after the event moves;
 //  the tie bit is cleared (a rest is silence, not a held note) and the option
@@ -3543,18 +3955,26 @@ muUndoKPtr:
     rts
 
 // --- muPushEdit -- append the record the fields describe, mark the tune dirty ---
-//  Reads the new bytes from the image at MU_RECOFF. A new action ends the redo
-//  chain. An overflow drops the whole history so the newest action still fits.
+//  Reads the new bytes from the image at MU_RECOFF. muRecCont = 0 starts a new
+//  action (the record is flagged a group start, bit 7 of the voice byte, and the
+//  redo chain is cut); muRecCont = 1 appends to the action being built, so a
+//  multi-voice insert undoes and redoes as one step. An overflow drops the whole
+//  history, but only at an action's start, so a group is never torn.
 muPushEdit:
+    lda muRecCont
+    bne muPeAppend
     lda #1
     sta muDirty
     lda #0
     sta muWarn
+muPeAppend:
     lda muRecOldN               // total = 6 + oldN + newN
     clc
     adc muRecNewN
     adc #6
     sta muRecTot
+    lda muRecCont               // the overflow reset runs only at a group start
+    bne muPeFit
     lda muUndoTop               // would it overflow the buffer?
     clc
     adc muRecTot
@@ -3581,7 +4001,11 @@ muPeFit:
     lda muRecOff+1
     sta (srcPtr),y
     iny
-    lda muRecV
+    lda muRecV                  // the voice, with bit 7 = group start
+    ldx muRecCont
+    bne muPeVCont
+    ora #$80
+muPeVCont:
     sta (srcPtr),y
     iny
     lda muRecOldN
@@ -3626,15 +4050,17 @@ muPeNewDone:
     lda muUndoTop+1
     adc #0
     sta muUndoTop+1
-    lda muUndoTop               // a new action invalidates the redo chain
+    lda muUndoTop               // the top is the redo limit until a new edit
     sta muUndoLim
     lda muUndoTop+1
     sta muUndoLim+1
+    lda #0                      // the next push starts a new action unless told
+    sta muRecCont
     rts
 
 // --- muRecLoad -- read the record whose first byte is at offset A/X ---
-//  Sets MU_RECOFF/V/OLDN/NEWN and the pointers muRecOldP / muRecNewP (offsets
-//  into muUndoBuf). muRecTot = its total length.
+//  Sets MU_RECOFF/V/OLDN/NEWN and muRecGrpStart (bit 7 of the voice byte, set on
+//  an action's first record). muRecTot = its total length; muRecV is 0..2.
 muRecLoad:
     jsr muUndoKPtr
     ldy #0
@@ -3644,8 +4070,13 @@ muRecLoad:
     lda (srcPtr),y
     sta muRecOff+1
     iny
-    lda (srcPtr),y
+    lda (srcPtr),y              // the voice byte carries the group-start flag
+    pha
+    and #$7f
     sta muRecV
+    pla
+    and #$80
+    sta muRecGrpStart
     iny
     lda (srcPtr),y
     sta muRecOldN
@@ -3711,14 +4142,14 @@ muRrLp:
 muRrDone:
     rts
 
-// --- muUndo -- Z: take back the newest action ---
+// --- muUndo -- Z: take back the newest action (its whole group) ---
 muUndo:
     lda muUndoTop
     ora muUndoTop+1
-    bne muUzGo
+    bne muUzLoop
     muStr(muSNoUndo)
     jmp muStatus
-muUzGo:
+muUzLoop:
     lda muUndoTop               // srcPtr = &buf[top-1]: the trailing length
     sec
     sbc #1
@@ -3757,19 +4188,25 @@ muUzGo:
     sta muUndoTop
     lda muRecStart+1
     sta muUndoTop+1
+    lda muRecGrpStart           // a group start ends the action; otherwise go on
+    bne muUzDone
+    lda muUndoTop
+    ora muUndoTop+1
+    bne muUzLoop
+muUzDone:
     jmp muRedrawNoHead
 
-// --- muRedo -- X: replay the action most recently taken back ---
+// --- muRedo -- X: replay the action most recently taken back (its group) ---
 muRedo:
     lda muUndoTop
     cmp muUndoLim
-    bne muUxGo
+    bne muUxLoop
     lda muUndoTop+1
     cmp muUndoLim+1
-    bne muUxGo
+    bne muUxLoop
     muStr(muSNoRedo)
     jmp muStatus
-muUxGo:
+muUxLoop:
     lda muUndoTop
     ldx muUndoTop+1
     jsr muRecLoad
@@ -3793,6 +4230,19 @@ muUxGo:
     lda muUndoTop+1
     adc #0
     sta muUndoTop+1
+    lda muUndoTop               // the group ends at the limit...
+    cmp muUndoLim
+    bne muUxPeek
+    lda muUndoTop+1
+    cmp muUndoLim+1
+    beq muUxDone
+muUxPeek:
+    lda muUndoTop               // ...or when the next record starts a new action
+    ldx muUndoTop+1
+    jsr muRecLoad
+    lda muRecGrpStart
+    beq muUxLoop
+muUxDone:
     jmp muRedrawNoHead
 
 // --- muNoteOpt -- A = the option byte for the linear note in MU_HOV ---
@@ -5259,6 +5709,22 @@ muRecOld:   .byte 0, 0          // ...and the old bytes (oldN is 0 or 2)
 muRecTot:   .byte 0             // the record's total length
 muRecTmp:   .byte 0             // a write cursor while a record is built
 muRecStart: .word 0             // the record being undone starts here
+muRecCont:  .byte 0             // 1 = the next push appends to the action in flight
+muRecGrpStart: .byte 0          // bit 7 of the loaded record's voice byte
+muInsRows:  .byte 0             // insert time: rows of silence to open...
+muInsT0:    .word 0             // ...at this absolute row...
+muInsJif:   .byte 0             // ...which is this many jiffies...
+muItV:      .byte 0             // ...spliced into this voice...
+muInsFirst: .byte 0             // ...the first splice opens the grouped action
+muItJ1:     .byte 0             // straddle: the front jiffies before T0
+muItJ2:     .byte 0             // ...and the remainder from T0 on
+muItN1:     .byte 0             // the events the front, silence...
+muItNr:     .byte 0             // ...
+muItN2:     .byte 0             // ...and remainder take
+muInsOpt:   .byte 0             // the opt the splice writes (0 rest, note in INS)
+muInsTie:   .byte 0             // ...and whether its run ties
+muInsNoteV: .byte $ff           // the voice that gets the note ($ff = all rests)
+muInsMode:  .byte 0             // 0 overwrite, 1 insert (note entry pushes down)
 muRrHave:   .byte 0             // range replace: bytes there now...
 muRrWant:   .byte 0             // ...and bytes wanted
 muRrSrc:    .word 0             // ...from this offset in muUndoBuf
