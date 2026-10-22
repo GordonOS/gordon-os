@@ -91,6 +91,7 @@
 .const MU_ERR_STK   = 3       // the call stack is full
 .const MU_ERR_PHR   = 4       // a call to a phrase that was never defined
 .const MU_ERR_TAL   = 5       // a TAL whose HED belongs to another phrase
+.const MU_UNDO_SIZE = 2048    // the undo stack, in bytes (many small actions)
 
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
@@ -624,6 +625,9 @@ muSaveTry:
     bcc muSvTold
     jmp muStatus                // MU_STR is the reason
 muSvTold:
+    lda #0                      // a saved tune is clean again
+    sta muDirty
+    sta muWarn
     muStr(muSSaved)
     jmp muStatus
 
@@ -2706,7 +2710,8 @@ muKeyLoop:
 muKeyHas:
     cmp #'q'
     bne muKeyNotQ
-    jmp muQuit                  // out of branch range: invert and jump
+    jsr muQuit                  // returns only on the dirty warning
+    jmp muKeyIdle
 muKeyNotQ:
     cmp #$53                    // SHIFT+S: save
     bne muKeyNotSave
@@ -2723,7 +2728,7 @@ muKeyNotB:
     jsr muSimShow
     jmp muKeyIdle
 muKeyNotV:
-    cmp #'x'                    // X: the first events, as the walk plays them
+    cmp #$58                    // SHIFT+X: the first events, as the walk plays them
     bne muKeyNotX
     jsr muSimTrace
     jmp muKeyIdle
@@ -2778,6 +2783,16 @@ muKeyNotRest:
     jsr muDelKey
     jmp muKeyIdle
 muKeyNotDel:
+    cmp #'z'                    // Z: undo
+    bne muKeyNotZ
+    jsr muUndo
+    jmp muKeyIdle
+muKeyNotZ:
+    cmp #'x'                    // X: redo
+    bne muKeyNotRedo
+    jsr muRedo
+    jmp muKeyIdle
+muKeyNotRedo:
     cmp #$84                    // CRSR down
     bne muKeyN1
     jmp muCurDown
@@ -2855,6 +2870,15 @@ muCurRedraw:
 muRedrawAll:
     jsr muDrawGrid
     jsr muDrawHead
+    jmp muCursorShow
+
+// --- muRedrawNoHead -- a full grid repaint that leaves the header alone ---
+//  Undo and redo repaint through this: the header shows the cursor's bar and
+//  row, which an undo never moves, so only the grid and the cursor are redrawn.
+muRedrawNoHead:
+    lda #0
+    sta muGdClip
+    jsr muDrawGrid
     jmp muCursorShow
 
 muCurRight:
@@ -3046,6 +3070,16 @@ muNoteClick:
 muNcKind2:
     jmp muFillNote              // a gap, or past the voice's last event
 muNcReplace:
+    lda muSekLo                 // the undo record: 2 bytes at the onset...
+    sta muRecOff
+    lda muSekHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    lda #2
+    sta muRecOldN
+    sta muRecNewN
+    jsr muCapOld
     jsr muSeekKPtr
     ldy #0
     lda muDurArm
@@ -3053,6 +3087,7 @@ muNcReplace:
     iny
     lda muNewOpt
     sta (kPtr),y
+    jsr muPushEdit             // ...become 2 new bytes there
     ldy #MU_ROW                 // the pitch is the only thing that moved
     lda (dataPtr),y
     tax
@@ -3198,6 +3233,15 @@ muNcSplit:
     iny
     lda (kPtr),y
     sta muSekOpt
+    lda muSekLo                 // the undo record: 2 bytes at the onset become...
+    sta muRecOff
+    lda muSekHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    lda #2
+    sta muRecOldN
+    jsr muCapOld
     jsr muSplitPlan
     bcc muNsGo
     jmp muNcIllegal
@@ -3243,6 +3287,11 @@ muNsWrite:
     lda muNewOpt
     sta muLenOpt
     jsr muLenEmit
+    lda muInsN                  // ...2 + the opened bytes, pushed as one action
+    clc
+    adc #2
+    sta muRecNewN
+    jsr muPushEdit
     //  --- only the rows from the cursor to the old event's end changed ---
     lda muSekEnd
     sec
@@ -3326,6 +3375,14 @@ muFgGo:
     lda muSekHi
     adc #0
     sta muInsHi
+    lda muInsLo                 // the undo record: 0 bytes become muInsN, after
+    sta muRecOff                //   the event that runs past the row
+    lda muInsHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    lda #0
+    sta muRecOldN
     lda muSkV
     jsr muInsGap
     bcc muFgW
@@ -3358,7 +3415,13 @@ muFgRest:
     lda #0
     sta muLenJ+1
     jsr muLenEmit               // ...and the note
-    jmp muRedrawAll             // tail: its rts balances the jsr that entered
+    lda muInsN                  // the opened bytes, pushed as one action
+    sta muRecNewN
+    jsr muPushEdit
+    ldy #MU_ROW                 // rows inserted: redraw from the cursor down
+    lda (dataPtr),y
+    ldx #MU_GRID_BOT+1
+    jmp muRedrawRows
 
 // --- muRestKey -- the event at the cursor becomes a rest of the same length ---
 //  Only an onset answers. The duration byte stays, so the length -- and the dots
@@ -3372,6 +3435,16 @@ muRestKey:
     muStr(muSNoEvent)
     jmp muStatus
 muRkGo:
+    lda muSekLo                 // the undo record: 2 bytes at the onset
+    sta muRecOff
+    lda muSekHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    lda #2
+    sta muRecOldN
+    sta muRecNewN
+    jsr muCapOld
     jsr muSeekKPtr
     ldy #0
     lda (kPtr),y
@@ -3380,7 +3453,12 @@ muRkGo:
     iny
     lda #0
     sta (kPtr),y
-    jmp muRedrawAll
+    jsr muPushEdit
+    ldy #MU_ROW                 // only the rested row changed
+    lda (dataPtr),y
+    tax
+    inx
+    jmp muRedrawRows
 
 // --- muDelKey -- remove the event at the cursor and close the gap ---
 //  Only an onset answers, and the HLT pair is never a timed event, so the
@@ -3392,6 +3470,17 @@ muDelKey:
     muStr(muSNoEvent)
     jmp muStatus
 muDkGo:
+    lda muSekLo                 // the undo record: 2 bytes at the onset go away
+    sta muRecOff
+    lda muSekHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    lda #2
+    sta muRecOldN
+    lda #0
+    sta muRecNewN
+    jsr muCapOld
     lda #2
     sta muInsN
     lda muSekLo
@@ -3400,7 +3489,311 @@ muDkGo:
     sta muInsHi
     lda muSkV
     jsr muDelGap
-    jmp muRedrawAll
+    jsr muPushEdit
+    ldy #MU_ROW                 // the gap closed: redraw from the cursor down
+    lda (dataPtr),y
+    ldx #MU_GRID_BOT+1
+    jmp muRedrawRows
+
+// ==========================================
+//  Undo -- a stack of range-diff records
+// ==========================================
+//  One record per user action: at MU_RECOFF, MU_RECOLDN image bytes became
+//  MU_RECNEWN. The record carries the voice (so the gap op can fix its length
+//  word), the old bytes and the new bytes, so undo and redo are each a single
+//  range replace -- no multi-step offsets to keep in step as a gap shifts the
+//  tail. Records grow up muUndoBuf; a trailing length byte lets undo walk back.
+//  Layout: off_lo, off_hi, voice, oldN, newN, old[oldN], new[newN], total.
+
+// --- muCapOld -- MU_RECOLD = the MU_RECOLDN image bytes at MU_RECOFF ---
+//  Called before an edit writes, so the old bytes survive it. oldN is 0 or 2.
+muCapOld:
+    jsr muRecKPtr
+    ldy #0
+muCoLp:
+    cpy muRecOldN
+    bcs muCoRts
+    lda (kPtr),y
+    sta muRecOld,y
+    iny
+    bne muCoLp
+muCoRts:
+    rts
+
+// --- muRecKPtr -- kPtr = the image at MU_RECOFF ---
+muRecKPtr:
+    jsr muImgToKPtr
+    lda kPtr
+    clc
+    adc muRecOff
+    sta kPtr
+    lda kPtr+1
+    adc muRecOff+1
+    sta kPtr+1
+    rts
+
+// --- muUndoKPtr -- srcPtr = muUndoBuf + A/X (lo/hi offset) ---
+muUndoKPtr:
+    clc
+    adc #<muUndoBuf
+    sta srcPtr
+    txa
+    adc #>muUndoBuf
+    sta srcPtr+1
+    rts
+
+// --- muPushEdit -- append the record the fields describe, mark the tune dirty ---
+//  Reads the new bytes from the image at MU_RECOFF. A new action ends the redo
+//  chain. An overflow drops the whole history so the newest action still fits.
+muPushEdit:
+    lda #1
+    sta muDirty
+    lda #0
+    sta muWarn
+    lda muRecOldN               // total = 6 + oldN + newN
+    clc
+    adc muRecNewN
+    adc #6
+    sta muRecTot
+    lda muUndoTop               // would it overflow the buffer?
+    clc
+    adc muRecTot
+    tay
+    lda muUndoTop+1
+    adc #0
+    cmp #>MU_UNDO_SIZE
+    bcc muPeFit
+    bne muPeReset
+    cpy #<MU_UNDO_SIZE
+    bcc muPeFit
+muPeReset:
+    lda #0                      // no room: forget the history, keep this action
+    sta muUndoTop
+    sta muUndoTop+1
+muPeFit:
+    lda muUndoTop               // srcPtr = muUndoBuf + muUndoTop
+    ldx muUndoTop+1
+    jsr muUndoKPtr
+    ldy #0
+    lda muRecOff
+    sta (srcPtr),y
+    iny
+    lda muRecOff+1
+    sta (srcPtr),y
+    iny
+    lda muRecV
+    sta (srcPtr),y
+    iny
+    lda muRecOldN
+    sta (srcPtr),y
+    iny
+    lda muRecNewN
+    sta (srcPtr),y
+    iny
+    ldx #0                      // the old bytes
+muPeOld:
+    cpx muRecOldN
+    bcs muPeOldDone
+    lda muRecOld,x
+    sta (srcPtr),y
+    iny
+    inx
+    bne muPeOld
+muPeOldDone:
+    sty muRecTmp                // save the write cursor: muRecKPtr clobbers Y
+    jsr muRecKPtr               // the new bytes, from the image
+    ldx #0
+muPeNew:
+    cpx muRecNewN
+    bcs muPeNewDone
+    txa
+    tay
+    lda (kPtr),y                // image[off + x]
+    ldy muRecTmp
+    sta (srcPtr),y
+    inc muRecTmp
+    inx
+    bne muPeNew
+muPeNewDone:
+    ldy muRecTmp                // the trailing total
+    lda muRecTot
+    sta (srcPtr),y
+    //  advance the top past the record
+    lda muUndoTop
+    clc
+    adc muRecTot
+    sta muUndoTop
+    lda muUndoTop+1
+    adc #0
+    sta muUndoTop+1
+    lda muUndoTop               // a new action invalidates the redo chain
+    sta muUndoLim
+    lda muUndoTop+1
+    sta muUndoLim+1
+    rts
+
+// --- muRecLoad -- read the record whose first byte is at offset A/X ---
+//  Sets MU_RECOFF/V/OLDN/NEWN and the pointers muRecOldP / muRecNewP (offsets
+//  into muUndoBuf). muRecTot = its total length.
+muRecLoad:
+    jsr muUndoKPtr
+    ldy #0
+    lda (srcPtr),y
+    sta muRecOff
+    iny
+    lda (srcPtr),y
+    sta muRecOff+1
+    iny
+    lda (srcPtr),y
+    sta muRecV
+    iny
+    lda (srcPtr),y
+    sta muRecOldN
+    iny
+    lda (srcPtr),y
+    sta muRecNewN
+    lda muRecOldN
+    clc
+    adc muRecNewN
+    adc #6
+    sta muRecTot
+    rts
+
+// --- muRangeReplace -- the image at MU_RECOFF: haveN bytes become wantN ---
+//  In: muRrHave, muRrWant, muRecV set, and muRrSrc = the wantN source bytes'
+//  offset in muUndoBuf. Opens or closes the difference (which clobbers srcPtr),
+//  then copies the source in -- so srcPtr is set only after the gap op.
+muRangeReplace:
+    lda muRrWant
+    cmp muRrHave
+    beq muRrWrite
+    bcc muRrShrink
+    sec                         // grow: open (want - have) bytes after have
+    sbc muRrHave
+    sta muInsN
+    lda muRecOff
+    clc
+    adc muRrHave
+    sta muInsLo
+    lda muRecOff+1
+    adc #0
+    sta muInsHi
+    lda muRecV
+    jsr muInsGap
+    jmp muRrWrite
+muRrShrink:
+    lda muRrHave                // shrink: close (have - want) bytes after want
+    sec
+    sbc muRrWant
+    sta muInsN
+    lda muRecOff
+    clc
+    adc muRrWant
+    sta muInsLo
+    lda muRecOff+1
+    adc #0
+    sta muInsHi
+    lda muRecV
+    jsr muDelGap
+muRrWrite:
+    jsr muRecKPtr               // kPtr = image + off
+    lda muRrSrc
+    ldx muRrSrc+1
+    jsr muUndoKPtr              // srcPtr = muUndoBuf + muRrSrc
+    ldy #0
+muRrLp:
+    cpy muRrWant
+    bcs muRrDone
+    lda (srcPtr),y
+    sta (kPtr),y
+    iny
+    bne muRrLp
+muRrDone:
+    rts
+
+// --- muUndo -- Z: take back the newest action ---
+muUndo:
+    lda muUndoTop
+    ora muUndoTop+1
+    bne muUzGo
+    muStr(muSNoUndo)
+    jmp muStatus
+muUzGo:
+    lda muUndoTop               // srcPtr = &buf[top-1]: the trailing length
+    sec
+    sbc #1
+    tay
+    lda muUndoTop+1
+    sbc #0
+    tax
+    tya
+    jsr muUndoKPtr
+    ldy #0
+    lda (srcPtr),y
+    sta muRecTot
+    lda muUndoTop               // start = top - total
+    sec
+    sbc muRecTot
+    sta muRecStart
+    lda muUndoTop+1
+    sbc #0
+    sta muRecStart+1
+    lda muRecStart
+    ldx muRecStart+1
+    jsr muRecLoad
+    lda muRecStart              // the old bytes sit at start + 5
+    clc
+    adc #5
+    sta muRrSrc
+    lda muRecStart+1
+    adc #0
+    sta muRrSrc+1
+    lda muRecNewN               // image has newN now; make it oldN (the old)
+    sta muRrHave
+    lda muRecOldN
+    sta muRrWant
+    jsr muRangeReplace
+    lda muRecStart              // the top drops to the record just undone
+    sta muUndoTop
+    lda muRecStart+1
+    sta muUndoTop+1
+    jmp muRedrawNoHead
+
+// --- muRedo -- X: replay the action most recently taken back ---
+muRedo:
+    lda muUndoTop
+    cmp muUndoLim
+    bne muUxGo
+    lda muUndoTop+1
+    cmp muUndoLim+1
+    bne muUxGo
+    muStr(muSNoRedo)
+    jmp muStatus
+muUxGo:
+    lda muUndoTop
+    ldx muUndoTop+1
+    jsr muRecLoad
+    lda muUndoTop               // the new bytes sit at top + 5 + oldN
+    clc
+    adc #5
+    adc muRecOldN
+    sta muRrSrc
+    lda muUndoTop+1
+    adc #0
+    sta muRrSrc+1
+    lda muRecOldN               // image has oldN now; make it newN (the new)
+    sta muRrHave
+    lda muRecNewN
+    sta muRrWant
+    jsr muRangeReplace
+    lda muUndoTop               // the top climbs past the record just redone
+    clc
+    adc muRecTot
+    sta muUndoTop
+    lda muUndoTop+1
+    adc #0
+    sta muUndoTop+1
+    jmp muRedrawNoHead
 
 // --- muNoteOpt -- A = the option byte for the linear note in MU_HOV ---
 //  The format stores a letter (1..7), an accidental (10 plain, 01 sharp) and an
@@ -4489,6 +4882,14 @@ muClkRts:
 //  Exit
 // ==========================================
 muQuit:
+    lda muDirty                 // unsaved changes warn once; the next Q discards
+    beq muQuitGo
+    lda muWarn
+    bne muQuitGo
+    inc muWarn
+    muStr(muSUnsaved)
+    jmp muStatus
+muQuitGo:
     lda #16                     // drain by CAPACITY: a release folds to 0
     sta muDrain
 muQuitDrain:
@@ -4553,6 +4954,12 @@ muSNotYet:  .text "? not yet"
 muSIllegal: .text "? illegal duration"
             .byte 0
 muSNoEvent: .text "? no event here"
+            .byte 0
+muSNoUndo:  .text "? nothing to undo"
+            .byte 0
+muSNoRedo:  .text "? nothing to redo"
+            .byte 0
+muSUnsaved: .text "? unsaved - q again"
             .byte 0
 // A black key is written as the sharp of the letter below it: one letter and a
 // sharp flag per semitone, indexed by the semitone inside the octave.
@@ -4838,3 +5245,21 @@ muBestHi:   .byte 0
 muCapLo:    .byte 0
 muCapHi:    .byte 0
 muTmp2:     .byte 0, 0
+
+// --- the undo stack and the dirty guard ---
+muDirty:    .byte 0             // an image byte changed since the last save
+muWarn:     .byte 0             // Q warned once; the next Q discards
+muUndoTop:  .word 0             // the next free byte in muUndoBuf (the stack top)
+muUndoLim:  .word 0             // the redo limit: actions undone are redoable to here
+muRecOff:   .word 0             // the record being built/applied: image offset...
+muRecV:     .byte 0             // ...voice...
+muRecOldN:  .byte 0             // ...bytes it replaces...
+muRecNewN:  .byte 0             // ...bytes it writes...
+muRecOld:   .byte 0, 0          // ...and the old bytes (oldN is 0 or 2)
+muRecTot:   .byte 0             // the record's total length
+muRecTmp:   .byte 0             // a write cursor while a record is built
+muRecStart: .word 0             // the record being undone starts here
+muRrHave:   .byte 0             // range replace: bytes there now...
+muRrWant:   .byte 0             // ...and bytes wanted
+muRrSrc:    .word 0             // ...from this offset in muUndoBuf
+muUndoBuf:  .fill MU_UNDO_SIZE, 0

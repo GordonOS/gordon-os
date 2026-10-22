@@ -49,7 +49,7 @@ ROW VOICE 1    |VOICE 2    |VOICE 3   OVR
 ...
  19 ...        |...        |...
 [rows 20-23: piano, all 8 octaves over 40 cells, black keys as three-row bars]
-DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q
+DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q
 ```
 
 **Row 0** — the file name, the tempo in force, the bar and the row under the cursor, and the
@@ -168,8 +168,8 @@ about how many rows a length takes is answered there.
 Two more keys read the simulation the grid is built from. `V` walks the whole tune and prints
 the tick the last event plays on, how many events each voice played, and whether the walk ended
 by every voice halting or by a refusal — a `TEM`, the utility lengths and the number of voices
-still playing follow on the second row. `X` prints the first eighteen events, one per grid row,
-as `t=` the tick, `v` the voice, `o=` the event's offset in the file and the two bytes found
+still playing follow on the second row. `SHIFT+X` prints the first eighteen events, one per grid
+row, as `t=` the tick, `v` the voice, `o=` the event's offset in the file and the two bytes found
 there, which is how the walk is compared against `tools/mus-sim.py`'s own trace.
 
 ### Utility lengths
@@ -379,8 +379,8 @@ press `Q` again to discard them, or `SHIFT+S` to save.
 ## Undo
 
 `Z` undoes the last action and `X` redoes it. One action is one thing you did — entering a note
-that split a longer one undoes as a single step, not three. The last 64 actions are held;
-opening a tune resets the history.
+that split a longer one undoes as a single step, not three. A long run of recent actions is
+held; opening a tune resets the history.
 
 ## Troubleshooting
 

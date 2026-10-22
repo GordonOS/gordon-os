@@ -1,19 +1,23 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: STEP 6 in progress.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 9,680 bytes of code, 1,476
-> fixups, 64 code pages, 45 pages of margin. Verified working: the screen, the layout, the
-> eight-octave piano, the key loop, the pointer, the pitch hover, the load/save path, the
-> timing module, the resumable three-voice walk, the tracker grid, the editing seek, the
-> length writer, the gap opener, **replace at an onset (6.1)**, **split (6.2)**, **fill
-> (6.3)**, **append (6.4)** — on an empty voice too — **rest (6.5)**, **delete (6.6)**,
-> **duration arming with its legality refusals (6.7)** and **the tempo flag (6.8)**, plus
-> a clipped redraw so an edit repaints only its own rows, and a status line whose lifetime
-> is counted in displayed frames so refusals are readable.
+> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 12,627 bytes of code, 76
+> code pages, 33 pages of margin. Verified working: the screen, the layout, the eight-octave
+> piano, the key loop, the pointer, the pitch hover, the load/save path, the timing module,
+> the resumable three-voice walk, the tracker grid, the editing seek, the length writer, the
+> gap opener, **replace (6.1)**, **split (6.2)**, **fill (6.3)**, **append (6.4)** — on an
+> empty voice too — **rest (6.5)**, **delete (6.6)**, **duration arming and its legality
+> refusals (6.7)**, **the tempo flag (6.8)** and **undo/redo with the dirty guard
+> (6.9-6.11)** — a range-diff stack where each action is one `(offset, voice, oldN, newN,
+> old, new)` record, undone or redone as a single range replace — plus a clipped redraw so
+> an edit repaints only its own rows, and a status line counted in displayed frames.
 >
-> **Where the next session starts.** Undo (6.9/6.10) and dirty (6.11), then the rest of
-> step 6. The `,` tie key and the bar's `DUR`/`TIE` click
-> cells are still unwired. The "note key does
+> **Where the next session starts.** 6.12 (no edit while playing), 6.13/6.14 (mouse-only and
+> keyboard note sessions), and insert row/bar (6.15-6.20). The `,` tie key and the bar's
+> `DUR`/`TIE` click cells are still unwired. **A harness lesson from 6.9:** the kernel's
+> 16-entry key ring drops keys pressed faster than a full-grid redraw finishes, so
+> `tools/probe.py` spaces keys with `KEY_GAP` (1.2s is safe); fast-pressed redos read as
+> swallowed, which is dropped input, not a logic fault. The "note key does
 > nothing on the test tune" mystery is solved and was never the key dispatch: `muSeek`'s
 > halted-voice arm returned with `muSekKind` still 1 (set by `muSkRecord`), so a row past
 > the last event of a halted voice — every tune's tail — ran the SPLIT planner beyond the
@@ -764,9 +768,9 @@ performed with the pointer first; the same edits are reachable from the computer
 - [x] **6.6 Delete.** *Verified: `SHIFT+INST/DEL` ($88) on `filltst`'s note removes the pair, `len0` 4 -> 2, and the later voices and the description move down two bytes with their length words untouched (`muDelGap`, the inverse of `muInsGap`). Only an onset answers, and the HLT pair is never a timed event, so the terminator cannot be deleted: inside-an-event, in-a-gap and empty-voice presses all refuse byte-clean.*
 - [x] **6.7 Legality.** *Verified: an armed 32nd at `TEM $90` (`filltst`, key `6`), a dotted 16th at `TEM $90` (odd 9-jiffy base, keys `5` `.`) and a triplet quarter at `TEM $a0` (`commodo`, whose `DataTempoTable` byte is 0 -- keys `3` `.` `.` `.`) each refuse with `? illegal duration` and write nothing. The positive controls write: a dotted quarter at `$90` enters as `30 a1` and a triplet quarter as `90 a1` -- the triplet byte is `$90`, class 4 bits 2-4 plus bit 7, never `$80` alone. Arming is keys `1`-`7` (plain classes, the dot state rides along), `8`/`9` (UTL/UTV, class 1 -- no dots, and `.` refuses to cycle there because bit 5 picks UTV), `.` cycles none -> dotted -> double-dotted -> triplet; `muDrawArm` repaints the bar's `DUR` value and dot cells through `kPrintCharAt`.*
 - [x] **6.8 Tempo flags.** *Verified with two generated tunes (`temp/gen-temflag.py` -> `music/temflag.mus`, `music/temflg2.mus`): a `TEM $88` after a quarter note makes the following 16th illegal (136/16 = 8.5), the walk stops with `MU_ERR_LEN`, and `muGdFlag` draws `?` in the dying voice's first lane cell on the refused event's onset row (row 4 in both) -- with the `TEM` in voice 1 and in voice 2 alike, since the tempo is global. The voice and row are captured at the refusal inside `muStep` (`muErrV`/`muErrRow`), `muSimStop` now returns C=1 so no caller measures the event that never played, and the flag is re-derived by every redraw, so it clears as soon as the cause goes -- deleting the `TEM` itself awaits the command panel (step 7). The host model stops at the same event with the same diagnosis.*
-- [ ] **6.9 Undo/redo.** 50 mixed actions, undo all, save, extract, hash against the starting file — identical; redo all and it is the edited file.
-- [ ] **6.10 Undo granularity.** A split undoes in one step.
-- [ ] **6.11 Dirty.** `Q` with unsaved changes warns; `SAVE` clears; `Q` twice exits and the file on disk is the pre-edit file; an edit after a warning re-arms it.
+- [x] **6.9 Undo/redo.** *Verified on `filltst`: a range-diff stack records every action as one `(offset, voice, oldN, newN, oldBytes, newBytes)` record, so undo and redo are each a single range-replace through `muInsGap`/`muDelGap` -- no multi-step offsets to keep in step as a gap shifts the tail. `a,DOWN,a,DOWN,a,z,z,z` returns byte-identical to the starting file; `...,x,x,x` rebuilds `18 a1 18 a1 18 a1` (the three edits). Replace, rest, delete, split and fill each undo and redo correctly. **Harness note:** the kernel's 16-entry key ring drops keys pressed faster than a full-grid redraw completes, so `tools/probe.py` must space keys (`KEY_GAP=1.2`); at machine-gun 0.45s spacing a redo looked swallowed -- it was dropped input, not a logic fault.*
+- [x] **6.10 Undo granularity.** *A split is one record (`oldN=2`, `newN=2+k`), so `DOWN,a,z` on `commodo`/`filltst` restores the original event in a single `Z`.*
+- [x] **6.11 Dirty.** *`muPushEdit` sets a dirty byte and clears the warn byte on every edit; `Q` while dirty prints `? unsaved - q again` and stays (the editor is still up after `a,q`), a second `Q` exits, and `SHIFT+S` clears both. The guard is in `muQuit`, before the key-drain.*
 - [ ] **6.12 No edit while playing.** Every edit path reports `? stop first` while the child is inside `kSidPlay`.
 - [ ] **6.13 A mouse-only session.** Enter twelve notes across three voices, change two pitches, rest one, undo two, save — never touching the computer keyboard — then decode. *Expect:* exactly those rows, and the same file as the same edits made from the keyboard.
 - [ ] **6.14 From the keyboard.** The same twelve notes using the computer-keyboard note map
