@@ -5542,8 +5542,7 @@ muPtPlaying:
     sta muPhFrame
     jmp muPlayhead
 muPtStopped:
-    jsr muPhClear               // drop any markers still on screen
-    lda muPlayHush
+    lda muPlayHush               // the cursor stays where the music stopped
     bne muPtRts                 // the second hush already landed
     inc muPlayHush
     jmp muSidHushSafe
@@ -5602,8 +5601,53 @@ muPhLpStep:
     beq muPhRender
     jmp muPhLp
 muPhRender:
-    jsr muPhFollow              // keep the playhead on the centre line
-    jmp muPhDraw
+    jsr muPhFollow              // keep the sounding row inside the window
+    jmp muPhCursor              // and put the cursor on it -- the cursor IS the playhead
+
+// --- muPhCursor -- the cursor marks the sounding row ---
+//  One indicator, not two: the cursor's screen row is derived from the placed
+//  voice's row exactly as the grid draws it, and stop leaves it where it is.
+//  The cursor's voice wins; once that voice has halted, the first voice still
+//  placed is used.
+muPhCursor:
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    tax
+    lda muPhHave,x
+    bne muPcHave
+    ldx #0
+muPcScan:
+    lda muPhHave,x
+    bne muPcHave
+    inx
+    cpx #3
+    bcc muPcScan
+    rts                         // nothing placed: leave the cursor alone
+muPcHave:
+    lda muPhRowLo,x
+    sec
+    sbc muTop
+    sta muTmpL
+    lda muPhRowHi,x
+    sbc muTop+1
+    bne muPcRts                 // above the window, or 256+ rows below it
+    lda muTmpL
+    cmp #MU_GRID_ROWS
+    bcs muPcRts
+    clc
+    adc #MU_GRID_TOP
+    sta muTmpH                  // the screen row the sounding row is on
+    ldy #MU_ROW
+    lda (dataPtr),y
+    cmp muTmpH
+    beq muPcRts                 // already there
+    jsr muCursorHide
+    lda muTmpH
+    ldy #MU_ROW
+    sta (dataPtr),y
+    jsr muCursorShow
+muPcRts:
+    rts
 
 // --- muPhAllDone -- C=1 when every voice is placed or halted ---
 muPhAllDone:
@@ -5722,94 +5766,6 @@ muPhCapture:
     lda #1
     sta muPhHave,x
 muPhcRts:
-    rts
-
-// --- muPhDraw -- erase last frame's markers, draw this frame's ---
-//  The spare column 39 is the playhead's alone in the grid rows, so a marker is
-//  a lone cell write: no cursor, no shadow (kPrintCharAt via muPutC).
-muPhDraw:
-    lda #0
-    sta muGdClip                // the markers are not inside a redraw band
-    ldx #2
-muPhErLp:
-    lda muPhPrev,x
-    cmp #$ff
-    beq muPhErNext
-    ldy #MU_CURROW
-    sta (dataPtr),y
-    lda #39
-    ldy #MU_CURCOL
-    sta (dataPtr),y
-    lda #MU_SPACE
-    jsr muPutC
-muPhErNext:
-    dex
-    bpl muPhErLp
-    ldx #2
-muPhDrLp:
-    lda #$ff
-    sta muPhScr,x               // no marker unless the row falls in the window
-    lda muPhHave,x
-    beq muPhDrNext
-    lda muPhRowLo,x             // screen row = timeline row - muTop + MU_GRID_TOP
-    sec
-    sbc muTop
-    sta muTmpL
-    lda muPhRowHi,x
-    sbc muTop+1
-    bne muPhDrNext              // above the window, or 256+ rows below it
-    lda muTmpL
-    cmp #MU_GRID_ROWS
-    bcs muPhDrNext              // below the window
-    clc
-    adc #MU_GRID_TOP
-    sta muPhScr,x
-    ldy #MU_CURROW
-    sta (dataPtr),y
-    lda #39
-    ldy #MU_CURCOL
-    sta (dataPtr),y
-    lda #MU_PH_CHAR
-    jsr muPutC
-muPhDrNext:
-    dex
-    bpl muPhDrLp
-    ldx #2
-muPhCpLp:
-    lda muPhScr,x
-    sta muPhPrev,x
-    dex
-    bpl muPhCpLp
-    rts
-
-// --- muPhClear -- erase every marker and forget them (stop / scroll) ---
-muPhClear:
-    lda muPhPrev                // nothing drawn: cheap no-op while stopped
-    and muPhPrev+1
-    and muPhPrev+2
-    cmp #$ff
-    beq muPhClRts
-    lda #0
-    sta muGdClip
-    ldx #2
-muPhClLp:
-    lda muPhPrev,x
-    cmp #$ff
-    beq muPhClNext
-    ldy #MU_CURROW
-    sta (dataPtr),y
-    lda #39
-    ldy #MU_CURCOL
-    sta (dataPtr),y
-    lda #MU_SPACE
-    jsr muPutC
-muPhClNext:
-    lda #$ff
-    sta muPhPrev,x
-    sta muPhScr,x
-    dex
-    bpl muPhClLp
-muPhClRts:
     rts
 
 // --- muPlaying -- C=1 and a "? stop first" status when the player is on ---
@@ -6281,8 +6237,6 @@ muPhTgtHi:  .fill 3, 0
 muPhRowLo:  .fill 3, 0          // the timeline row the walk matched the pointer on
 muPhRowHi:  .fill 3, 0
 muPhHave:   .fill 3, 0          // 1 = that voice's pointer was matched this frame
-muPhScr:    .byte $ff, $ff, $ff // the screen row each voice's marker is drawn at
-muPhPrev:   .byte $ff, $ff, $ff // ...and where it was drawn last frame, to erase
 muFollow:   .byte 1             // the window follows the playhead, always
 
 // --- the undo stack and the dirty guard ---

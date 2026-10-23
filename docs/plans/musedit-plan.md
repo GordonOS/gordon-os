@@ -16,7 +16,7 @@
 > mode -- plus a clipped redraw so an edit repaints only its own rows, a status line
 > counted in displayed frames, and **playback (Step 8)**: a music thread child plays the tune
 > through `kSidPlay`, `SPACE` toggles it, `sidplay.inc` publishes each voice's position at
-> `$54A2`, a column-39 playhead tracks the sounding row each frame, the window follows it, every
+> `$54A2`, the cursor tracks the sounding row each frame, the window follows it, every
 > edit path reports `? stop first` while it runs (6.12), `? no player` when there is no child,
 > and the child is reaped before the surface goes.
 >
@@ -354,7 +354,7 @@ DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q
 | 20-23 | the piano — all eight octaves, 40 cells, five cells per octave |
 | 24 | the control bar: duration, dot state, tie, play, commands, undo, save, quit |
 
-- **Columns**: 4 (row number) + 11 + 1 + 11 + 1 + 11 = 39; the spare column 39 is the playhead
+- **Columns**: 4 (row number) + 11 + 1 + 11 + 1 + 11 = 39; the spare column 39 is unused headroom
   marker.
 - **Lane, 11 cells**: three for the note and the bar as far as it reaches; the last cell is `*`
   when the note carries commands, or `~` when its onset is off-grid (the bar then stops a cell
@@ -363,8 +363,8 @@ DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q
 - **Cursor**: the cell at `(row, voice)` is drawn in the highlight colour and the row number is
   prefixed `>`; the control bar names the voice. No reverse-video glyph is needed, so no cell
   has to be restored by a writer that cannot restore it.
-- **Playhead**: the sounding row, drawn as `>` in column 39 with the row number highlighted;
-  the window follows it, always.
+- **Playhead**: the sounding row. The **cursor is the playhead**: the `>` in column 0 moves to
+  the row the music is on, and stop leaves it there. The window follows it, always.
 
 **The scroll region is what keeps the keyboard still.** It is set once after `kSwitchView`, so
 no cursor-carrying writer — ours or the kernel's — can scroll the piano or the control bar
@@ -844,7 +844,7 @@ The published block, the thread child, stop/reap, follow.
 > claim-inside-`kSidPlay` race. `muMusicBye` reaps the child (yield-wait, `SYS_KILL` fallback)
 > before `kFreeScreen`. `sidplay.inc` publishes each voice's next-command pointer at `$54A2`
 > (`SID_POS_BLOCK`); `muPlayhead` runs the grid's window-bounded walk each displayed frame and
-> marks the first row where the walk's pointer equals the published one, in the spare column 39.
+> marks the first row where the walk's pointer equals the published one, and moves the cursor to it.
 > The window follows the playhead: `muPhFollow` recentres `muTop` when the cursor voice leaves the
 > window. **Harness note:** the VICE binary monitor stops the CPU on a
 > read, so a probe that does not `resume()` between samples leaves the player paused and the
