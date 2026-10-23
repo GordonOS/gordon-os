@@ -8,6 +8,11 @@
 // --- Task slot limit ---
 .const MAX_TASKS = 24         // change to resize all arrays
 
+//  The scheduler's tick counter (src/kernel/irq.inc increments it once per CIA
+//  Timer A interrupt). Published to tasks at a fixed address -- see
+//  src/tasks/kernel-data.inc, which names the same byte for task builds.
+.const tickCount = $54A8
+
 // --- Semaphore pool ---
 .const MAX_SEMAPHORES = 4     // counting semaphores for task synchronisation (0=unavailable, 1-255=available slots)
 

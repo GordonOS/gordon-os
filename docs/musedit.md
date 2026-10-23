@@ -365,6 +365,12 @@ row. It follows repeats (`HED`/`TAL`) back to the start of the section, and it s
 site** when a phrase (`CALL`) is playing rather than the phrase body. When you stop, the cursor
 stays where the music stopped — that is where editing resumes.
 
+The player publishes its position once per **event**, and an event can last a whole note (128 grid
+rows at the default tempo), so the cursor is stepped from the scheduler-tick clock between
+publications rather than from each fresh pointer: one row per note-unit of ticks, re-anchored on
+every event. A scroll redraws only the newly revealed bottom line — the rows above are moved
+by the kernel's REU screen scroll.
+
 The first release always plays from the start: the format has no seek command, and a voice's
 stream can only be entered at its beginning or at a `HED`. Use sections to structure a long
 tune.

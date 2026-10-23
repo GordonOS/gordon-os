@@ -9,7 +9,7 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '119',
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '118',
     [Parameter(Mandatory = $false)][string]$ExpectPockets = '22'
 )
 
@@ -55,7 +55,8 @@ $occ += , @(0x0f00, 0x0fbf)   # sprite slots 5-7
 $occ += , @(0x1d40, 0x1fff)   # data heap
 #  The SID player publishes a 6-byte playhead block at $54A2 (sid.asm's
 #  SID_POS_BLOCK); library code writes it, so the kernel map cannot show it. It
-#  takes the free pocket after the slot-shadow down to $54A8-$54AA (3B).
+#  takes the free pocket after the slot-shadow down to $54A8-$54AA (3B); the
+#  scheduler's published tickCount occupies $54A8, leaving $54A9-$54AA (2B).
 $occ += , @(0x54a2, 0x54a7)   # sid.lib player-position block (SID_POS_BLOCK)
 $occ += , @(0x2000, 0x3fff)   # framebuffer
 $occ += , @(0x5700, 0xc3ff)   # task pool
@@ -173,8 +174,8 @@ Check 'dlEvMaybeSelf     :' (Occupied 0xCA8C 0xCA98) 'dlEvMaybeSelf is 13B at th
 #  The four loader-band helpers share one band: $5340 font-help, $53F2 pool-top,
 #  $5457 cursor-helpers, $5482 slot-shadow (32B), ending flush at $54A1. The SID
 #  player's 6-byte playhead block ($54A2-$54A7) then leaves a 3-byte pocket.
-$hit = @($runs | Where-Object { $_.Range -eq '54A8-54AA' })
-Check 'pocket 54A8-54AA :' ($hit.Count -eq 1 -and $hit[0].Size -eq 3) ('{0} bytes (slot-shadow 32B at $5482, SID_POS_BLOCK 6B at $54A2)' -f ($hit | ForEach-Object { $_.Size }))
+$hit = @($runs | Where-Object { $_.Range -eq '54A9-54AA' })
+Check 'pocket 54A9-54AA :' ($hit.Count -eq 1 -and $hit[0].Size -eq 2) ('{0} bytes (slot-shadow 32B at $5482, SID_POS_BLOCK 6B at $54A2, tickCount 1B at $54A8)' -f ($hit | ForEach-Object { $_.Size }))
 #  The REU DMA band's own tail: the routines end at $CA1A and the sprite API
 #  starts at $CA2F, so this run belongs to neither and stays free.
 $hit = @($runs | Where-Object { $_.Range -eq 'CA2C-CA2E' })

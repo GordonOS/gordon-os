@@ -152,7 +152,8 @@ main.asm  .pc=$0801  →  BASIC loader
 | `$5457-$5481` | 43B | `cursor-helpers.inc` | `dlFindMaster` (`$5457`), `dlInstallCursor` (`$546F`), end `$5482` |
 | `$5482-$54A1` | 32B | `slot-shadow.inc` | `clearSlotShadows` — zeroes a slot's per-task ZP shadow when the slot is spawned, so a recycled id cannot inherit the previous occupant's ZP window |
 | `$54A2-$54A7` | 6B | `SID_POS_BLOCK` (sid.asm) | The SID player publishes each voice's next-command pointer here (`WorkNxtCmdLo[3]` then `WorkNxtCmdHi[3]`); a reader's playhead maps `(ptr − 2)` to the sounding event's row. Written by library code, pinned by an assert in `main.asm` |
-| `$54A8-$54AA` | 3B | | ✓ Free |
+| `$54A8` | 1B | `tickCount` (`slot-shadow.inc`) | Scheduler-tick counter, incremented by the CIA #1 Timer A handler in `irq.inc` — the same 59.2 Hz (PAL) clock the Sidplayer's jiffy uses. Read by tasks through `kernel-shared.inc` for time-based stepping (the `musedit` playhead) |
+| `$54A9-$54AA` | 2B | | ✓ Free |
 | **scrollScreenSlot + Task Pool** — `$54AB-$C3FF` | | | |
 | `$54AB-$567C` | 466B | `scrollScreenSlot` | Per-row background slot scroll up; guarded by `.assert scrollSlotEnd <= POOL_BASE` |
 | `$567D-$56FD` | 129B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembled from the per-sprite X-MSB flags, sprite pointers → `$07F8-$07FF`, collision latch, `$D015` masked by `sprPubMask`, the `inc sprFrameCount` clock, and the deadline guard |
@@ -611,7 +612,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 127
 | `$1D14-$1D15` | 2B | Free — the tail of the frame routine's pocket, above `sprFrameDma` (86B) and below `kLibHold` |
 | `$52C1-$52CC` | 11B used + 1B free | `kbScreenGate` (11B, `$52C1-$52CB`) — the switch path's entry for a display change the key scan recorded — then 1B free at `$52CC` |
 | `$5337-$533F` | 9B | Free — the loader's growth budget: after `sprInstall` + the state mover (`$52DC-$5336`) and before `font-help.inc` at `$5340` |
-| `$54A8-$54AA` | 3B | Free (tail of the loader band after the `SID_POS_BLOCK` playhead block at `$54A2-$54A7`; the band holds `pool-top.inc` 101B at `$53F2-$5456`, `cursor-helpers.inc` 43B at `$5457-$5481`, `slot-shadow.inc` 32B at `$5482-$54A1`) |
+| `$54A8-$54AA` | 1B used + 2B free | `tickCount` (1B at `$54A8`) — the scheduler-tick counter, then 2B free at `$54A9-$54AA` (tail of the loader band after the `SID_POS_BLOCK` playhead block at `$54A2-$54A7`; the band holds `pool-top.inc` 101B at `$53F2-$5456`, `cursor-helpers.inc` 43B at `$5457-$5481`, `slot-shadow.inc` 32B at `$5482-$54A1`) |
 | `$56FB-$56FF` | 5B | Free — headroom below the pool, after `rasterCommit` (126B at `$567D-$56FA`) |
 | `$CA1B-$CA2B` | 17B | `warmClearBufRecs` (kernel/warm-boot-reset.inc) — clears every slot's `taskDataSize`/`taskDataPtrLo/Hi` at a warm reboot, `jsr`-ed from `warmBootReset`. Between the REU DMA routines in `reu.inc` (ending `$CA1A`) and the sprite API (`$CA2F`) |
 | `$CA2C-$CA2E` | 3B | Free — the tail of that run |
@@ -712,5 +713,6 @@ pages.
 | `$5457-$5481` | `cursor-helpers.inc` (`dlFindMaster`/`dlInstallCursor`) — loader band |
 | `$5482-$54A1` | `slot-shadow.inc` (`clearSlotShadows` — zeroes a recycled slot's ZP shadow) |
 | `$54A2-$54A7` | `SID_POS_BLOCK` — the SID player's published per-voice playhead pointers |
+| `$54A8` | `tickCount` — the scheduler-tick counter (59.2 Hz PAL), incremented from `irq.inc` |
 | `$FF70-$FF7D` | gfx.lib circle scratch (`kCircle*`) — part of the `$FC3F-$FF7D` block |
 | `$FFFA-$FFFF` | Hardware vectors |

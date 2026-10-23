@@ -36,6 +36,8 @@ irqNotVic:
     and #$01                    // ONLY Timer A may reach the scheduler --
     beq irqResume               // a raster-only interrupt must not switch
 
+    inc tickCount               // the clock kSidPlay sleeps against: one per jiffy
+
     jsr kbPoll                  // scan keyboard -> ring buffer
 
     // --- process sleep ticks: decrement SLEEPING tasks ---

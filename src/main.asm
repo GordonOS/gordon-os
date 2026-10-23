@@ -799,8 +799,8 @@ reuDirBuf:
 .assert "kernel-data.inc alias: reuFsFlags moved", reuFsFlags, $42DB
 .assert "kernel-data.inc alias: reuFsName moved", reuFsName, $42DC
 .assert "kernel-data.inc alias: reuDirBuf moved", reuDirBuf, $13D4
-.assert "shell.asm alias: osName moved", osName, $AD3
-.assert "shell.asm alias: osVersion moved", osVersion, $ADC
+.assert "shell.asm alias: osName moved", osName, $AD0
+.assert "shell.asm alias: osVersion moved", osVersion, $AD9
 .assert "shell.asm alias: taskLo moved", taskLo, $186F
 .assert "shell.asm alias: taskHi moved", taskHi, $1887
 .assert "gfxdemo.asm alias: taskGfxReuLo moved", taskGfxReuLo, $421D

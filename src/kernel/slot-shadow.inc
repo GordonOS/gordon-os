@@ -56,6 +56,15 @@ cssRts:
     rts
 .label slotShadowEnd = *
 
+// --- the scheduler's tick counter, published to tasks ---
+//  One byte in the pocket above `SID_POS_BLOCK`, incremented once per CIA Timer A
+//  interrupt (src/kernel/irq.inc). It is the clock `kSidPlay` sleeps against -- a
+//  tick per jiffy -- which a display frame count cannot express (50.1 Hz against
+//  59.2). Tasks name it through src/tasks/kernel-data.inc; 8-bit and wrapping, so
+//  subtract two readings for the elapsed ticks.
+.pc = $54A8
+    .byte 0
+
 //  NOTE: a new task's PER-TASK SPRITE state needs the same treatment, and it
 //  lives in `clearSlotSprite` -- in src/kernel/sprite.inc, beside the sprite
 //  code that reads it, because this band is exactly full (see main.asm's

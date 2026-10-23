@@ -5608,8 +5608,87 @@ muPhReadNx:
     lda muHistV
     cmp #3
     bcc muPhRead
+    jsr muPhAnchor              // the row the cursor sits on
     jsr muPhFollow
     jmp muPhCursor
+
+// --- muPhAnchor -- the cursor's row: re-anchor at an event, step it in between ---
+//  The player publishes positions only at events, and one event can cover many
+//  rows (a whole rest is 128 of them). So a match re-anchors the cursor exactly,
+//  and the rows in between are counted from the kernel's tick counter: the player
+//  sleeps whole ticks per jiffy and a row is `unit` jiffies, so the elapsed ticks
+//  are the rows that have gone by. Nothing is estimated.
+muPhAnchor:
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    tax
+    lda muPhHave,x
+    bne muPaHave
+    ldx #0
+muPaScan:
+    lda muPhHave,x
+    bne muPaHave
+    inx
+    cpx #3
+    bcc muPaScan
+    rts                         // nothing matched: hold the cursor, do not step
+muPaHave:
+    lda muPhRowLo,x
+    cmp muPhBaseLo
+    bne muPaSet
+    lda muPhRowHi,x
+    cmp muPhBaseLo+1
+    bne muPaSet
+    jmp muPhStep                // still inside the same event
+muPaSet:
+    lda muPhRowLo,x             // a new event: take its row, restart the tick count
+    sta muPhBaseLo
+    sta muPhCurLo
+    lda muPhRowHi,x
+    sta muPhBaseLo+1
+    sta muPhCurLo+1
+    lda #0
+    sta muPhAcc
+    sta muPhAcc+1
+    lda tickCount
+    sta muPhLast
+    rts
+
+// --- muPhStep -- add the ticks that went by, one row per `unit` of them ---
+muPhStep:
+    lda tickCount
+    sec
+    sbc muPhLast
+    beq muPhStRts               // no tick since the last look
+    sta muTmpL                  // elapsed ticks
+    lda tickCount
+    sta muPhLast
+    lda muPhAcc
+    clc
+    adc muTmpL
+    sta muPhAcc
+    bcc muPhStLp
+    inc muPhAcc+1
+muPhStLp:
+    lda muPhAcc+1
+    bne muPhStGo
+    lda muPhAcc
+    cmp muUnitVal
+    bcc muPhStRts
+muPhStGo:
+    lda muPhAcc
+    sec
+    sbc muUnitVal
+    sta muPhAcc
+    lda muPhAcc+1
+    sbc #0
+    sta muPhAcc+1
+    inc muPhCurLo
+    bne muPhStLp
+    inc muPhCurLo+1
+    jmp muPhStLp
+muPhStRts:
+    rts
 
 
 // --- muPhCursor -- the cursor marks the sounding row ---
@@ -5618,25 +5697,11 @@ muPhReadNx:
 //  The cursor's voice wins; once that voice has halted, the first voice still
 //  placed is used.
 muPhCursor:
-    ldy #MU_VOICE
-    lda (dataPtr),y
-    tax
-    lda muPhHave,x
-    bne muPcHave
-    ldx #0
-muPcScan:
-    lda muPhHave,x
-    bne muPcHave
-    inx
-    cpx #3
-    bcc muPcScan
-    rts                         // nothing placed: leave the cursor alone
-muPcHave:
-    lda muPhRowLo,x
+    lda muPhCurLo
     sec
     sbc muTop
     sta muTmpL
-    lda muPhRowHi,x
+    lda muPhCurLo+1
     sbc muTop+1
     bne muPcRts                 // above the window, or 256+ rows below it
     lda muTmpL
@@ -5663,23 +5728,9 @@ muPcRts:
 //  happens only when the window actually moves, so a settled playhead costs one
 //  walk per frame and nothing more.
 muPhFollow:
-    ldy #MU_VOICE
-    lda (dataPtr),y
-    tax
-    lda muPhHave,x
-    bne muPfRow
-    ldx #0
-muPfScan:
-    lda muPhHave,x
-    bne muPfRow
-    inx
-    cpx #3
-    bcc muPfScan
-    rts                         // no voice placed: nothing to follow
-muPfRow:
-    lda muPhRowLo,x
+    lda muPhCurLo               // the row the cursor is on
     sta muValLo
-    lda muPhRowHi,x
+    lda muPhCurLo+1
     sta muValHi
     lda muValLo                 // delta = primary - muTop
     sec
@@ -6383,6 +6434,10 @@ muPhTgtHi:  .fill 3, 0
 muPhRowLo:  .fill 3, 0          // the timeline row the walk matched the pointer on
 muPhRowHi:  .fill 3, 0
 muPhHave:   .fill 3, 0          // 1 = that voice's pointer was matched this frame
+muPhCurLo:  .fill 2, 0          // the row the cursor is on while playing (lo, hi)
+muPhBaseLo: .fill 2, 0          // the onset row of the event it is anchored to
+muPhAcc:    .fill 2, 0          // ticks accumulated towards the next row
+muPhLast:   .byte 0             // tickCount at the last look
 muHistN:    .fill 3, 0          // next slot per voice
 muHistV:    .byte 0             // the voice a lookup is for
 muHistS:    .byte 0             // its slot cursor

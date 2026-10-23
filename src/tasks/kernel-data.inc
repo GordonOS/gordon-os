@@ -86,8 +86,8 @@
 .const reuFsFlags        = $42DB    // page counter scratch
 .const reuFsName         = $42DC    // name pointer scratch
 .const reuDirBuf        = $13D4    // 256B directory page buffer
-.const osName            = $AD3    // kernel string (init.inc)
-.const osVersion         = $ADC    // kernel string (init.inc)
+.const osName            = $AD0    // kernel string (init.inc)
+.const osVersion         = $AD9    // kernel string (init.inc)
 //  The sprite shadow base (kernel label sprShReg) -- the block the raster
 //  commit publishes to $D000-$D02E every frame. It is the middle field of the
 //  per-task state: 24B of sheet records come before it, 8B of frame indices
@@ -121,6 +121,7 @@
 //  per-tick animation is sampled unevenly. Compare for CHANGE only -- 8-bit, and
 //  it wraps.
 .const frameCount         = $CFFF
+
 .const taskLo            = $186F
 .const taskHi            = $1887
 .const taskShadowFlag    = $19EB
