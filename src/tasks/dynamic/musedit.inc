@@ -2316,6 +2316,8 @@ muGdAtCell:
     rts
 
 // --- muGdPitch -- three cells: the note's name and its octave ---
+//  The option byte stores the octave inverted (field = 7 - octave), because the
+//  player's table starts at octave 7 and halves per field.
 muGdPitch:
     lda muSopt
     and #$07
@@ -2347,6 +2349,7 @@ muGdPSem:
     lsr
     lsr
     and #$07
+    eor #7                      // the field is stored inverted: field = 7 - octave
     clc
     adc #'0'
     jmp muPutC
@@ -4334,7 +4337,9 @@ muUxDone:
 
 // --- muNoteOpt -- A = the option byte for the linear note in MU_HOV ---
 //  The format stores a letter (1..7), an accidental (10 plain, 01 sharp) and an
-//  octave; a black key is written as the sharp of the letter below it.
+//  octave, and it stores the octave INVERTED: the player's frequency table starts
+//  at octave 7 and is halved once per octave field, so field = 7 - octave. A black
+//  key is written as the sharp of the letter below it.
 muNoteOpt:
     ldy #MU_HOV
     lda (dataPtr),y
@@ -4363,6 +4368,7 @@ muNoAcc:
     ora muNewOpt
     sta muNewOpt
     lda muTmp2
+    eor #7                      // the field is stored inverted: field = 7 - octave
     asl
     asl
     asl

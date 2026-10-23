@@ -140,6 +140,11 @@ The tune in RAM **is the `.mus` image**:
 4. `lenN = 2 × rowsN`;
 5. voice *n*'s data starts at `8 + len0 + … + len(n-1)` — derived, never stored.
 
+**The note option byte** is `accidental<<6 | (7-octave)<<3 | letter`. The octave is stored
+**inverted**, because the player's frequency table starts at octave 7 and is halved once per
+field: read a field as `7 - field` and write `7 - octave`. `tools/gen-mus.py` writes it that way
+and `sidplay.inc` says so in its own words ("Octive is stored in EORed format so up is down").
+
 Random access to row *i* of voice *n* is `voiceStart(n) + 2*i`. Insert/delete is a 2-byte
 memmove of everything after the row (the rest of this voice, the later voices, the
 description and any trailing bytes); only this voice's length word changes — the later
@@ -849,15 +854,15 @@ The published block, the thread child, stop/reap, follow.
 - [x] **8.1 The block.** *`main.asm` asserts the 6-byte block is free of slot-shadow code at `$54A2` (`SID_POS_BLOCK` in `sid.asm`); `verify-map.ps1` passes with 119 and the 3-byte `54A8-54AA` pocket; `sid.lib` is 3324 bytes (still 13 pages), relocation verification OK -- the two literal `sta $54A2,x` / `sta $54A5,x` stores are position-independent, not fixups.*
 - [x] **8.2 It is live.** *Verified in VICE on `commodo`: while playing, `$54A2-$54A7` holds each voice's next-command pointer (valid tune-image addresses that advance over the run); on `SPACE` stop they freeze. Read only while our own child plays.*
 - [x] **8.3 Play.** *Verified on `katmand`: `SPACE` plays and the column-39 marker tracks the sounding row down the grid (rows 8 -> 12 -> 15 -> 18 over the run). `filltst`'s single note holds the marker at row 0.*
-- [ ] **8.4 Loops.** On `immig` the playhead returns to the `HED` row at each `TAL`. *(The first-match walk gives this by construction -- a looped section reuses its pointers -- but not separately filmed.)*
+- [x] **8.4 Loops.** *Verified on `immig`: voice 1's published pointer walks `$821c -> $9860 -> $a064 -> $a46a` and then jumps **back to `$a06c`** (the section's `HED` stream) at 18.1 s, and the frame captured at that sample has the column-39 marker on row `01` — the top of the section. The wrap repeats on the next pass.*
 - [x] **8.5 Follow.** *Verified on `katmand`: with `SHIFT+F` on, the window scrolls to keep the marker in view (the top row-number glyph changes as `muTop` advances); off, the view stays put.*
 - [x] **8.6 Stop.** *Verified: a second `SPACE` silences at once, the marker is erased (`muPhClear`), and a new play works immediately.*
-- [ ] **8.7 Stop/play in the same instant.** Repeatedly — it always stops, the child never wedges, play always works afterwards. *(Second-hush guard in; needs the rapid-toggle run.)*
+- [x] **8.7 Stop/play in the same instant.** *Verified: twelve `SPACE` presses 0.15 s apart leave the tune stopped with `$D404/$D40B/$D412` all `0` and the published pointers frozen, and the next `SPACE` plays again (`$D404 = $40`, pointers advancing) — the child never wedges and every later toggle behaves. Note `kSidHush` silences by zeroing the three voice-control registers; `$D418` keeps the library's `$08` filter setting, so the voice-control registers are what a stop is checked against.*
 - [x] **8.8 No player.** *Verified: with the player child gone (killed from the shell while playing), `SPACE` reports `? no player` on musedit's OWN head row, the playhead is cleared, and the editor keeps running -- further `SPACE` presses report again, a note key still edits, and `Q` still quits cleanly. This is the same state a failed `sid.lib` load leaves, because a failed lazy load prints `could not load sid.lib` and then EXITS the calling task (`libFailExit`), so `kSidPlay` never returns and the parent must detect the dead child itself (`muPlayTick`); for the same reason every parent-side `kSidHush` is gated by `muSidHushSafe` -- an unguarded hush with no `sid.lib` loaded would exit musedit. The player is per-session: once the child is gone, PLAY reports rather than respawning.*
 - [x] **8.9 No orphan.** *Verified: quit while playing (`SPACE` then `q` on `filltst`) reaps the child in `muMusicBye` before `kFreeScreen` and returns cleanly to the shell prompt.*
 - [ ] **8.10 ZP.** F-key away and back during playback — the music is unbroken and the other task still runs.
-- [ ] **8.11 Audition.** With the tune stopped, click piano keys across the whole range — each sounds at the pitch named in the readout (compare a few against `sidplay` playing a tune in that register), and no note sticks after about ten displayed frames.
-- [ ] **8.12 Audition stands down.** With `sidplay` playing from another screen, click keys — no sound, no error, the editor keeps working; then play our own tune and confirm it is unaffected.
+- [ ] **8.11 Audition.** With the tune stopped, click piano keys across the whole range — each sounds at the pitch named in the readout (compare a few against `sidplay` playing a tune in that register), and no note sticks after about ten displayed frames. *(Not implemented: a piano click writes the note into the image and nothing plays it — `muNoteClick` is the only entry path and it calls no player.)*
+- [ ] **8.12 Audition stands down.** With `sidplay` playing from another screen, click keys — no sound, no error, the editor keeps working; then play our own tune and confirm it is unaffected. *(Follows 8.11.)*
 
 ### Step 9 — Gates and release
 

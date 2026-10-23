@@ -7503,6 +7503,18 @@ The bags were right and the sampling was wrong, and no re-weighting could fix it
 
 ---
 
+## Bug #137 — `musedit` read and wrote the note octave field un-inverted, so every file displayed and every entered note sounded an octave off 🟠 ✅ FIXED (2026-10-23)
+
+**Symptoms:** opening `immig` showed `F#5` and `F#4` in the grid for notes whose real pitches are `F#2` and `F#3` (`tools/gen-mus.py --decode` prints the truth), and a note entered at the keyboard's middle octave came back on the grid one octave lower than the key that produced it.
+
+**Root cause:** the Sidplayer's note option byte stores the octave **inverted** — `accidental<<6 | (7-octave)<<3 | letter` — because the player's frequency table begins at octave 7 and is halved once per field (`sidplay.inc`: "Octive is stored in EORed format so up is down"). `musedit` treated bits 3-5 as the octave itself in both directions: `muGdPitch` printed the raw field, and `muNoteOpt` wrote `octave << 3`. Nothing caught it because `tools/mus-sim.py`, the host model the grid was checked against, made the same mistake in its `pitch_name` — the editor and its oracle agreed while both disagreed with the format. The entry side was invisible on screen too: the writer and the display inverted the same way, so an entered note looked right and only its *pitch on the chip* (and its pitch in a saved file) was wrong.
+
+**Fix:** both musedit sites now `eor #7` on the field (`muGdPitch` when reading, `muNoteOpt` when writing) and `mus-sim.py`'s `pitch_name` computes `7 - ((opt >> 3) & 7)`. Verified in VICE: `immig`'s grid now reads `F#2`/`F#3`, `mus-sim.py --grid` prints the identical `F#2` at row 01, and a note entered at octave 4 (keyboard `s`, D) renders as `D-4`. `docs/plans/musedit-plan.md` § 3 now states the inversion so the byte layout is not re-derived from guesswork.
+
+**Transferable:** when a format field is stored transformed, every reader *and* every writer has to apply the inverse — and a host-side model of that format is a second reader, so it has to be corrected in the same pass or it silently blesses the bug. A display bug that a writer reproduces symmetrically will never show up on screen; only the file, or the chip, tells you.
+
+---
+
 ## Bug #136 — `spirog` handed the bitmap mode to `allocScreen` unset, so every preset exited at once, and its montage painted the wrong rows 🔴 ✅ FIXED (2026-09-24)
 
 **Symptoms:** after preset 10 was converted to multicolour, `run spirog 1`-`9` (and any explicit `R r d`) drew nothing at all and left the shell on screen, while `run spirog 10` took the display and showed a blank screen.

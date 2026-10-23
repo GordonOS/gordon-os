@@ -280,7 +280,7 @@ def pitch_name(opt):
         semitone += 1
     elif accidental == 0xC0:
         semitone -= 1
-    octave = (opt >> 3) & 0x07
+    octave = 7 - ((opt >> 3) & 0x07)     # the field is stored inverted
     return "%s%d" % (NOTE_NAMES[semitone % 12], octave)
 
 
