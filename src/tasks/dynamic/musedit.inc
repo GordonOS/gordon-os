@@ -97,6 +97,7 @@
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
+.const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
@@ -1960,6 +1961,7 @@ muGdLp:
     jsr muStep
     bcs muGdRows
     jsr muGdSpan
+    jsr muHistAdd
     jsr muGdEvent
     jsr muGdAdv
     jsr muGdPast
@@ -2141,8 +2143,35 @@ muGdEvGo:
     sta muGdRowLo
     lda muVRowHi,x
     sta muGdRowHi
+        //  how far this event reaches: the line that scrolls in later is painted
+        //  from this record instead of from a walk of the tune
+        ldy muSv
+        lda muGdRest
+        sta muLastRest,y
+        lda muGdRowLo
+        sta muLastEndLo,y
+        lda muGdRowHi
+        sta muLastEndHi,y           // its onset is its last row until the span says more
+        lda muSpan
+        ora muSpan+1
+        beq muGdEvEndOk
+        lda muGdRowLo
+        clc
+        adc muSpan
+        sta muLastEndLo,y
+        lda muGdRowHi
+        adc muSpan+1
+        sta muLastEndHi,y
+        lda muLastEndLo,y           // onset + span - 1
+        sec
+        sbc #1
+        sta muLastEndLo,y
+        lda muLastEndHi,y
+        sbc #0
+        sta muLastEndHi,y
+muGdEvEndOk:
         lda #1
-    sta muGdFirst
+        sta muGdFirst
     jsr muGdVisible
     bcs muGdEvSpan
     jsr muGdCells
@@ -5549,60 +5578,39 @@ muPtStopped:
 muPtRts:
     rts
 
-// --- muPlayhead -- map each voice's published pointer to a row and draw it ---
-//  A window-bounded walk (the grid's own, without the drawing): for each voice
-//  the first row where the walk's pointer equals the player's published next-
-//  command pointer is the sounding row. A looped section reuses its pointers, so
-//  the match lands on the loop's visible rows and cycles there (the plan's
-//  HED-row return at each TAL). Read only while our own child is in kSidPlay.
+// --- muPlayhead -- where each voice is, from the renderer's own record ---
+//  The player publishes each voice's next-command pointer (MU_POS_BLOCK), and
+//  the renderer wrote every event it walked into the histogram as
+//  (pointer -> row). So the sounding row is a lookup there, never a second walk
+//  of the tune -- which is what used to make following cost a full scan a frame.
 muPlayhead:
-    ldx #2
+    lda #0
+    sta muHistV
 muPhRead:
+    ldx muHistV
     lda MU_POS_BLOCK,x
     sta muPhTgtLo,x
     lda MU_POS_BLOCK+3,x
     sta muPhTgtHi,x
     lda #0
     sta muPhHave,x
-    dex
-    bpl muPhRead
-    jsr muSimInit
-    ldx #2
-muPhInit:
-    lda #0
-    sta muVRow,x
-    sta muVRowHi,x
-    sta muVRem,x
-    sta muCmdN,x
-    dex
-    bpl muPhInit
-    lda #<MU_GRID_STEPS
-    sta muGdSteps
-    lda #>MU_GRID_STEPS
-    sta muGdSteps+1
-muPhLp:
-    jsr muStep
-    bcs muPhRender
-    jsr muPhCapture
-    jsr muGdSpan
-    jsr muGdAdv
-    jsr muPhAllDone             // walk until every voice is placed
-    bcs muPhRender
-muPhLpStep:
-    lda muGdSteps
-    sec
-    sbc #1
-    sta muGdSteps
-    lda muGdSteps+1
-    sbc #0
-    sta muGdSteps+1
-    lda muGdSteps
-    ora muGdSteps+1
-    beq muPhRender
-    jmp muPhLp
-muPhRender:
-    jsr muPhFollow              // keep the sounding row inside the window
-    jmp muPhCursor              // and put the cursor on it -- the cursor IS the playhead
+    jsr muHistFind              // C=1 -> muValLo/muValHi = the row it is on
+    bcc muPhReadNx
+    ldx muHistV
+    lda muValLo
+    sta muPhRowLo,x
+    lda muValHi
+    sta muPhRowHi,x
+    lda #1
+    sta muPhHave,x
+muPhReadNx:
+    inc muHistV
+    lda muHistV
+    cmp #3
+    bcc muPhRead
+    jsr muPhFollow
+    jmp muPhCursor
+
 
 // --- muPhCursor -- the cursor marks the sounding row ---
 //  One indicator, not two: the cursor's screen row is derived from the placed
@@ -5646,24 +5654,8 @@ muPcHave:
     ldy #MU_ROW
     sta (dataPtr),y
     jsr muCursorShow
+    jmp muDrawHead              // the head spells out the cursor's bar and row
 muPcRts:
-    rts
-
-// --- muPhAllDone -- C=1 when every voice is placed or halted ---
-muPhAllDone:
-    ldx #2
-muPhAdLp:
-    lda muPhHave,x
-    bne muPhAdNx
-    lda muOn,x
-    bne muPhAdNo                // playing and not yet matched: keep walking
-muPhAdNx:
-    dex
-    bpl muPhAdLp
-    sec
-    rts
-muPhAdNo:
-    clc
     rts
 
 // --- muPhFollow -- recentre muTop on the playhead when it leaves the window ---
@@ -5697,8 +5689,8 @@ muPfRow:
     sbc muTop+1
     bne muPfMove                // negative, or 256+ below: off the window
     lda muTmpL
-    cmp #MU_GRID_ROWS
-    bcc muPfRts                 // still inside the window: no move
+    cmp #(MU_FOLLOW_CENTER + 1)
+    bcc muPfRts                 // on or above the centre line: it stays there
 muPfMove:
     lda muValLo                 // newTop = primary - MU_FOLLOW_CENTER, clamped >= 0
     sec
@@ -5721,11 +5713,11 @@ muPfApply:
     cmp muTop+1
     beq muPfRts
 muPfSet:
-    //  The window only ever moves forward one line at a time during playback, so
-    //  the repaint below is the whole band. Painting just the line that appears
-    //  needs the renderer's walk position kept from frame to frame, which the
-    //  playhead's own walk (it re-walks from row 0) currently forbids -- see
-    //  docs/plans/musedit-plan.md, Step 8.
+    //  During playback the window only ever moves on by one line, and that is the
+    //  only move that can scroll the band instead of repainting it: the pixels
+    //  and matrix shift up through the kernel's own REU row move, and only the
+    //  line that appears at the bottom is drawn. A jump, a loop's rewind or a
+    //  multi-line recentre repaints the window.
     lda muTmpL
     sec
     sbc muTop
@@ -5736,36 +5728,190 @@ muPfSet:
     lda muTmpH
     cmp #1
     bne muPfRepaint
+    lda muTmpL
+    sta muTop
+    lda muValHi
+    sta muTop+1
+    jsr muScrollBand
+    jmp muPfRts
 muPfRepaint:
     lda muTmpL
     sta muTop
     lda muValHi
     sta muTop+1
-    jsr muRedrawNoHead          // grid + cursor at the new window; markers follow
+    jsr muRedrawNoHead          // grid + cursor at the new window
 muPfRts:
     rts
 
-// --- muPhCapture -- the walk's pointer met the player's: record the onset row ---
-//  muStep left MU_SV = the voice and bumped its pointer past the event; the
-//  player's published pointer is likewise past the note it last played, so an
-//  equal pointer is the same event. muVRow is still the onset (muGdAdv is next).
-muPhCapture:
-    ldx muSv
-    lda muPhHave,x
-    bne muPhcRts                // that voice is already placed this frame
-    lda muPtrLo,x
-    cmp muPhTgtLo,x
-    bne muPhcRts
-    lda muPtrHi,x
-    cmp muPhTgtHi,x
-    bne muPhcRts
-    lda muVRow,x
-    sta muPhRowLo,x
-    lda muVRowHi,x
-    sta muPhRowHi,x
+// --- muScrollBand -- advance the grid one line without repainting it ---
+//  kScrollScreen moves the band's pixels and matrix up one line through
+//  REU_BOUNCE (the REU does the move) and blanks the line at the bottom; this
+//  then draws only that line -- plus the row numbers, which are bar-relative and
+//  so change on every scroll. Nothing else in the band is touched.
+muScrollBand:
+    lda #MU_GRID_TOP
+    ldx #MU_GRID_BOT
+    jsr kScrollScreen
+    ldy #MU_ROW                 // the cursor glyph went up with the band
+    lda (dataPtr),y
+    sec
+    sbc #1
+    sta (dataPtr),y
+    jsr muGdLine                // the line that appeared
+    jmp muGdNums                // and the numbers, which just renumbered
+
+// --- muGdLine -- paint one line: the row that just scrolled in ---
+//  The walker is not restarted. It stands at the row past the window's bottom,
+//  so this line is painted from what is already known: per voice either the
+//  event that starts on it (the walker's next step) or the place the sounding
+//  event still covers (muLastEnd/muLastRest). Cells outside MU_GRID_BOT are
+//  clipped, so the span draw of that event writes this line and nothing else.
+muGdLine:
+    lda muTop
+    clc
+    adc #MU_GRID_ROWS-1
+    sta muLnRow
+    lda muTop+1
+    adc #0
+    sta muLnRow+1
     lda #1
-    sta muPhHave,x
-muPhcRts:
+    sta muGdClip
+    lda #MU_GRID_BOT
+    sta muGdFrom
+    lda #MU_GRID_BOT+1
+    sta muGdTo
+    ldx #0
+muLnContLp:
+    lda muOn,x
+    beq muLnContNx
+    lda muVRow,x               // an event starting here is the walker's job below
+    cmp muLnRow
+    bne muLnSpan
+    lda muVRowHi,x
+    cmp muLnRow+1
+    beq muLnContNx
+muLnSpan:
+    lda muLastEndHi,x          // past the event that still covers this row
+    cmp muLnRow+1
+    bcc muLnContNx
+    bne muLnPaint
+    lda muLastEndLo,x
+    cmp muLnRow
+    bcc muLnContNx
+muLnPaint:
+    stx muSv
+    lda #MU_GRID_BOT
+    ldy #MU_CURROW
+    sta (dataPtr),y
+    lda muLastRest,x
+    sta muGdRest
+    lda #0
+    sta muGdFirst
+    jsr muGdCells              // bars across the lane, or nothing under a rest
+muLnContNx:
+    inx
+    cpx #3
+    bcc muLnContLp
+    ldx #0
+muLnEvLp:
+    lda muOn,x
+    beq muLnEvNx
+    lda muVRow,x               // an event whose onset is this row
+    cmp muLnRow
+    bne muLnEvNx
+    lda muVRowHi,x
+    cmp muLnRow+1
+    beq muLnStep
+muLnEvNx:
+    inx
+    cpx #3
+    bcc muLnEvLp
+    rts
+muLnStep:
+    jsr muStep                 // the walker's next row
+    bcs muLnRts
+    jsr muGdSpan
+    jsr muHistAdd
+    jsr muGdEvent
+    jsr muGdAdv
+muLnRts:
+    rts
+
+// --- muHistAdd -- remember the event the walk just took: pointer -> row ---
+//  In: X = the voice (muSv), muVRow = its onset row, muPtr = its next command.
+//  The renderer calls this for every event it walks; the playhead reads the
+//  record back instead of walking the tune again.
+muHistAdd:
+    ldx muSv
+    lda muHistN,x
+    and #MU_HIST-1
+    sta muTmpL                  // the slot
+    inc muHistN,x
+    txa
+    asl
+    asl
+    asl
+    asl
+    asl                         // voice x MU_HIST
+    clc
+    adc muTmpL
+    tay
+    lda muPtrLo,x
+    sta muHistPLo,y
+    lda muPtrHi,x
+    sta muHistPHi,y
+    lda muVRow,x
+    sta muHistRLo,y
+    lda muVRowHi,x
+    sta muHistRHi,y
+    rts
+
+// --- muHistFind -- C=1 and muValLo/muValHi = the row, for voice muHistV ---
+//  Scans newest first, so a pointer that a loop reuses resolves to the pass the
+//  music is on rather than to the first time it was ever played.
+muHistFind:
+    lda muHistV
+    asl
+    asl
+    asl
+    asl
+    asl
+    sta muTmpH                  // base = voice x MU_HIST
+    ldx muHistV
+    lda muHistN,x
+    sec
+    sbc #1
+    and #MU_HIST-1
+    sta muHistS
+    lda #MU_HIST
+    sta muHistC
+muHfLp:
+    lda muHistS
+    clc
+    adc muTmpH
+    tay
+    ldx muHistV
+    lda muHistPLo,y
+    cmp muPhTgtLo,x
+    bne muHfNx
+    lda muHistPHi,y
+    cmp muPhTgtHi,x
+    bne muHfNx
+    lda muHistRLo,y
+    sta muValLo
+    lda muHistRHi,y
+    sta muValHi
+    sec
+    rts
+muHfNx:
+    lda muHistS
+    sec
+    sbc #1
+    and #MU_HIST-1
+    sta muHistS
+    dec muHistC
+    bne muHfLp
+    clc
     rts
 
 // --- muPlaying -- C=1 and a "? stop first" status when the player is on ---
@@ -6237,6 +6383,21 @@ muPhTgtHi:  .fill 3, 0
 muPhRowLo:  .fill 3, 0          // the timeline row the walk matched the pointer on
 muPhRowHi:  .fill 3, 0
 muPhHave:   .fill 3, 0          // 1 = that voice's pointer was matched this frame
+muHistN:    .fill 3, 0          // next slot per voice
+muHistV:    .byte 0             // the voice a lookup is for
+muHistS:    .byte 0             // its slot cursor
+muHistC:    .byte 0             // its scan countdown
+muLastEndLo: .fill 3,0          // the last row each voice's last event covers
+muLastEndHi: .fill 3,0
+muLastRest: .fill 3,0           // ...and whether that event was a rest
+muLnRow:    .word 0             // the timeline row the bottom line shows
+//  pointer -> row, per voice, as the renderer walks: the playhead asks this
+//  table instead of re-walking the tune every frame. MU_HIST slots a voice,
+//  a power of two so the index is a shift.
+muHistPLo:  .fill 3*MU_HIST, 0
+muHistPHi:  .fill 3*MU_HIST, 0
+muHistRLo:  .fill 3*MU_HIST, 0
+muHistRHi:  .fill 3*MU_HIST, 0
 muFollow:   .byte 1             // the window follows the playhead, always
 
 // --- the undo stack and the dirty guard ---

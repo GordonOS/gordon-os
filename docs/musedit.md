@@ -359,9 +359,11 @@ re-saved without losing them.
 The tune plays through `sid.lib`, the same player `sidplay` uses, so what you hear is what will
 ship.
 
-The playhead marks the row being played. It follows repeats (`HED`/`TAL`) back to the start of
-the section, and it marks the **call site** when a phrase (`CALL`) is playing rather than the
-phrase body.
+The **cursor** is the playhead: while the music plays it moves down the grid with it, the window
+scrolls a line at a time to keep it on the middle row, and the head spells out that row's bar and
+row. It follows repeats (`HED`/`TAL`) back to the start of the section, and it shows the **call
+site** when a phrase (`CALL`) is playing rather than the phrase body. When you stop, the cursor
+stays where the music stopped — that is where editing resumes.
 
 The first release always plays from the start: the format has no seek command, and a voice's
 stream can only be entered at its beginning or at a `HED`. Use sections to structure a long

@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1268 total call sites** found across `src/`.
+- **1269 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -141,12 +141,12 @@ API surface this document is inventorying.
 | [`kReuDmaRange`](#kreudmarange) | `$E116` | 6 | 5 | Stream a file range from the REU to C64 memory given a 24-bit FS data offset, without hand-computing multi-bank addresses. |
 | [`kScanKeyboard`](#kscankeyboard) | `$E01E` | 5 | 5 | Pop one key from the IRQ-filled ring buffer, non-blocking. |
 | [`kSetGfxMode`](#ksetgfxmode) | `$E10D` | 5 | 3 | Switch the current task's surface between hires and multicolour in place, preserving pixels/matrix/colour RAM and per-task colours. |
+| [`kScrollScreen`](#kscrollscreen) | `$E00F` | 4 | 4 | Scroll the current surface's scroll region up by one row, blanking the bottom row. |
 | [`kDynLoad`](#kdynload) | `$E08D` | 3 | 2 | Load a task binary from the REU filesystem and spawn it, applying relocation fixups as the code streams into a pool page. |
 | [`kFillColorRam`](#kfillcolorram) | `$E110` | 3 | 3 | Fill all 1000 colour-RAM slots with a colour (low nibble only -- the MC bitmap pixel-value-3 colour). |
 | [`kPrintGlyph`](#kprintglyph) | `$E0A8` | 3 | 3 | Print a custom 8-byte glyph at the cursor and advance it, identical to `kPrintChar` otherwise. |
 | [`kReadRow`](#kreadrow) | `$E0A2` | 3 | 1 | Read a full 40-char screen row back from the task's char shadow in one DMA (the row variant of `kCharAt`). |
 | [`kReuCmpName`](#kreucmpname) | `$E0B7` | 3 | 1 | Compare one REU-FS directory entry's name against the target filename (internal helper behind `kReuFindFile`). |
-| [`kScrollScreen`](#kscrollscreen) | `$E00F` | 3 | 3 | Scroll the current surface's scroll region up by one row, blanking the bottom row. |
 | [`kSetScrollRegion`](#ksetscrollregion) | `$E0E7` | 3 | 3 | Set the current surface's scroll region (the rows that auto-scroll on print/newline overflow); stored per-surface, survives view switches and eviction. |
 | [`kBlitChar`](#kblitchar) | `$E0ED` | 2 | 2 | Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars. |
 | [`kLibHold`](#klibhold) | `$FFE6` | 2 | 2 | Release every library the calling task declared except those in the keep mask -- hands the pool pages back early instead of waiting for task exit. |
@@ -964,6 +964,19 @@ Switch the current task's surface between hires and multicolour in place, preser
 | `src/tasks/dynamic/basic.asm` | 1 |
 | `src/tasks/dynamic/grview.inc` | 1 |
 
+### kScrollScreen
+
+``$E00F`` — **4 calls** across 4 file(s)
+
+Scroll the current surface's scroll region up by one row, blanking the bottom row.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/basic.asm` | 1 |
+| `src/tasks/dynamic/basicedit.inc` | 1 |
+| `src/tasks/dynamic/edit.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
+
 ### kDynLoad
 
 ``$E08D`` — **3 calls** across 2 file(s)
@@ -1018,18 +1031,6 @@ Compare one REU-FS directory entry's name against the target filename (internal 
 | File | Calls |
 |---|---:|
 | `src/libs/filesys.asm` | 3 |
-
-### kScrollScreen
-
-``$E00F`` — **3 calls** across 3 file(s)
-
-Scroll the current surface's scroll region up by one row, blanking the bottom row.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/basic.asm` | 1 |
-| `src/tasks/dynamic/basicedit.inc` | 1 |
-| `src/tasks/dynamic/edit.inc` | 1 |
 
 ### kSetScrollRegion
 
