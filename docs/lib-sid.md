@@ -48,6 +48,10 @@ wraps, so any task can play music without carrying a copy of the player —
   those two bytes for you — do not pre-adjust the pointer.
 - **One player at a time.** The SID is a single chip and the player's state
   lives in one copy of the library's data, so the second caller is refused.
+  `libStartPage` for `LIB_SID` is `$FF` until the library is really loaded, so a
+  page there means a player owns the chip — the shell reads that byte (with the
+  target's `libMask`) and refuses `run` of any task that declares `sid.lib` while
+  it is loaded, with `? sid.lib in use`.
 
 ## `kSidPlay` — play a tune at a given speed
 

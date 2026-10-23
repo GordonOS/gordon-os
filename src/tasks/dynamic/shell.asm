@@ -31,7 +31,7 @@
 //  before shell.inc's offset block is read. This is the ONE place the value is
 //  written: shell.inc asserts it against its highest offset (POOLRS + 1), so
 //  adding an offset without enlarging the buffer fails the build.
-.const SHELL_DATA_SIZE = 105
+.const SHELL_DATA_SIZE = 124
 // Pool geometry (POOL_*) comes from src/kernel/pool.inc, imported by
 // tools/assemble-tasks.asm before this file -- do not redefine here.
 

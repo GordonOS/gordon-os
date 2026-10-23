@@ -37,6 +37,10 @@ are refused on a screen of their own with the usage line; press any key to retur
 
 Only one `musedit` can run at a time.
 
+`sid.lib` is single-use, so `run musedit` is refused with `? sid.lib in use` while
+another task is playing (`sidplay`, `godzi`, `gortris`, `grknoid`). Stop the other player
+first — `S` in `sidplay` stops the tune — and the editor starts normally.
+
 ## The screen
 
 ```
@@ -363,11 +367,11 @@ The first release always plays from the start: the format has no seek command, a
 stream can only be entered at its beginning or at a `HED`. Use sections to structure a long
 tune.
 
-Only one player can own the SID. If `sidplay` or a game is playing, `SPACE` reports
-`? no player` — stop the other player first. The same message appears if `sid.lib` cannot be
-loaded (the pool is full). Editing carries on either way: the message shows on the head row for
-a moment and `SPACE` reports again each time. Once the player has gone, playing stays
-unavailable until `musedit` is restarted.
+Only one player can own the SID, and `run musedit` is refused up front while another task has
+`sid.lib` loaded — so a busy chip never costs you the editor session. If the chip is taken
+*while* you are editing (a task loaded from the shell), `SPACE` reports `? no player` for a
+moment and play stays unavailable until `musedit` is restarted; the same message appears if
+`sid.lib` cannot be loaded because the pool is full. Editing carries on either way.
 
 ## Saving and quitting
 
@@ -393,8 +397,9 @@ held; opening a tune resets the history.
 |---|---|
 | `? name - run musedit <name>` | no name given, or the base name is too long (`up to 7 characters` on the next line) |
 | `? already running` | another `musedit` is resident |
+| `? sid.lib in use` | another task has `sid.lib` loaded (a player is running) — printed by the shell before `musedit` starts; stop the player first |
 | `? no space` | the pool cannot hold the tune's new size; nothing was changed |
-| `? no player` | the SID is owned by another task, or `sid.lib` could not load |
+| `? no player` | the SID was taken by another task during playback, or `sid.lib` could not load |
 | `? stop first` | an edit was attempted during playback |
 | `? illegal duration` | the current tempo cannot express that note length |
 | `? no event here` | the rest or delete key needs the cursor on a row where an event starts |

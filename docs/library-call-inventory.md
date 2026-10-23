@@ -68,21 +68,21 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
   (`kSidPlay`/`kSidHush`/`kIpcPost`/`kIpcPick`) — the `$E000` table is full.
 - 38 of them have at least one call site in the current source tree; 4 have
   none.
-- **208 total call sites** found across `src/`.
+- **228 total call sites** found across `src/`.
 
 ## By library
 
 | Library | Note | Calls | Total call sites |
 |---|---|---|---:|
 | [`time.lib`](#timelib) | lib 0, eager | 3 | 3 |
-| [`filesys.lib`](#filesyslib) | lib 1, eager | 9 | 78 |
+| [`filesys.lib`](#filesyslib) | lib 1, eager | 9 | 88 |
 | [`gfx.lib`](#gfxlib) | lib 2, lazy | 13 | 38 |
 | [`fp.lib`](#fplib) | lib 3, eager | 1 | 2 |
 | [`string.lib`](#stringlib) | lib 4, lazy | 7 | 26 |
-| [`sid.lib`](#sidlib) | lib 5, lazy | 2 | 9 |
+| [`sid.lib`](#sidlib) | lib 5, lazy | 2 | 11 |
 | [`ipc.lib`](#ipclib) | lib 6, lazy | 2 | 7 |
-| [`sprite.lib`](#spritelib) | lib 7, eager | 4 | 41 |
-| [`mouse.lib`](#mouselib) | lib 8, eager | 1 | 4 |
+| [`sprite.lib`](#spritelib) | lib 7, eager | 4 | 46 |
+| [`mouse.lib`](#mouselib) | lib 8, eager | 1 | 7 |
 
 ## time.lib
 
@@ -127,21 +127,39 @@ No call sites in the current source tree.
 
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kReuReadAt`](#kreureadat) | `$E0FF` | 20 | 8 | Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF. |
-| [`kReuOpen`](#kreuopen) | `$E0FC` | 19 | 7 | Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`. |
-| [`kReuWriteAt`](#kreuwriteat) | `$E102` | 11 | 6 | Write `len` bytes at a 16-bit position into an open fixed-size file; writes past the file end are rejected. |
-| [`kReuDirEntry`](#kreudirentry) | `$E081` | 8 | 6 | Read a single REU-FS directory entry by index (0-511) — name, size, flags, data offset (slot 0 is the allocator's free-offset). |
-| [`kReuDelete`](#kreudelete) | `$E08A` | 7 | 6 | Mark a REU-FS file deleted (name cleared, deleted flag set); its data blocks stay orphaned until `compact.com` packs them away. |
-| [`kReuCreate`](#kreucreate) | `$E0F9` | 6 | 4 | Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below). |
+| [`kReuOpen`](#kreuopen) | `$E0FC` | 23 | 9 | Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`. |
+| [`kReuReadAt`](#kreureadat) | `$E0FF` | 21 | 9 | Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF. |
+| [`kReuWriteAt`](#kreuwriteat) | `$E102` | 13 | 7 | Write `len` bytes at a 16-bit position into an open fixed-size file; writes past the file end are rejected. |
+| [`kReuDirEntry`](#kreudirentry) | `$E081` | 9 | 7 | Read a single REU-FS directory entry by index (0-511) — name, size, flags, data offset (slot 0 is the allocator's free-offset). |
+| [`kReuDelete`](#kreudelete) | `$E08A` | 8 | 7 | Mark a REU-FS file deleted (name cleared, deleted flag set); its data blocks stay orphaned until `compact.com` packs them away. |
+| [`kReuCreate`](#kreucreate) | `$E0F9` | 7 | 5 | Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below). |
 | [`kReuRename`](#kreurename) | `$E0AB` | 3 | 2 | Rename a REU-FS directory entry in place; the old name must exist, the new name must not (deleted names can be reused). |
 | [`kReuSave`](#kreusave) | `$E084` | 3 | 3 | Save a C64 memory block to the REU filesystem under a unique 1-11 char name; data is appended to the end of the data area. |
 | [`kReuFormat`](#kreuformat) | `$E07E` | 1 | 1 | Format the REU filesystem — zeroes the directory and initialises the allocator state. Does not prompt for confirmation. |
+
+### kReuOpen
+
+`$E0FC` — Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`.
+
+**23 calls** across 9 file(s):
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/grpaint.inc` | 5 |
+| `src/tasks/dynamic/basic.asm` | 4 |
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/tasks/dynamic/musedit.inc` | 3 |
+| `src/tasks/cmd/copy.inc` | 2 |
+| `src/tasks/dynamic/granim.inc` | 2 |
+| `src/tasks/cmd/fstest.inc` | 1 |
+| `src/tasks/dynamic/grview.inc` | 1 |
+| `src/tasks/dynamic/shell.inc` | 1 |
 
 ### kReuReadAt
 
 `$E0FF` — Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF.
 
-**20 calls** across 8 file(s):
+**21 calls** across 9 file(s):
 
 | File | Calls |
 |---|---:|
@@ -153,34 +171,20 @@ No call sites in the current source tree.
 | `src/tasks/cmd/fstest.inc` | 1 |
 | `src/tasks/dynamic/basic.asm` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
-
-### kReuOpen
-
-`$E0FC` — Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`.
-
-**19 calls** across 7 file(s):
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/grpaint.inc` | 5 |
-| `src/tasks/dynamic/basic.asm` | 4 |
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/tasks/cmd/copy.inc` | 2 |
-| `src/tasks/dynamic/granim.inc` | 2 |
-| `src/tasks/cmd/fstest.inc` | 1 |
-| `src/tasks/dynamic/grview.inc` | 1 |
+| `src/tasks/dynamic/shell.inc` | 1 |
 
 ### kReuWriteAt
 
 `$E102` — Write `len` bytes at a 16-bit position into an open fixed-size file; writes past the file end are rejected.
 
-**11 calls** across 6 file(s):
+**13 calls** across 7 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/ehbasic.asm` | 4 |
 | `src/tasks/dynamic/edit.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 2 |
+| `src/tasks/dynamic/musedit.inc` | 2 |
 | `src/tasks/cmd/copy.inc` | 1 |
 | `src/tasks/cmd/fstest.inc` | 1 |
 | `src/tasks/dynamic/basic.asm` | 1 |
@@ -189,7 +193,7 @@ No call sites in the current source tree.
 
 `$E081` — Read a single REU-FS directory entry by index (0-511) — name, size, flags, data offset (slot 0 is the allocator's free-offset).
 
-**8 calls** across 6 file(s):
+**9 calls** across 7 file(s):
 
 | File | Calls |
 |---|---:|
@@ -199,12 +203,13 @@ No call sites in the current source tree.
 | `src/tasks/cmd/del.inc` | 1 |
 | `src/tasks/cmd/type.inc` | 1 |
 | `src/tasks/dynamic/ehbasic.asm` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
 
 ### kReuDelete
 
 `$E08A` — Mark a REU-FS file deleted (name cleared, deleted flag set); its data blocks stay orphaned until `compact.com` packs them away.
 
-**7 calls** across 6 file(s):
+**8 calls** across 7 file(s):
 
 | File | Calls |
 |---|---:|
@@ -214,12 +219,13 @@ No call sites in the current source tree.
 | `src/tasks/dynamic/gortris.inc` | 1 |
 | `src/tasks/dynamic/grknoid.inc` | 1 |
 | `src/tasks/dynamic/grpaint.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
 
 ### kReuCreate
 
 `$E0F9` — Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below).
 
-**6 calls** across 4 file(s):
+**7 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
@@ -227,6 +233,7 @@ No call sites in the current source tree.
 | `src/tasks/dynamic/edit.inc` | 2 |
 | `src/tasks/cmd/copy.inc` | 1 |
 | `src/tasks/dynamic/grpaint.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
 
 ### kReuRename
 
@@ -530,32 +537,34 @@ No call sites in the current source tree.
 
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kSidHush`](#ksidhush) | `$FF81` | 5 | 3 | Silence the SID and stop a running player, from any task, at any time. |
-| [`kSidPlay`](#ksidplay) | `$FF7E` | 4 | 4 | Play a SID tune image (`kPtr`, delay in `kArg`, repeat count in `kArg+1`), blocking by yielding each jiffy; C=1 if another task already owns the chip. |
+| [`kSidHush`](#ksidhush) | `$FF81` | 6 | 4 | Silence the SID and stop a running player, from any task, at any time. |
+| [`kSidPlay`](#ksidplay) | `$FF7E` | 5 | 5 | Play a SID tune image (`kPtr`, delay in `kArg`, repeat count in `kArg+1`), blocking by yielding each jiffy; C=1 if another task already owns the chip. |
 
 ### kSidHush
 
 `$FF81` — Silence the SID and stop a running player, from any task, at any time.
 
-**5 calls** across 3 file(s):
+**6 calls** across 4 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/gortris.inc` | 2 |
 | `src/tasks/dynamic/grknoid.inc` | 2 |
 | `src/tasks/dynamic/godzi.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
 
 ### kSidPlay
 
 `$FF7E` — Play a SID tune image (`kPtr`, delay in `kArg`, repeat count in `kArg+1`), blocking by yielding each jiffy; C=1 if another task already owns the chip.
 
-**4 calls** across 4 file(s):
+**5 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/godzi.inc` | 1 |
 | `src/tasks/dynamic/gortris.inc` | 1 |
 | `src/tasks/dynamic/grknoid.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
 | `src/tasks/dynamic/sidplay.asm` | 1 |
 
 ## ipc.lib
@@ -594,9 +603,9 @@ No call sites in the current source tree.
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
 | [`kSpriteReg`](#kspritereg) | `$CDEA` | 15 | 5 | Set any of the remaining single-byte sprite shadow fields -- enable, colours, MC colours, priority, MC mode, X/Y expand. |
-| [`kSpriteFrame`](#kspriteframe) | `$CDE1` | 9 | 4 | Load one frame of a sprite slot's bound sheet into the slot. |
-| [`kSpriteSheet`](#kspritesheet) | `$CDDE` | 9 | 4 | Bind a REU FS file to a sprite slot as its animation sheet. |
-| [`kSpritePos`](#kspritepos) | `$CDE4` | 8 | 4 | Place a sprite on screen -- the hot path, called once per sprite per tick. |
+| [`kSpriteFrame`](#kspriteframe) | `$CDE1` | 11 | 5 | Load one frame of a sprite slot's bound sheet into the slot. |
+| [`kSpriteSheet`](#kspritesheet) | `$CDDE` | 11 | 5 | Bind a REU FS file to a sprite slot as its animation sheet. |
+| [`kSpritePos`](#kspritepos) | `$CDE4` | 9 | 5 | Place a sprite on screen -- the hot path, called once per sprite per tick. |
 
 ### kSpriteReg
 
@@ -616,39 +625,42 @@ No call sites in the current source tree.
 
 `$CDE1` — Load one frame of a sprite slot's bound sheet into the slot.
 
-**9 calls** across 4 file(s):
+**11 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/godzi.inc` | 4 |
 | `src/tasks/dynamic/grknoid.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 2 |
+| `src/tasks/dynamic/musedit.inc` | 2 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
 ### kSpriteSheet
 
 `$CDDE` — Bind a REU FS file to a sprite slot as its animation sheet.
 
-**9 calls** across 4 file(s):
+**11 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/godzi.inc` | 4 |
 | `src/tasks/dynamic/grknoid.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 2 |
+| `src/tasks/dynamic/musedit.inc` | 2 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
 ### kSpritePos
 
 `$CDE4` — Place a sprite on screen -- the hot path, called once per sprite per tick.
 
-**8 calls** across 4 file(s):
+**9 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/godzi.inc` | 4 |
 | `src/tasks/dynamic/grknoid.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
 ## mouse.lib
@@ -657,16 +669,17 @@ No call sites in the current source tree.
 
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kMouseCall`](#kmousecall) | `$E0F6` | 4 | 2 | The Commodore 1351 reader on control port 2 — one dispatching call (`MOUSE_READ` / `MOUSE_ENABLE` / `MOUSE_DISABLE` in `A`, opcode constants in `src/libs/mouse.inc`); results in `kArg+0..3` with the buttons in `A`. Never consults `mouseKind`. |
+| [`kMouseCall`](#kmousecall) | `$E0F6` | 7 | 3 | The Commodore 1351 reader on control port 2 — one dispatching call (`MOUSE_READ` / `MOUSE_ENABLE` / `MOUSE_DISABLE` in `A`, opcode constants in `src/libs/mouse.inc`); results in `kArg+0..3` with the buttons in `A`. Never consults `mouseKind`. |
 
 ### kMouseCall
 
 `$E0F6` — The Commodore 1351 reader on control port 2 — one dispatching call (`MOUSE_READ` / `MOUSE_ENABLE` / `MOUSE_DISABLE` in `A`, opcode constants in `src/libs/mouse.inc`); results in `kArg+0..3` with the buttons in `A`. Never consults `mouseKind`.
 
-**4 calls** across 2 file(s):
+**7 calls** across 3 file(s):
 
 | File | Calls |
 |---|---:|
+| `src/tasks/dynamic/musedit.inc` | 3 |
 | `src/tasks/cmd/mousetest.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 2 |
 

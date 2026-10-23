@@ -28,11 +28,14 @@
 .const BATOFF2  = 101    // 1 byte:  batch file FS data offset hi (24-bit)
 .const BATHI    = 102    // 1 byte:  runbatch directory scan slot hi
 .const PCFG     = 104    // 1 byte:  foreground .com child slot (pcFgSpawned/pcFgWait)
+.const TSKNAME  = 105    // 2 bytes: target filename pointer, parked across rfSidBusy's FS calls
+.const TSKREC   = 107    // 5 bytes: kReuOpen's file record (size + 24-bit base)
+.const TSKHDR   = 112    // 12 bytes: the target's header, through the libMask hi byte
 
 //  The instance buffer must cover the whole offset block above. This is the
 //  check that keeps SHELL_DATA_SIZE (shell.asm, emitted in the header) honest:
 //  add an offset without enlarging the buffer and the build stops here.
-.assert "shell: data size covers the offset block", SHELL_DATA_SIZE, PCFG + 1
+.assert "shell: data size covers the offset block", SHELL_DATA_SIZE, TSKHDR + HDR_LIBMASK + 2
 
 //  pcPool's shared-record dedup packs one bit per residency record into the
 //  single-byte POOLRS bitmask (pcPoolDynBit) -- MAX_RESIDENTS must stay <= 8
@@ -1376,9 +1379,33 @@ rfLoad:
     lda dataPtr+1
     adc #0
     sta kPtr+1
+    jsr rfSidBusy              // C=1: the target needs sid.lib and a player owns it
+    bcc rfGo
+    ldy #BATERR
+    lda #1
+    sta (dataPtr),y
+    jsr kEnableCursor          // rfLoad turned it off for the hand-over
+    ldx #<msgDynSidBusy - cmdsBlock
+    ldy #>msgDynSidBusy - cmdsBlock
+    jmp rfPrint
+rfGo:
     jsr kDynLoad
     bcs rfErr                   // error path (bcc to pcRunOk too far)
+    //  kDynLoad hands the child's slot back in X. A load that had to make room
+    //  can leave the new task SWAPPED OUT instead of running (the eviction picks
+    //  the largest task, and the request then reads as the command doing nothing
+    //  at all), so only a slot that is actually ALIVE counts as a run.
+    cpx #$ff
+    beq rfLostSpawn
+    lda taskState,x
+    cmp #TA_ALIVE
+    bne rfLostSpawn
     jmp pcRunOk
+rfLostSpawn:
+    jsr kEnableCursor          // rfLoad turned it off for the hand-over
+    ldx #<msgDynNoSpace - cmdsBlock
+    ldy #>msgDynNoSpace - cmdsBlock
+    jmp rfPrint
 rfErr:
     lda kArg
     sta kArg+7                 // stash error code (kEnableCursor clobbers kArg..+3)
@@ -1475,6 +1502,81 @@ rfPrint:
     sta kPtr+1
     jsr kPrintString
     jsr kNewline; jsr kNewline
+    rts
+
+// --- rfSidBusy -- C=1 when the target declares sid.lib and a task has it loaded ---
+//  sid.lib is single-use: one task owns the SID at a time, and a player streams
+//  the chip's registers for as long as it plays, so a second player cannot share
+//  it. Its page is $FF until the library is really LOADED -- the loader takes a
+//  reference for a declared lazy lib without loading it -- so a page there means
+//  a player already has the chip. The declaration itself has to be read from the
+//  file: a load that then fails on the pool never returns to this frame, so the
+//  refusal has to come first.
+//  In: kPtr = the target's filename (screen codes). Out: kPtr unchanged.
+rfSidBusy:
+    ldy #TSKNAME                // park the filename pointer -- the FS calls
+    lda kPtr                    //   clobber kPtr and the whole kArg block
+    sta (dataPtr),y
+    iny
+    lda kPtr+1
+    sta (dataPtr),y
+    lda libStartPage+LIB_SID
+    cmp #$ff
+    beq rsNo                    // not loaded -> nothing to refuse
+    lda kPtr
+    sta kArg
+    lda kPtr+1
+    sta kArg+1
+    ldy #TSKREC
+    tya                         // kPtr = the record buffer
+    clc
+    adc dataPtr
+    sta kPtr
+    lda dataPtr+1
+    adc #0
+    sta kPtr+1
+    jsr kReuOpen                // C=1 not found / FS off -- kDynLoad reports
+    bcs rsNo                    //   that itself
+    ldy #TSKREC                 // kArg/+1 = that record
+    tya
+    clc
+    adc dataPtr
+    sta kArg
+    lda dataPtr+1
+    adc #0
+    sta kArg+1
+    lda #0
+    sta kArg+2                  // pos 0
+    sta kArg+3
+    lda #HDR_LIBMASK+2          // read through the mask's high byte
+    sta kArg+6
+    lda #0
+    sta kArg+7
+    ldy #TSKHDR                 // kPtr = the header buffer
+    tya
+    clc
+    adc dataPtr
+    sta kPtr
+    lda dataPtr+1
+    adc #0
+    sta kPtr+1
+    jsr kReuReadAt
+    bcs rsNo
+    ldy #TSKHDR+HDR_LIBMASK
+    lda (dataPtr),y
+    and #(1 << LIB_SID)
+    beq rsNo
+    sec
+    jmp rsOut
+rsNo:
+    clc
+rsOut:
+    ldy #TSKNAME                // kPtr = the filename, for kDynLoad
+    lda (dataPtr),y
+    sta kPtr
+    iny
+    lda (dataPtr),y
+    sta kPtr+1
     rts
 pcRunOk:
     jsr kEnableCursor          // restore the shell cursor after the spawn
@@ -1894,6 +1996,7 @@ msgDynBad:    .text "? bad task file"; .byte 0
 msgDynNoReloc: .text "? not relocatable"; .byte 0
 msgDynOverlap: .text "? address in use"; .byte 0
 msgDynNoSpace: .text "? no space in pool"; .byte 0
+msgDynSidBusy: .text "? sid.lib in use"; .byte 0
 msgDynNoFs:   .text "? no fs or not found"; .byte 0
 msgDynAlign:  .text "? origin not aligned"; .byte 0
 msgDynPages:  .text "? pages required"; .byte 0
