@@ -106,6 +106,7 @@
 .const MU_BAR_TODO  = 1       // hit-map code: nothing is behind that cell yet
 .const MU_BAR_Q     = 2       // ...and this one quits
 .const MU_BAR_SAVE  = 3       // ...and this one writes the image back
+.const MU_BAR_PLAY  = 4       // ...and this one plays or stops
 
 // --- tiny instance helpers (offsets are constants, so these stay inline) ---
 .macro muSet(field, value) {
@@ -5321,6 +5322,8 @@ muClickAct:
     beq muClkRts                // a blank cell answers nothing
     cmp #MU_BAR_SAVE
     beq muBarSave
+    cmp #MU_BAR_PLAY
+    beq muBarPlay
     cmp #MU_BAR_Q
     bne muClkNotBarQ
     jmp muQuit                  // out of branch range: invert and jump
@@ -5330,6 +5333,8 @@ muClkNotBarQ:
 muBarSave:
     jsr muSaveTry
     rts
+muBarPlay:
+    jmp muPlayToggle
 muClkGrid:
     cmp #MU_GRID_TOP
     bcc muClkLow
@@ -6001,7 +6006,7 @@ muSOff:     .text " o=$"
 // A blank cell between two labels is deliberately 0, so nothing answers there.
 muBarMap:
     .byte 1,1,1, 0, 1,1,1, 0            // 0-7    DUR, the value, the dot
-    .byte 1,1,1,1, 0,0, 1,1,1,1, 0,0    // 8-19   TIE-, PLAY
+    .byte 1,1,1,1, 0,0, 4,4,4,4, 0,0    // 8-19   TIE-, PLAY
     .byte 1,1,1, 0,0, 1,1,1,1, 0,0      // 20-30  CMD, UNDO
     .byte 3,3,3,3, 0,0, 2, 0,0          // 31-39  SAVE, Q
 muBarMapEnd:

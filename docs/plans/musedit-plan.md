@@ -808,7 +808,7 @@ The descriptor table and the five encoders; every command reachable.
 - [ ] **7.6 Utility notes.** `8`/`9` enter a note whose length is UTL/UTV; both round-trip.
 - [ ] **7.7 Multi-byte values.** `P-W`, `POR`, `DTN`, `MS#` accept up to four hex digits and decode to the right pair.
 - [ ] **7.8 Inert labels.** `AUX` and `JIF` are present and labelled no-effect; no other command is labelled that way.
-- [ ] **7.9 The panel is clickable.** Click a command row to select it, `RETURN` to edit, click `[A]dd` then a group and a command, click `[DEL] remove`, click `[Q] back` — every panel action is reachable with the pointer alone.
+- [ ] **7.9 The panel is clickable.** Click a command row to select it, `RETURN` to edit, click `[A]dd` then a group and a command, click `[DEL] remove`, click `[Q] back` — every panel action is reachable with the pointer alone. *(The control bar's `PLAY`/`SAVE`/`Q` cells are wired; `DUR`, `TIE`, `CMD` and `UNDO` still answer `? not yet`.)*
 
 ### Step 8 — Playback and playhead
 

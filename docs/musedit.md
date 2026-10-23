@@ -66,7 +66,9 @@ share the 320-pixel width, so a key is about 5.7 pixels wide; the black keys are
 the boundaries, three rows tall. The key under the pointer is highlighted.
 
 **Row 24** — the control bar: the armed duration with `-`/`+` steppers, the dot state, the tie
-toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. Every one of them is clickable.
+toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, SAVE and Q are clickable; the rest
+answer `? not yet` and are driven from the keys instead (`1`-`9` arm the duration, `.` cycles
+the dots, `Z`/`X` undo and redo).
 
 Inside a lane:
 
