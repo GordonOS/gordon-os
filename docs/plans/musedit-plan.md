@@ -22,7 +22,7 @@
 >
 > **Where the next session starts.** 6.18 (`? in a phrase` needs CALL-block detection) and
 > 6.13/6.14 (mouse-only and keyboard note sessions) remain, plus the Step 8 checks not yet
-> filmed (8.4 loops, 8.7 rapid stop/play, 8.8 `? no player` with `sidplay` running, 8.10-8.12).
+> filmed (8.4 loops, 8.7 rapid stop/play, 8.10-8.12).
 > The `,` tie key and the bar's `DUR`/`TIE` click cells are still unwired. Step 7 (the command
 > panel) is untouched.
 > **Two harness lessons:** the kernel's
@@ -30,7 +30,14 @@
 > `temp/probe.py` spaces keys with `KEY_GAP` (1.2-1.5s is safe); fast-pressed edits read as
 > swallowed, which is dropped input, not a logic fault. And the VICE binary monitor stops the
 > CPU on a read, so a probe must `resume()` between samples or the player sits paused and its
-> published pointer looks frozen. The "note key does
+> published pointer looks frozen.
+> **Two testing rules learned the hard way.** (1) **Reseed the REU and commit it** -- run
+> `tools/build-reu.ps1` immediately before a test run, and NEVER `git checkout` the image
+> afterwards: the task is loaded from the REU filesystem, so a reverted image silently runs the
+> OLD binary and every new feature looks broken (a whole Step 8 test pass was wasted on the
+> pre-Step-8 `musedit`, and the image is committed with each change, as `e22f4c6` did).
+> (2) **A status message needs the display.** musedit prints `? ...` on its own surface, so
+> staging a refusal while another task holds the screen proves nothing. The "note key does
 > nothing on the test tune" mystery is solved and was never the key dispatch: `muSeek`'s
 > halted-voice arm returned with `muSekKind` still 1 (set by `muSkRecord`), so a row past
 > the last event of a halted voice — every tune's tail — ran the SPLIT planner beyond the
@@ -515,8 +522,18 @@ declaration is what makes the player's state survive a switch), calls `kSidPlay`
 the sliver before the child claims the SID). **The player counts as stopped only when the
 child's own `playing` flag is clear**; edits, a new play and a resize all wait for it. Reap the
 child (`quit`, hush, wait for the slot, `SYS_KILL` on timeout) **before** freeing the tune
-block. `C=1` from `kSidPlay` means busy *or* "the library would not load"; report `? no player`
-for both, as `sidplay` does.
+block. `C=1` from `kSidPlay` means the SID is already claimed by a live task; report
+`? no player`, as `sidplay` does.
+
+**A failed `sid.lib` load does NOT return `C=1` — it exits the calling task.** A lazy library
+that will not load prints `could not load sid.lib` and leaves through `libFailExit`, so the
+child dies inside the stub and `kSidPlay` never comes back. Two rules follow, and both are in
+the code: the parent **detects the dead child** (`muPlayTick` reads `taskState[muPlaySlot]`) and
+reports `? no player` on its own head row, staying alive and editable; and **every parent-side
+`kSidHush` is gated** by `muSidHushSafe` (`muSidOk`, set by the child just before `kSidPlay`,
+plus a live child), because an unguarded hush with no library loaded would exit musedit instead
+of the child. The player is per-session: a lost child is not respawned, so PLAY keeps reporting
+until musedit is restarted.
 
 **The playhead needs the player's position, and the editor's clock cannot supply it.** The
 scheduler tick is 59.2 Hz and the display frame is 50.1 Hz, so a frame-counted playhead falls
@@ -836,7 +853,7 @@ The published block, the thread child, stop/reap, follow.
 - [x] **8.5 Follow.** *Verified on `katmand`: with `SHIFT+F` on, the window scrolls to keep the marker in view (the top row-number glyph changes as `muTop` advances); off, the view stays put.*
 - [x] **8.6 Stop.** *Verified: a second `SPACE` silences at once, the marker is erased (`muPhClear`), and a new play works immediately.*
 - [ ] **8.7 Stop/play in the same instant.** Repeatedly — it always stops, the child never wedges, play always works afterwards. *(Second-hush guard in; needs the rapid-toggle run.)*
-- [ ] **8.8 No player.** With `sidplay` running, `SPACE` — `? no player`. *(`muPlayRefd` path in; `? no player` also shown when there is no child.)*
+- [x] **8.8 No player.** *Verified: with the player child gone (killed from the shell while playing), `SPACE` reports `? no player` on musedit's OWN head row, the playhead is cleared, and the editor keeps running -- further `SPACE` presses report again, a note key still edits, and `Q` still quits cleanly. This is the same state a failed `sid.lib` load leaves, because a failed lazy load prints `could not load sid.lib` and then EXITS the calling task (`libFailExit`), so `kSidPlay` never returns and the parent must detect the dead child itself (`muPlayTick`); for the same reason every parent-side `kSidHush` is gated by `muSidHushSafe` -- an unguarded hush with no `sid.lib` loaded would exit musedit. The player is per-session: once the child is gone, PLAY reports rather than respawning.*
 - [x] **8.9 No orphan.** *Verified: quit while playing (`SPACE` then `q` on `filltst`) reaps the child in `muMusicBye` before `kFreeScreen` and returns cleanly to the shell prompt.*
 - [ ] **8.10 ZP.** F-key away and back during playback — the music is unbroken and the other task still runs.
 - [ ] **8.11 Audition.** With the tune stopped, click piano keys across the whole range — each sounds at the pitch named in the readout (compare a few against `sidplay` playing a tune in that register), and no note sticks after about ten displayed frames.

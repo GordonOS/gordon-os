@@ -364,7 +364,10 @@ stream can only be entered at its beginning or at a `HED`. Use sections to struc
 tune.
 
 Only one player can own the SID. If `sidplay` or a game is playing, `SPACE` reports
-`? no player` — stop the other player first.
+`? no player` — stop the other player first. The same message appears if `sid.lib` cannot be
+loaded (the pool is full). Editing carries on either way: the message shows on the head row for
+a moment and `SPACE` reports again each time. Once the player has gone, playing stays
+unavailable until `musedit` is restarted.
 
 ## Saving and quitting
 

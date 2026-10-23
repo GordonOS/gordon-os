@@ -5426,7 +5426,7 @@ muPlayToggle:
     bne muPlayStop
     lda muPlaySlot
     cmp #$ff
-    beq muPtNoChild             // no child: nothing can play
+    beq muPtNoChild             // the player is gone (see muPlayTick): nothing can play
     lda #1
     sta muPlayOn
     lda #0
@@ -5436,6 +5436,24 @@ muPtNoChild:
     muStr(muSNoPlayer)
     jmp muStatus
 
+// --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
+//  A lazy library that fails to load does not return: the kernel prints
+//  "could not load <lib>.lib" and exits the CALLING task. So an unguarded
+//  kSidHush in the parent would take musedit down with it. MU_SIDOK records that
+//  a play attempt was made (the child sets it just before kSidPlay), and a live
+//  child proves the stub did not kill it.
+muSidHushSafe:
+    lda muSidOk
+    beq muShsRts
+    ldx muPlaySlot
+    cpx #$ff
+    beq muShsRts
+    lda taskState,x
+    beq muShsRts
+    jmp kSidHush
+muShsRts:
+    rts
+
 // --- muPlayStop -- silence the chip and ask the child to idle ---
 //  The child may be about to claim the SID inside kSidPlay; a single hush can
 //  land in that sliver. A second hush a slice later catches it (muKeyIdle).
@@ -5443,7 +5461,7 @@ muPlayStop:
     lda #0
     sta muPlayOn
     sta muPlayHush
-    jmp kSidHush
+    jmp muSidHushSafe
 
 // --- muFollowToggle -- SHIFT+F: the window follows the playhead, or not ---
 muFollowToggle:
@@ -5460,15 +5478,27 @@ muFtOff:
 // --- muPlayTick -- once per idle pass: refusal report, playhead, second hush ---
 muPlayTick:
     lda muPlayRefd              // the child met a busy SID: say so once
-    beq muPtCheck
+    beq muPtAlive
     lda #0
     sta muPlayRefd
     sta muPlayOn
-    muStr(muSNoPlayer)
-    jsr muStatus
-muPtCheck:
+    jmp muPtNoPlayer
+muPtAlive:
     lda muPlayOn
     beq muPtStopped
+    ldx muPlaySlot              // a failed lazy load exits the child, so the
+    lda taskState,x             //   parent must notice or PLAY looks inert
+    bne muPtPlaying
+    lda #0
+    sta muSidOk
+    lda #$ff
+    sta muPlaySlot              // the player is gone for this session: report it
+    sta muPlayOn
+muPtNoPlayer:
+    muStr(muSNoPlayer)
+    jsr muStatus
+    jmp muRedrawAll             // the kernel's load-failure text landed in our grid
+muPtPlaying:
     lda frameCount              // playing: move the playhead once per displayed frame
     cmp muPhFrame
     beq muPtRts
@@ -5479,7 +5509,7 @@ muPtStopped:
     lda muPlayHush
     bne muPtRts                 // the second hush already landed
     inc muPlayHush
-    jmp kSidHush
+    jmp muSidHushSafe
 muPtRts:
     rts
 
@@ -5757,7 +5787,8 @@ muMusicBye:
     sta muPlayQuit
     lda #0
     sta muPlayOn
-    jsr kSidHush
+    jsr muSidHushSafe           // never an unguarded hush: a missing sid.lib
+                                //   would exit THIS task instead of the child
     ldx muPlaySlot
     cpx #$ff
     beq muMbDone
@@ -5798,6 +5829,8 @@ muMusicThread:
     sta kArg+1                  // 0 = the player repeats the tune when it ends
     sta kArg+2                  // no transpose
     sta kArg+3
+    lda #1                      // a play attempt is made: kSidHush from the parent
+    sta muSidOk                 //   is only safe once sid.lib has loaded
     jsr kSidPlay
     bcc muMusicThread           // returned: hushed, or the tune finished
     lda #0                      // refused: another task owns the SID
@@ -6197,6 +6230,7 @@ muPlayQuit: .byte 0             // 1 = leave for good       (parent -- child)
 muPlaySlot: .byte $ff           // the child's slot, $ff = no child
 muPlayHush: .byte 0             // the stop second-hush guard
 muPlayRefd: .byte 0             // the child sets this when the SID is busy
+muSidOk:    .byte 0             // a play attempt was made (sid.lib may be loaded)
 muReapCnt:  .byte 0             // countdown while waiting for the child to exit
 muTuneLo:   .byte 0             // MU_IMG mirrored into code, for the child to read
 muTuneHi:   .byte 0
