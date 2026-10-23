@@ -95,9 +95,9 @@ A note that is **tied** to the next one is drawn as one continuous bar.
 | change voice | cursor left / right, or click a cell in another lane |
 | jump to the start of the voice | `CLR/HOME` |
 
-The playhead follows playback and the window follows the playhead unless you turn follow off
-(`SHIFT+F`). Moving the cursor does not stop playback, but **editing does not work while the
-tune is playing** — stop first (`? stop first`).
+The playhead follows playback and the window follows the playhead. Moving the cursor does not
+stop playback, but **editing does not work while the tune is playing** — stop first
+(`? stop first`).
 
 ## Entering notes
 

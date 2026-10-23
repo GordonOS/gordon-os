@@ -96,7 +96,7 @@
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
-.const MU_FOLLOW_CENTER = 6   // rows below the window top the playhead sits on a recenter
+.const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
 
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
@@ -2141,7 +2141,7 @@ muGdEvGo:
     sta muGdRowLo
     lda muVRowHi,x
     sta muGdRowHi
-    lda #1
+        lda #1
     sta muGdFirst
     jsr muGdVisible
     bcs muGdEvSpan
@@ -2364,6 +2364,17 @@ muGdNLp:
     lda muGdIdx
     cmp #MU_GRID_ROWS
     bcs muGdNRts
+    jsr muGdNum1
+    inc muGdIdx
+    jmp muGdNLp
+muGdNRts:
+    lda #0
+    sta muGdClip
+    rts
+
+// --- muGdNum1 -- the number and separators of one row, muGdIdx = 0..17 ---
+muGdNum1:
+    lda muGdIdx
     clc
     adc #MU_GRID_TOP
     sta muClrRow                // the screen row
@@ -2406,13 +2417,7 @@ muGdNLp:
     ldy #MU_CURCOL
     sta (dataPtr),y
     lda #MU_SEP_CHAR
-    jsr muPutC
-    inc muGdIdx
-    jmp muGdNLp
-muGdNRts:
-    lda #0
-    sta muGdClip
-    rts
+    jmp muPutC                  // one row only: the caller's loop owns the rest
 
 // --- muDrawPiano -- four rows of the generated glyphs ---
 //  The pattern repeats every five cells (one octave is 40 px = 5 cells), so the
@@ -2926,11 +2931,6 @@ muKeyNotMode:
     jsr muPlayToggle
     jmp muKeyIdle
 muKeyNotSpace:
-    cmp #$46                    // SHIFT+F: follow the playhead on/off
-    bne muKeyNotFollow
-    jsr muFollowToggle
-    jmp muKeyIdle
-muKeyNotFollow:
     cmp #$84                    // CRSR down
     bne muKeyN1
     jmp muCurDown
@@ -5512,18 +5512,6 @@ muPlayStop:
     sta muPlayHush
     jmp muSidHushSafe
 
-// --- muFollowToggle -- SHIFT+F: the window follows the playhead, or not ---
-muFollowToggle:
-    lda muFollow
-    eor #1
-    sta muFollow
-    beq muFtOff
-    muStr(muSFollowOn)
-    jmp muStatus
-muFtOff:
-    muStr(muSFollowOff)
-    jmp muStatus
-
 // --- muPlayTick -- once per idle pass: refusal report, playhead, second hush ---
 muPlayTick:
     lda muPlayRefd              // the child met a busy SID: say so once
@@ -5599,13 +5587,7 @@ muPhLp:
     jsr muPhCapture
     jsr muGdSpan
     jsr muGdAdv
-    lda muFollow
-    bne muPhLpFollow
-    jsr muGdPast                // not following: the window bounds the walk
-    bcs muPhRender
-    jmp muPhLpStep
-muPhLpFollow:
-    jsr muPhAllDone             // following: walk until every voice is placed
+    jsr muPhAllDone             // walk until every voice is placed
     bcs muPhRender
 muPhLpStep:
     lda muGdSteps
@@ -5620,10 +5602,7 @@ muPhLpStep:
     beq muPhRender
     jmp muPhLp
 muPhRender:
-    lda muFollow
-    beq muPhRdDraw
-    jsr muPhFollow              // scroll the window to keep the playhead in view
-muPhRdDraw:
+    jsr muPhFollow              // keep the playhead on the centre line
     jmp muPhDraw
 
 // --- muPhAllDone -- C=1 when every voice is placed or halted ---
@@ -5675,7 +5654,7 @@ muPfRow:
     bne muPfMove                // negative, or 256+ below: off the window
     lda muTmpL
     cmp #MU_GRID_ROWS
-    bcc muPfRts                 // 0 <= delta < window height: already visible
+    bcc muPfRts                 // still inside the window: no move
 muPfMove:
     lda muValLo                 // newTop = primary - MU_FOLLOW_CENTER, clamped >= 0
     sec
@@ -5698,6 +5677,22 @@ muPfApply:
     cmp muTop+1
     beq muPfRts
 muPfSet:
+    //  The window only ever moves forward one line at a time during playback, so
+    //  the repaint below is the whole band. Painting just the line that appears
+    //  needs the renderer's walk position kept from frame to frame, which the
+    //  playhead's own walk (it re-walks from row 0) currently forbids -- see
+    //  docs/plans/musedit-plan.md, Step 8.
+    lda muTmpL
+    sec
+    sbc muTop
+    sta muTmpH
+    lda muValHi
+    sbc muTop+1
+    bne muPfRepaint
+    lda muTmpH
+    cmp #1
+    bne muPfRepaint
+muPfRepaint:
     lda muTmpL
     sta muTop
     lda muValHi
@@ -5981,10 +5976,6 @@ muSNoRedo:  .text "? nothing to redo"
 muSNoPlayer: .text "? no player"
             .byte 0
 muSStopFirst: .text "? stop first"
-            .byte 0
-muSFollowOn: .text "? follow on"
-            .byte 0
-muSFollowOff: .text "? follow off"
             .byte 0
 muSUnsaved: .text "? unsaved - q again"
             .byte 0
@@ -6292,7 +6283,7 @@ muPhRowHi:  .fill 3, 0
 muPhHave:   .fill 3, 0          // 1 = that voice's pointer was matched this frame
 muPhScr:    .byte $ff, $ff, $ff // the screen row each voice's marker is drawn at
 muPhPrev:   .byte $ff, $ff, $ff // ...and where it was drawn last frame, to erase
-muFollow:   .byte 0             // 1 = the window follows the playhead (SHIFT+F)
+muFollow:   .byte 1             // the window follows the playhead, always
 
 // --- the undo stack and the dirty guard ---
 muDirty:    .byte 0             // an image byte changed since the last save
@@ -6327,3 +6318,5 @@ muRrHave:   .byte 0             // range replace: bytes there now...
 muRrWant:   .byte 0             // ...and bytes wanted
 muRrSrc:    .word 0             // ...from this offset in muUndoBuf
 muUndoBuf:  .fill MU_UNDO_SIZE, 0
+
+

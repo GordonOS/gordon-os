@@ -16,7 +16,7 @@
 > mode -- plus a clipped redraw so an edit repaints only its own rows, a status line
 > counted in displayed frames, and **playback (Step 8)**: a music thread child plays the tune
 > through `kSidPlay`, `SPACE` toggles it, `sidplay.inc` publishes each voice's position at
-> `$54A2`, a column-39 playhead tracks the sounding row each frame, `SHIFT+F` follows it, every
+> `$54A2`, a column-39 playhead tracks the sounding row each frame, the window follows it, every
 > edit path reports `? stop first` while it runs (6.12), `? no player` when there is no child,
 > and the child is reaped before the surface goes.
 >
@@ -364,7 +364,7 @@ DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q
   prefixed `>`; the control bar names the voice. No reverse-video glyph is needed, so no cell
   has to be restored by a writer that cannot restore it.
 - **Playhead**: the sounding row, drawn as `>` in column 39 with the row number highlighted;
-  the window follows it (`SHIFT+F` toggles follow).
+  the window follows it, always.
 
 **The scroll region is what keeps the keyboard still.** It is set once after `kSwitchView`, so
 no cursor-carrying writer — ours or the kernel's — can scroll the piano or the control bar
@@ -454,7 +454,6 @@ never collide; a typed key is a screen code, and `@`/`C=`/`CTRL` cannot be read.
 | `Z` / `X` | undo / redo |
 | `V` | view (grid; stream and sections when they exist) |
 | `SHIFT+U` | refine the row unit (triplets and double-dots) |
-| `SHIFT+F` | follow the playhead on/off |
 | `SHIFT+S` | save |
 | `Q` | quit (warns when dirty; `Q` again discards) |
 
@@ -846,8 +845,8 @@ The published block, the thread child, stop/reap, follow.
 > before `kFreeScreen`. `sidplay.inc` publishes each voice's next-command pointer at `$54A2`
 > (`SID_POS_BLOCK`); `muPlayhead` runs the grid's window-bounded walk each displayed frame and
 > marks the first row where the walk's pointer equals the published one, in the spare column 39.
-> `SHIFT+F` follows: the walk runs to every voice and `muPhFollow` recentres `muTop` when the
-> cursor voice leaves the window. **Harness note:** the VICE binary monitor stops the CPU on a
+> The window follows the playhead: `muPhFollow` recentres `muTop` when the cursor voice leaves the
+> window. **Harness note:** the VICE binary monitor stops the CPU on a
 > read, so a probe that does not `resume()` between samples leaves the player paused and the
 > pointer looks frozen -- resume between samples.
 
@@ -855,7 +854,8 @@ The published block, the thread child, stop/reap, follow.
 - [x] **8.2 It is live.** *Verified in VICE on `commodo`: while playing, `$54A2-$54A7` holds each voice's next-command pointer (valid tune-image addresses that advance over the run); on `SPACE` stop they freeze. Read only while our own child plays.*
 - [x] **8.3 Play.** *Verified on `katmand`: `SPACE` plays and the column-39 marker tracks the sounding row down the grid (rows 8 -> 12 -> 15 -> 18 over the run). `filltst`'s single note holds the marker at row 0.*
 - [x] **8.4 Loops.** *Verified on `immig`: voice 1's published pointer walks `$821c -> $9860 -> $a064 -> $a46a` and then jumps **back to `$a06c`** (the section's `HED` stream) at 18.1 s, and the frame captured at that sample has the column-39 marker on row `01` — the top of the section. The wrap repeats on the next pass.*
-- [x] **8.5 Follow.** *Verified on `katmand`: with `SHIFT+F` on, the window scrolls to keep the marker in view (the top row-number glyph changes as `muTop` advances); off, the view stays put.*
+- [x] **8.5 Follow.** *Verified on `katmand`: the window scrolls to keep the marker in view (the row-number column changes as `muTop` advances). Follow is not optional — there is no key for it.*
+- [ ] **8.5a One-line scroll.** The window moves one line at a time once the playhead is on its centre line, and only the line that appears at the bottom is drawn. *Blocked on a walk separation: `muPlayhead` re-walks the tune from row 0 every displayed frame and resets the simulator state, so the renderer cannot carry its position from one line to the next, and a one-line draw paints from the wrong rows (verified in VICE). The fix is a renderer that keeps its walk position plus a small per-voice `(pointer -> row)` record for the playhead — the playhead then costs a lookup instead of a full walk, which is also what removes the per-frame full walk. Note the walk is capped at `MU_GRID_STEPS = 3000` events, so a window far into a tune silently truncates.*
 - [x] **8.6 Stop.** *Verified: a second `SPACE` silences at once, the marker is erased (`muPhClear`), and a new play works immediately.*
 - [x] **8.7 Stop/play in the same instant.** *Verified: twelve `SPACE` presses 0.15 s apart leave the tune stopped with `$D404/$D40B/$D412` all `0` and the published pointers frozen, and the next `SPACE` plays again (`$D404 = $40`, pointers advancing) — the child never wedges and every later toggle behaves. Note `kSidHush` silences by zeroing the three voice-control registers; `$D418` keeps the library's `$08` filter setting, so the voice-control registers are what a stop is checked against.*
 - [x] **8.8 No player.** *Verified: with the player child gone (killed from the shell while playing), `SPACE` reports `? no player` on musedit's OWN head row, the playhead is cleared, and the editor keeps running -- further `SPACE` presses report again, a note key still edits, and `Q` still quits cleanly. This is the same state a failed `sid.lib` load leaves, because a failed lazy load prints `could not load sid.lib` and then EXITS the calling task (`libFailExit`), so `kSidPlay` never returns and the parent must detect the dead child itself (`muPlayTick`); for the same reason every parent-side `kSidHush` is gated by `muSidHushSafe` -- an unguarded hush with no `sid.lib` loaded would exit musedit. The player is per-session: once the child is gone, PLAY reports rather than respawning.*
