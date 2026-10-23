@@ -94,6 +94,9 @@
 .const MU_UNDO_SIZE = 2048    // the undo stack, in bytes (many small actions)
 .const MU_MUS_DELAY = 1       // one player tick per jiffy
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
+//  filesys.lib (10 pages) + sid.lib (13) + one page of slack: the lazy libraries
+//  musedit's own lifetime needs, which the loader's pre-need sum does not count.
+.const MU_LIB_PAGES = 24
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
 .const MU_FOLLOW_CENTER = 6   // rows below the window top the playhead sits on a recenter
@@ -140,6 +143,11 @@ muMainGo:
     jsr muUnitNow               // the row unit that tempo falls into
     jsr muTuneRefresh           // publish the tune pointer for the child
     jsr muMusicInit             // spawn the music child
+    jsr muSidCheck              // C=1: another task already owns the SID
+    bcc muSidFree
+    muStr(muSNoPlayer)
+    jmp muFatal
+muSidFree:
     lda #$18                    // the armed length: a 16th until the bar says
     sta muDurArm                //   otherwise
     lda #4
@@ -311,6 +319,76 @@ muImgToKPtr:
     lda (dataPtr),y
     sta kPtr+1
     rts
+
+// --- muLibRoom -- C=1 when the pool cannot hold the libraries this task needs ---
+//  filesys.lib (opened to read the tune) and sid.lib (the player) are LAZY, so the
+//  loader's pre-need sum counts neither: it reports "fits", and the first call that
+//  needs one gets `could not load <lib>.lib` and exits THIS task from inside the
+//  stub, before anything can be drawn. The probe allocates their pages up front and
+//  hands them straight back. kMalloc may evict another task to satisfy it -- which
+//  is exactly the accounting the lazy load skipped -- and never the caller.
+muLibRoom:
+    lda #MU_LIB_PAGES
+    jsr kMalloc
+    bcs muLrNo
+    jsr kFree                   // kPtr still holds the probe block
+    clc
+    rts
+muLrNo:
+    muStr(muSNoRoom)
+    sec
+    rts
+
+// --- muSidCheck -- C=1 when another task already owns the SID ---
+//  The claim must be made by the CHILD: kSidPlay's scratch is the ZP window the
+//  child declares ($02-$0A) and the parent declares none, so calling it here
+//  would scribble over the kernel's ZP. The child probes with muNewTune -- three
+//  HLTs, silence, one pass -- and reports through MU_PLAYREFD.
+muSidCheck:
+    lda muPlaySlot
+    cmp #$ff
+    bne muScArm
+    sec                         // no child: there is no player either
+    rts
+muScArm:
+    lda #1
+    sta muPlayProbe
+muScWait:
+    lda muPlayRefd
+    bne muScBusy
+    lda muPlayProbe
+    beq muScFree
+    lda #SYS_YIELD
+    jsr syscall
+    jmp muScWait
+muScBusy:
+    lda #0
+    sta muPlayRefd
+    sec
+    rts
+muScFree:
+    clc
+    rts
+
+// --- muFatal -- say why we cannot run, hold it until a key, then leave ---
+//  grpaint's gpFail/sidplay's spReport recipe: the message stays up until it is
+//  acknowledged, and the exit goes through muQuit, which drains the release,
+//  hands the display back and frees the surface.
+muFatal:
+    jsr kClearScreen
+    ldx #0
+    ldy #0
+    jsr kSetCursor              // the only X/Y-preserving routine
+    ldy #MU_STRLO
+    lda (dataPtr),y
+    sta kPtr
+    ldy #MU_STRHI
+    lda (dataPtr),y
+    sta kPtr+1
+    jsr kPrintString
+    jsr kNewline
+    jsr kWaitKey                // hold the reason on screen until acknowledged
+    jmp muQuit
 
 // --- muLoad -- the tune the name stands for, or a new one ---
 //  Out: C=0 the image is in the block; C=1 MU_STR holds the reason.
@@ -5817,6 +5895,28 @@ muMbDone:
 muMusicThread:
     lda muPlayQuit
     bne muMtExit
+    lda muPlayProbe             // the startup claim: silence, so it cannot be heard
+    beq muMtCheckPlay
+    lda #<muNewTune             // three HLTs: the claim is the point, not the sound
+    sta kPtr
+    lda #>muNewTune
+    sta kPtr+1
+    lda #1
+    sta kArg                    // one tick per jiffy
+    sta kArg+1                  // one pass
+    lda #0
+    sta kArg+2
+    sta kArg+3
+    lda #1
+    sta muSidOk                 // sid.lib is loaded from here on
+    jsr kSidPlay
+    lda #0
+    sta muPlayProbe
+    bcc muMusicThread           // claimed: it is free, carry on into the idle loop
+    lda #1                      // another task owns the chip: the parent reports it
+    sta muPlayRefd
+    jmp muMusicThread
+muMtCheckPlay:
     lda muPlayOn
     beq muMtIdle
     lda muTuneLo
@@ -6230,6 +6330,7 @@ muPlayQuit: .byte 0             // 1 = leave for good       (parent -- child)
 muPlaySlot: .byte $ff           // the child's slot, $ff = no child
 muPlayHush: .byte 0             // the stop second-hush guard
 muPlayRefd: .byte 0             // the child sets this when the SID is busy
+muPlayProbe: .byte 0            // 1 = the child must test the claim before we open
 muSidOk:    .byte 0             // a play attempt was made (sid.lib may be loaded)
 muReapCnt:  .byte 0             // countdown while waiting for the child to exit
 muTuneLo:   .byte 0             // MU_IMG mirrored into code, for the child to read
