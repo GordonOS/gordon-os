@@ -451,6 +451,11 @@ muWinReset:
 //  through the image, in muWcPt, which nothing in the seat touches (the seat's own
 //  pointers are kPtr/srcPtr, and srcPtr is exactly what it destroys).
 //  Window 0 serves for all three: they are the same code path.
+//  WARNING: `(label),y` is ZERO-PAGE ONLY, and KickAssembler does not reject a label
+//  outside it -- it truncates to the label's low byte, so this read a stray pointer in
+//  zero page instead of muWcPt. The walk pointer lives in the code image, so it is
+//  copied into srcPtr AFTER the seat has returned (the seat destroys srcPtr), and only
+//  then is it read indirectly.
 muWinCheck:
     jsr muImgToKPtr
     lda kPtr
@@ -467,9 +472,13 @@ muWcLp:
     jsr muWinReset              // force a real fill, not a satisfied seat
     ldx #0
     jsr muWinSeat
+    lda muWcPt                  // the seat has finished with srcPtr, so it can carry
+    sta srcPtr                  //   the independent walk from here on
+    lda muWcPt+1
+    sta srcPtr+1
     ldy #0
 muWcCmp:
-    lda (muWcPt),y
+    lda (srcPtr),y
     cmp (kPtr),y
     bne muWcBad
     iny
