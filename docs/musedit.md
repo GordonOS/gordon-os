@@ -52,7 +52,7 @@ ROW VOICE 1    |VOICE 2    |VOICE 3   OVR
  04 A-3 16      |           |... 8
 ...
  19 ...        |...        |...
-[rows 20-23: piano, all 8 octaves over 40 cells, black keys as three-row bars]
+[rows 21-23: piano, all 8 octaves over 40 cells, black keys as two-row bars]
 DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q
 ```
 

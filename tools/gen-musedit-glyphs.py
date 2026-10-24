@@ -29,7 +29,7 @@ OUT = os.path.join(ROOT, "src", "tasks", "dynamic", "musedit-glyphs.inc")
 
 OCT_W = 40                      # one octave = 5 cells = 40 px, exactly
 CELLS = 5                       # cells per octave
-ROWS = 4                        # keyboard height, in cell rows
+ROWS = 3                        # keyboard height, in cell rows
 
 # White-key edges inside one octave, in pixels. Each key runs to the next edge;
 # the edge pixel itself is the separator (paper), so keys read as separate.
@@ -47,7 +47,7 @@ WHITE = (
 # either side of theirs (32..35 and 9..12 would leave a 1 px gap beside G# and C#).
 BLACK = ((4, 8, 1), (10, 14, 3), (21, 25, 6), (27, 31, 8), (33, 37, 10))
 
-BLACK_ROWS = 3                  # the black keys reach the top three cell rows
+BLACK_ROWS = 2                  # the black keys reach the top two cell rows
 
 
 def ink(p, row):
@@ -122,6 +122,10 @@ def build():
     lo = [semitone(p, False) for p in range(OCT_W)]
     for i in range(0, OCT_W, 8):
         out.append("    .byte %s" % ",".join("$%02x" % b for b in lo[i:i + 8]))
+    out.append("")
+    out.append("// How many keyboard rows the black keys cover; the rest is white.")
+    out.append("muKeyBlackRows:")
+    out.append("    .byte %d" % BLACK_ROWS)
     out.append("")
     return "\n".join(out)
 

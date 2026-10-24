@@ -7,7 +7,7 @@
 //  White-key edges: 0, 6, 11, 17, 23, 29, 34
 //  Black keys: 4-7, 10-13, 21-24, 27-30, 33-36
 
-// 20 glyphs x 8 bytes; index = (row * 5 + cell) * 8
+// 15 glyphs x 8 bytes; index = (row * 5 + cell) * 8
 muPianoGlyphs:
     .byte $70,$70,$70,$70,$70,$70,$70,$70   // row 0 cell 0
     .byte $c3,$c3,$c3,$c3,$c3,$c3,$c3,$c3   // row 0 cell 1
@@ -19,16 +19,11 @@ muPianoGlyphs:
     .byte $b8,$b8,$b8,$b8,$b8,$b8,$b8,$b8   // row 1 cell 2
     .byte $61,$61,$61,$61,$61,$61,$61,$61   // row 1 cell 3
     .byte $87,$87,$87,$87,$87,$87,$87,$87   // row 1 cell 4
-    .byte $70,$70,$70,$70,$70,$70,$70,$70   // row 2 cell 0
-    .byte $c3,$c3,$c3,$c3,$c3,$c3,$c3,$c3   // row 2 cell 1
-    .byte $b8,$b8,$b8,$b8,$b8,$b8,$b8,$b8   // row 2 cell 2
-    .byte $61,$61,$61,$61,$61,$61,$61,$61   // row 2 cell 3
-    .byte $87,$87,$87,$87,$87,$87,$87,$87   // row 2 cell 4
-    .byte $7d,$7d,$7d,$7d,$7d,$7d,$7d,$7d   // row 3 cell 0
-    .byte $ef,$ef,$ef,$ef,$ef,$ef,$ef,$ef   // row 3 cell 1
-    .byte $be,$be,$be,$be,$be,$be,$be,$be   // row 3 cell 2
-    .byte $fb,$fb,$fb,$fb,$fb,$fb,$fb,$fb   // row 3 cell 3
-    .byte $df,$df,$df,$df,$df,$df,$df,$df   // row 3 cell 4
+    .byte $7d,$7d,$7d,$7d,$7d,$7d,$7d,$7d   // row 2 cell 0
+    .byte $ef,$ef,$ef,$ef,$ef,$ef,$ef,$ef   // row 2 cell 1
+    .byte $be,$be,$be,$be,$be,$be,$be,$be   // row 2 cell 2
+    .byte $fb,$fb,$fb,$fb,$fb,$fb,$fb,$fb   // row 2 cell 3
+    .byte $df,$df,$df,$df,$df,$df,$df,$df   // row 2 cell 4
 
 // 40 bytes per row of 5 cells: the top three rows (black keys)
 muKeyHi:
@@ -45,3 +40,7 @@ muKeyLo:
     .byte $04,$05,$05,$05,$05,$05,$05,$07
     .byte $07,$07,$07,$07,$07,$09,$09,$09
     .byte $09,$09,$0b,$0b,$0b,$0b,$0b,$0b
+
+// How many keyboard rows the black keys cover; the rest is white.
+muKeyBlackRows:
+    .byte 2

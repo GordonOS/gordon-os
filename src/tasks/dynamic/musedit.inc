@@ -42,8 +42,9 @@
 
 // --- screen layout ---
 .const MU_GRID_TOP  = 2
-.const MU_GRID_BOT  = 19
-.const MU_PIANO_TOP = 20
+.const MU_GRID_BOT  = 20
+.const MU_PIANO_ROWS = 3      // keyboard rows (the glyphs are generated for this many)
+.const MU_PIANO_TOP = 21
 .const MU_PIANO_BOT = 23
 .const MU_BAR_ROW   = 24
 .const MU_SEP1      = 15
@@ -80,7 +81,7 @@
 .const MU_SPIN      = 255     // commands one step may run before it gives up
 .const MU_SIM_CAP   = 6000    // events a whole run may execute
 .const MU_TRACE_N   = 18      // events the trace key prints, one per grid row
-.const MU_GRID_ROWS = 18      // the rows a window shows
+.const MU_GRID_ROWS = 19      // the rows a window shows
 .const MU_BAR_CH    = '='     // a note's length, one cell per row
 .const MU_REST_CH   = '.'     // a rest
 .const MU_CMD_CH    = '*'     // the event arrived with commands
@@ -2503,7 +2504,7 @@ muGdNumWrap:
 muGdNumRts:
     rts
 
-// --- muDrawPiano -- four rows of the generated glyphs ---
+// --- muDrawPiano -- the generated keyboard rows ---
 //  The pattern repeats every five cells (one octave is 40 px = 5 cells), so the
 //  glyph is chosen by the cell's position inside the octave, not by the column.
 muDrawPiano:
@@ -2549,7 +2550,7 @@ muPNoWrap:
     bcc muPColLp
     inc muPRow
     lda muPRow
-    cmp #4
+    cmp #MU_PIANO_ROWS
     bcc muPRowLp
     rts
 
@@ -5464,7 +5465,7 @@ muHover:
     lsr
     cmp #MU_PIANO_TOP
     bcc muHovNone
-    cmp #MU_PIANO_TOP+4
+    cmp #MU_PIANO_TOP+MU_PIANO_ROWS
     bcs muHovNone
     sec
     sbc #MU_PIANO_TOP
@@ -5496,7 +5497,7 @@ muHovSub:
 muHovDivDone:
     ldx muXl                    // the pixel inside the octave
     lda muHRow
-    cmp #3
+    cmp muKeyBlackRows
     bcs muHovLow
     lda muKeyHi,x
     jmp muHovTable
@@ -5671,7 +5672,7 @@ muClkSetVoice:
 muClkLow:
     cmp #MU_PIANO_TOP            // the piano: the click enters that pitch
     bcc muClkRts
-    cmp #MU_PIANO_TOP+4
+    cmp #MU_PIANO_TOP+MU_PIANO_ROWS
     bcs muClkRts
     jmp muNoteClick
 muClkRts:
