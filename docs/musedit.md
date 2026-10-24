@@ -46,10 +46,10 @@ first — `S` in `sidplay` stops the tune — and the editor starts normally.
 ```
 commodo.mus TEM$90 BAR3 R048   C-4 16
 ROW VOICE 1    |VOICE 2    |VOICE 3   OVR
->01 C-4=======*|A-3======= |...
- 02    ========|   ========|...
- 03    ========|E-4======= |...
- 04 A-3=======*|   ========|...
+>01 C-4 16  *  |A-3 8      |... 2
+ 02            |           |... 4
+ 03            |E-4 4      |... 4
+ 04 A-3 16      |           |... 8
 ...
  19 ...        |...        |...
 [rows 20-23: piano, all 8 octaves over 40 cells, black keys as three-row bars]
@@ -78,13 +78,18 @@ Inside a lane:
 
 | mark | meaning |
 |---|---|
-| `C-4=======` | a note starts here; the `=` run shows how long it lasts |
-| `C-4=======*` | the note also carries commands (see *Commands*) |
-| `   ========` | the previous note is still sounding |
-| `...` | a rest starts here |
+| `C-4 16` | a note starts here, and its duration is a sixteenth |
+| `C-4 16  *` | the note also carries commands (see *Commands*), so the `*` sits in the lane's last cell |
+| `... 4` | a rest starts here, lasting a quarter |
 | `WAV=4` | a command fires here and no note starts on this row |
 
-A note that is **tied** to the next one is drawn as one continuous bar.
+The duration is written in the format's own numbers on the note's own row: a whole note, a half,
+a quarter, an 8th, a 16th, a 32nd and a 64th read `1`, `2`, `4`, `8`, `16`, `32`, `64`, and a
+utility length prints no number because its length is whatever `UTL`/`UTV` set.
+
+Only the row a note **starts** on is written. The rows the note covers stay blank ? the pitch and
+the duration already say how long it lasts, and leaving them empty is what lets the window scroll
+a line at a time by drawing nothing but the row that appears.
 
 ## Moving around
 

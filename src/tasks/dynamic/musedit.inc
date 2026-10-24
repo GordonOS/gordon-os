@@ -1381,6 +1381,8 @@ muStepNote:
 muStepLen:
     ldx muSv
     sta muJifOut                // the length, so a caller can measure the note
+    lda muScmd                  // the duration byte, for the grid's readout
+    sta muVDur,x
     lda #0
     sta muJifOut+1
     sta muCmdN,x                // the commands belong to the event just read
@@ -2284,50 +2286,46 @@ muGdVNo:
     sec
     rts
 
-// --- muGdCells -- one row of the current event ---
+// --- muGdCells -- the onset row of the current event ---
+//  A note reads as its pitch, a space and its duration in the format's own
+//  numbers: C#6 16 is a sixteenth, G-4 4 a quarter. A rest is three dots and the
+//  same number. Only the onset row is written: the rows the event covers stay
+//  blank, so a scroll has nothing to redraw under a sounding note.
 muGdCells:
+    lda muGdFirst
+    beq muGdCDone
     ldx muSv
     lda muLaneCol,x
     sta muGdCol
     jsr muGdAtCell
-    lda muGdFirst
-    beq muGdCCont
     lda muSopt
     and #$07
     bne muGdCPitch
     lda #1
-    sta muGdRest                // a rest: three dots, and no bar behind them
+    sta muGdRest
     lda #MU_REST_CH
     jsr muPutC
     lda #MU_REST_CH
     jsr muPutC
     lda #MU_REST_CH
     jsr muPutC
-    jmp muGdCMark
-muGdCCont:
-    lda muGdRest
-    bne muGdCDone               // the rows under a rest stay blank
-    jmp muGdCBar
+    jmp muGdCDur
 muGdCPitch:
+    lda #0
+    sta muGdRest
     jsr muGdPitch
-    jmp muGdCBar
-muGdCBar:
-    ldx muSv
-    lda muLaneCol,x
-    clc
-    adc muLaneW,x
-    sta muGdEnd
-muGdCBarLp:
-    ldy #MU_CURCOL
-    lda (dataPtr),y
-    cmp muGdEnd
-    bcs muGdCBarDone
-    lda #MU_BAR_CH
+muGdCDur:
+    lda #MU_SPACE
     jsr muPutC
-    jmp muGdCBarLp
-muGdCBarDone:
-    lda muGdFirst
-    beq muGdCDone
+    ldx muSv
+    lda muVDur,x
+    lsr
+    lsr
+    and #$07                    // the length class, 0-7
+    tay
+    lda muDurNum,y
+    beq muGdCMark               // a utility length has no number
+    jsr muNumDur
 muGdCMark:
     ldx muSv
     lda muCmdN,x
@@ -2353,6 +2351,29 @@ muGdCMarkSet:
     jsr muPutC
 muGdCDone:
     rts
+
+// --- muNumDur -- print A (1..64) without a leading zero ---
+muNumDur:
+    cmp #10
+    bcc muNdOnes
+    ldx #0
+muNdTens:
+    cmp #10
+    bcc muNdRest
+    sbc #10
+    inx
+    jmp muNdTens
+muNdRest:
+    pha
+    txa
+    clc
+    adc #'0'
+    jsr muPutC
+    pla
+muNdOnes:
+    clc
+    adc #'0'
+    jmp muPutC
 
 // --- muGdAtCell -- the write cursor goes to (MU_GDCOL, MU_GDSROW) ---
 muGdAtCell:
@@ -6494,6 +6515,8 @@ muFreeMid:  .byte 0
 muFreeHi:   .byte 0
 muClrRow:   .byte 0
 muTempo:    .byte 0             // the tempo in force at the first note
+muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
+muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a utility, then whole..32nd
 muDurByte:  .byte 0
 muJifCls:   .byte 0
 muJifSt:    .byte 0
