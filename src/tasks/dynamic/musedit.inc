@@ -33,11 +33,9 @@
 .const MU_FRAME     = 38      // frameCount at the last sample
 .const MU_BTN       = 39      // MOUSE_READ's button byte (active low)
 .const MU_HOV       = 40      // pitch under the pointer, $ff = none
-.const MU_IMG       = 41      // the kMalloc block holding the whole file
-.const MU_LEN       = 43      // bytes in that image (load address included)
-.const MU_FLEN      = 45      // the on-disk size kReuOpen reported
-.const MU_PAGES     = 47      // pages the block has, from kMalloc's kArg+4 echo
-.const MU_FREC      = 48      // 5-byte file record: size lo/hi, base lo/mid/hi
+.const MU_LEN       = 41      // bytes in that image (load address included)
+.const MU_FLEN      = 43      // the on-disk size kReuOpen reported
+.const MU_FREC      = 45      // 5-byte file record: size lo/hi, base lo/mid/hi
 .const MU_STATE_TOP = MU_FREC+4  // the highest state byte: the zero loop starts here
 
 // --- screen layout ---
@@ -104,8 +102,11 @@
 .const MU_PH_SLOW       = 4   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
-.const MU_WIN_PAGES  = 3       // the window service: one 256-byte, page-aligned
-                               //   window per voice (see muWinSeat)
+.const MU_WIN_PAGES  = 6       // the window service: SIX 256-byte, page-aligned
+                               //   windows -- 0-2 are the editor's, one per voice, and
+                               //   3-5 are the player's, handed over in kSidPlay's
+                               //   config block so the child pages the same file the
+                               //   editor edits (see muWinSeat)
 .const MU_SCR_PAGES  = 255     // <base>.wrk holds this many 256-byte pages: 65280
                                //   bytes is the whole of a 16-bit file size, and the
                                //   scratch is created once and then reused, because
@@ -159,14 +160,9 @@ muWinTaken:
     jmp muPtrRefuse             // muLoad left the reason in MU_STR
 muMainGo:
     jsr muWinReset              // the windows outlived the last image: forget it
-    jsr muWinCheck              // C=1: a window does not deliver its own page
-    bcc muWinGood
-    muStr(muSNoWin)
-    jmp muPtrRefuse
-muWinGood:
+    jsr muSidCfg                // the child's kSidPlay config: the file and its windows
     jsr muFindTempo             // the tempo the first note will hear
     jsr muUnitNow               // the row unit that tempo falls into
-    jsr muTuneRefresh           // publish the tune pointer for the child
     jsr muMusicInit             // spawn the music child
     lda #$18                    // the armed length: a 16th until the bar says
     sta muDurArm                //   otherwise
@@ -338,15 +334,15 @@ muRecArg:
     sta kArg+1
     rts
 
-// --- muImgToKPtr -- kPtr = the image block ---
-//  Re-derived every time: every FS call and every kMalloc clobbers kPtr.
-muImgToKPtr:
-    ldy #MU_IMG
-    lda (dataPtr),y
-    sta kPtr
-    ldy #MU_IMG+1
-    lda (dataPtr),y
-    sta kPtr+1
+// --- muImgSeat -- kPtr = the image's own first byte, in window 0 ---
+//  The header -- load address and the three length words -- is eight bytes, so it
+//  is always page 0. Clobbers A, X, Y, kPtr, srcPtr.
+muImgSeat:
+    lda #0
+    sta muWinOfs
+    sta muWinOfs+1
+    ldx #0
+    jsr muWinSeat
     rts
 
 // ==========================================
@@ -449,60 +445,39 @@ muWiRts:                        //   caller tests this carry for "no room"
 
 // --- muWinReset -- forget what the windows hold (a new image) ---
 muWinReset:
+    ldx #0
     lda #0
-    sta muWinOk
-    sta muWinOk+1
-    sta muWinOk+2
+muWrLp:
+    sta muWinOk,x
+    inx
+    cpx #MU_WIN_PAGES
+    bne muWrLp
     rts
 
-// --- muWinCheck -- C=1 when a window does not deliver its own page ---
-//  The seat's page arithmetic is the one thing here that can be wrong invisibly: a
-//  carry lost between the block's high byte and the page number would hand back
-//  another page's bytes, and the tune would still look plausible. So each page is
-//  compared against an INDEPENDENT walk -- a pointer stepped 256 bytes at a time
-//  through the image, in muWcPt, which nothing in the seat touches (the seat's own
-//  pointers are kPtr/srcPtr, and srcPtr is exactly what it destroys).
-//  Window 0 serves for all three: they are the same code path.
-//  WARNING: `(label),y` is ZERO-PAGE ONLY, and KickAssembler does not reject a label
-//  outside it -- it truncates to the label's low byte, so this read a stray pointer in
-//  zero page instead of muWcPt. The walk pointer lives in the code image, so it is
-//  copied into srcPtr AFTER the seat has returned (the seat destroys srcPtr), and only
-//  then is it read indirectly.
-muWinCheck:
-    jsr muImgToKPtr
-    lda kPtr
-    sta muWcPt
-    lda kPtr+1
-    sta muWcPt+1
-    ldy #MU_PAGES
-    lda (dataPtr),y
-    sta muWinCnt                // pages left to check
+// --- muWinFlush -- window X's page goes back to the working file ---
+//  A window is a COPY, so a write has to reach the page it came from. One
+//  kReuWriteAt of 256 bytes; muWinPg,x is the page the window holds.
+//  Clobbers A, X, Y, kArg+0..7, srcPtr -- and X comes back as it went in.
+muWinFlush:
+    stx muScrV
+    jsr muSFrecArg
     lda #0
-    sta muWinOfs
-    sta muWinOfs+1
-muWcLp:
-    jsr muWinReset              // force a real fill, not a satisfied seat
-    ldx #0
-    jsr muWinSeat
-    lda muWcPt                  // the seat has finished with srcPtr, so it can carry
-    sta srcPtr                  //   the independent walk from here on
-    lda muWcPt+1
-    sta srcPtr+1
-    ldy #0
-muWcCmp:
-    lda (srcPtr),y
-    cmp (kPtr),y
-    bne muWcBad
-    iny
-    bne muWcCmp
-    inc muWcPt+1                // the next page: only the high byte moves
-    inc muWinOfs+1
-    dec muWinCnt
-    bne muWcLp
-    clc
-    rts
-muWcBad:
-    sec
+    sta kArg+2
+    lda muWinPg,x
+    sta kArg+3                  // pos = page x 256
+    lda #0
+    sta kArg+6
+    lda #1
+    sta kArg+7                  // len = 256
+    txa
+    asl
+    tay
+    lda muWin,y
+    sta kPtr
+    lda muWin+1,y
+    sta kPtr+1
+    jsr kReuWriteAt
+    ldx muScrV
     rts
 
 // ==========================================
@@ -514,15 +489,6 @@ muWcBad:
 //  frees neither the directory slot nor the data -- a create/delete cycle would
 //  leak the filesystem a tune at a time. The real <base>.mus is untouched until
 //  SAVE, so "quit without saving" stays safe.
-
-// --- muImgChanged -- the block changed, so make the working file agree ---
-//  An edit writes the block; the windows and the walker read <base>.wrk. Until the
-//  write path streams to the file itself, every edit that lands in the block puts
-//  the pages it touched back -- one page per 256 bytes of tune, at a human's
-//  keystroke rate.
-muImgChanged:
-    jsr muWinReset
-    jmp muScrFill
 
 // --- muSFArg -- kArg = the scratch name ---
 muSFArg:
@@ -538,16 +504,6 @@ muSFrecArg:
     sta kArg
     lda #>muSFrec
     sta kArg+1
-    rts
-
-// --- muScrMake -- the working image := the tune in the block ---
-//  Out: C=0 the scratch holds the image; C=1 it could not be made, or it is
-//  smaller than this tune.
-muScrMake:
-    jsr muScrOpen
-    bcs muSmRts
-    jmp muScrFill               // tail call: its carry is the answer
-muSmRts:
     rts
 
 // --- muScrOpen -- kReuOpen <base>.wrk, creating it the first time ---
@@ -575,62 +531,6 @@ muScrOpen:
     jsr kReuOpen
 muSoRts:
     rts
-
-// --- muScrPt -- kPtr = the block's page muScrPg ---
-//  The block is page-aligned, so the page is added to its high byte and the low
-//  byte is already 0.
-muScrPt:
-    jsr muImgToKPtr             // kPtr = the image block
-    lda kPtr+1
-    clc
-    adc muScrPg
-    sta kPtr+1
-    rts
-
-// --- muScrFill -- copy the image's whole pages into the scratch ---
-//  Out: C=0 done; C=1 the tune needs more pages than the scratch has, or a write
-//  was refused. The pad behind MU_LEN goes out as zeroes, which is what a save
-//  writes back, so an untouched file still round-trips byte for byte.
-muScrFill:
-    ldy #MU_LEN
-    lda (dataPtr),y
-    clc
-    adc #$ff
-    ldy #MU_LEN+1
-    lda (dataPtr),y
-    adc #0
-    bne muSfCnt                 // a non-zero high byte: at least 256 pages
-    lda #1
-muSfCnt:
-    cmp muSFrec+1               // the record's size hi IS the page count
-    beq muSfFit
-    bcs muSfBad                 // more pages than the scratch has
-muSfFit:
-    sta muScrCnt
-    lda #0
-    sta muScrPg
-muSfLp:
-    jsr muScrPt                 // kPtr = the block's page
-    jsr muSFrecArg
-    lda #0
-    sta kArg+2
-    lda muScrPg
-    sta kArg+3                  // pos = page x 256
-    lda #0
-    sta kArg+6
-    lda #1
-    sta kArg+7                  // len = 256
-    jsr kReuWriteAt
-    bcs muSfBad
-    inc muScrPg
-    dec muScrCnt
-    bne muSfLp
-    clc
-    rts
-muSfBad:
-    sec
-    rts
-
 // --- muSidCheck -- C=1 when another task is using sid.lib ---
 //  libStartPage is $FF until the library is actually LOADED, and only a load
 //  puts pages there; musedit declares sid.lib but does not call it until it
@@ -670,7 +570,7 @@ muFatal:
     jmp muQuit
 
 // --- muLoad -- the tune the name stands for, or a new one ---
-//  Out: C=0 the image is in the block; C=1 MU_STR holds the reason.
+//  Out: C=0 the working file holds the image; C=1 MU_STR holds the reason.
 muLoad:
     lda reuFsEnabled            // kReuOpen's code 6 means not found OR no FS, so
     cmp #REU_FS_SIGNATURE       // presence has to be its own test -- otherwise every
@@ -695,36 +595,7 @@ muLdOpen:
     lda (kPtr),y
     ldy #MU_FLEN+1
     sta (dataPtr),y
-    //  --- pages = ceil(size / 256), never zero ---
-    ldy #MU_FLEN
-    lda (dataPtr),y
-    clc
-    adc #$ff
-    ldy #MU_FLEN+1
-    lda (dataPtr),y
-    adc #0
-    bne muLdPages
-    lda #1
-muLdPages:
-    jsr kMalloc
-    bcs muLdNoRoom
-    //  kPtr's low byte is ALWAYS 0 -- a block is page-aligned -- so the address
-    //  has to be taken as a pair; the high byte is the whole of it.
-    ldy #MU_IMG
-    lda kPtr
-    sta (dataPtr),y
-    ldy #MU_IMG+1
-    lda kPtr+1
-    sta (dataPtr),y
-    ldy #MU_PAGES
-    lda kArg+4                  // the page echo: never a register, allocFromPool clobbers X
-    sta (dataPtr),y
-    //  --- and the image itself ---
-    jsr muFsArg
-    jsr muImgToKPtr
-    jsr kReuLoad
-    bcs muLdRead
-    //  --- MU_LEN is the file's length, and the slack behind it becomes zeroes ---
+    //  --- the image is the whole file ---
     ldy #MU_FLEN
     lda (dataPtr),y
     ldy #MU_LEN
@@ -733,42 +604,96 @@ muLdPages:
     lda (dataPtr),y
     ldy #MU_LEN+1
     sta (dataPtr),y
-    jsr muBlockPad
-    jmp muLdCheck
-muLdRead:
-    muStr(muSNoRead)
+    jsr muScrOpen
+    bcs muLdNoScr
+    jsr muLdCopy                // the tune's pages -> the working file
+    bcc muLdCheck
+muLdNoScr:
+    muStr(muSNoScr)
     sec
     rts
-muLdNoRoom:
-    muStr(muSNoRoom)
+
+// --- muLdCopy -- the tune file's pages go into the working file ---
+//  Window 0 is the bounce buffer: page p of <base>.mus is read into it and written
+//  to page p of <base>.wrk. A short last page is zeroed behind the data, which is
+//  what a save writes back, so an untouched file still round-trips byte for byte.
+muLdCopy:
+    jsr muLdPages               // A = the pages MU_LEN needs, C=1 too big
+    bcs muLcBad
+    sta muScrCnt
+    lda #0
+    sta muScrPg
+muLcLp:
+    jsr muRecArg
+    lda #0
+    sta kArg+2
+    lda muScrPg
+    sta kArg+3                  // pos = page x 256
+    lda #0
+    sta kArg+6
+    lda #1
+    sta kArg+7                  // len = 256
+    jsr muWin0Ptr
+    jsr kReuReadAt
+    bcs muLcBad
+    lda kArg+7                  // a full page: nothing to zero
+    bne muLcWrote
+    ldy kArg+6                  // a short one: zero from the end of the data, and
+    lda #0                      //   the wrap at 256 ends the loop
+muLcZero:
+    sta (kPtr),y
+    iny
+    bne muLcZero
+muLcWrote:
+    lda muScrPg
+    sta muWinPg                 // window 0 now holds this page of the working file
+    ldx #0
+    jsr muWinFlush
+    inc muScrPg
+    dec muScrCnt
+    bne muLcLp
+    clc
+    rts
+muLcBad:
+    sec
+    rts
+
+// --- muWin0Ptr -- kPtr = window 0 (the bounce buffer) ---
+muWin0Ptr:
+    lda muWin
+    sta kPtr
+    lda muWin+1
+    sta kPtr+1
+    rts
+
+// --- muLdPages -- A = the pages MU_LEN needs; C=1 more than the scratch has ---
+muLdPages:
+    ldy #MU_LEN
+    lda (dataPtr),y
+    clc
+    adc #$ff
+    ldy #MU_LEN+1
+    lda (dataPtr),y
+    adc #0
+    bcs muLdPgBad               // len + 255 is past 16 bits: far bigger than the scratch
+    bne muLdPgChk
+    lda #1
+muLdPgChk:
+    cmp #MU_SCR_PAGES
+    beq muLdPgOk
+    bcs muLdPgBad
+muLdPgOk:
+    clc
+    rts
+muLdPgBad:
     sec
     rts
 
 // --- muLdNew -- the blank tune a name with no file stands for ---
 muLdNew:
-    lda #1
-    jsr kMalloc
-    bcs muLdNoRoom
-    ldy #MU_IMG                 // the pair again: kPtr's low byte is always 0
-    lda kPtr
-    sta (dataPtr),y
-    ldy #MU_IMG+1
-    lda kPtr+1
-    sta (dataPtr),y
-    ldy #MU_PAGES
-    lda kArg+4
-    sta (dataPtr),y
-    ldy #MU_LEN
-    lda #<(muNewTuneEnd - muNewTune)
-    sta (dataPtr),y
-    lda #0
-    ldy #MU_LEN+1
-    sta (dataPtr),y
-    ldy #MU_FLEN
-    sta (dataPtr),y
-    ldy #MU_FLEN+1
-    sta (dataPtr),y             // nothing on disk yet
-    jsr muImgToKPtr
+    jsr muScrOpen
+    bcs muLdNoScr
+    jsr muWin0Ptr
     ldy #0
 muLdNewLp:
     lda muNewTune,y
@@ -776,7 +701,25 @@ muLdNewLp:
     iny
     cpy #(muNewTuneEnd - muNewTune)
     bne muLdNewLp
-    jsr muBlockPad
+    lda #0                      // the page behind the header is zeroes
+muLdNewZ:
+    sta (kPtr),y
+    iny
+    bne muLdNewZ
+    lda #0
+    sta muWinPg                 // window 0 holds page 0 of the working file
+    ldx #0
+    jsr muWinFlush
+    ldy #MU_LEN
+    lda #<(muNewTuneEnd - muNewTune)
+    sta (dataPtr),y
+    lda #0
+    ldy #MU_LEN+1
+    sta (dataPtr),y
+    ldy #MU_FLEN                // nothing on disk yet
+    sta (dataPtr),y
+    ldy #MU_FLEN+1
+    sta (dataPtr),y
     jmp muLdCheck
 
 // --- muLdCheck -- a file too short to hold even the header is not a tune ---
@@ -792,52 +735,77 @@ muLdCheck:
     sec
     rts
 muLdGood:
-    jsr muScrMake               // the image reaches the working file
-    bcc muLdFine
-    muStr(muSNoScr)
-    sec
-    rts
-muLdFine:
     clc
     rts
 
-// --- muBlockPad -- zero the block from the image's end to its last page ---
-//  A save writes a whole file out of this block, slack included, so the bytes
-//  behind the image have to be zeroes rather than whatever the pool handed back.
-muBlockPad:
-    ldy #MU_IMG
-    lda (dataPtr),y
-    ldy #MU_LEN
-    clc
-    adc (dataPtr),y
-    sta kPtr
-    ldy #MU_IMG+1
-    lda (dataPtr),y
-    ldy #MU_LEN+1
-    adc (dataPtr),y
-    sta kPtr+1
-    ldy #MU_PAGES
-    lda (dataPtr),y
-    sta muTmpH                  // pages: the count's high byte before the borrow
-    lda #0
-    ldy #MU_LEN
-    sec
-    sbc (dataPtr),y
-    sta kArg                    // count lo
+// --- muSvWrite -- MU_TMPL/H bytes of the working file go into the target ---
+//  muFrec holds the target's record. Page by page: window 0 takes page p of the
+//  working file and those bytes go out to the target, with a SHORT last write
+//  because kReuWriteAt rejects a range that runs past the file's end.
+//  Out: C=0 written; C=1 the filesystem refused it.
+muSvWrite:
+    lda muTmpL
+    sta muCountLo
     lda muTmpH
-    ldy #MU_LEN+1
-    sbc (dataPtr),y
-    sta kArg+1                  // count hi
-    lda kArg
-    ora kArg+1
-    beq muPadDone
+    sta muCountHi
     lda #0
-    jsr kReuFillC64
-muPadDone:
+    sta muScrPg
+muSwLp:
+    lda muCountLo
+    ora muCountHi
+    beq muSwOk
+    lda #0                      // len = 256, unless this is the last, short page
+    sta muTmp2
+    lda #1
+    sta muTmp2+1
+    lda muCountHi
+    bne muSwLen
+    lda muCountLo
+    sta muTmp2
+    lda #0
+    sta muTmp2+1
+muSwLen:
+    jsr muSFrecArg              // window 0 := page muScrPg of the working file
+    lda #0
+    sta kArg+2
+    lda muScrPg
+    sta kArg+3
+    lda #0
+    sta kArg+6
+    lda #1
+    sta kArg+7
+    jsr muWin0Ptr
+    jsr kReuReadAt
+    bcs muSwBad
+    jsr muRecArg                // and out to the target at the same position
+    lda #0
+    sta kArg+2
+    lda muScrPg
+    sta kArg+3
+    lda muTmp2
+    sta kArg+6
+    lda muTmp2+1
+    sta kArg+7
+    jsr muWin0Ptr
+    jsr kReuWriteAt
+    bcs muSwBad
+    lda muCountLo               // what went is what was left
+    sec
+    sbc muTmp2
+    sta muCountLo
+    lda muCountHi
+    sbc muTmp2+1
+    sta muCountHi
+    inc muScrPg
+    jmp muSwLp
+muSwOk:
     clc
     rts
+muSwBad:
+    sec
+    rts
 
-// --- muSaveNow -- write the image back to <base>.mus ---
+// --- muSaveNow -- write the working file back to <base>.mus ---
 //  In place when the file can hold it -- the record already points at it -- and
 //  otherwise created at a whole number of pages, so a later edit that grows the
 //  image still saves in place.
@@ -865,17 +833,7 @@ muSaveNow:
     bcc muSvInPlace
     bne muSvCreate
 muSvInPlace:
-    //  --- the file's whole length, out of the block ---
-    jsr muRecArg
-    lda #0
-    sta kArg+2
-    sta kArg+3                  // pos = 0
-    lda muTmpL
-    sta kArg+6
-    lda muTmpH
-    sta kArg+7                  // len = the file's size
-    jsr muImgToKPtr
-    jsr kReuWriteAt
+    jsr muSvWrite               // the file's whole length, out of the working file
     bcs muSvWriteBad
     clc
     rts
@@ -918,17 +876,11 @@ muSvRoom:
     jsr muFrecPt
     jsr kReuOpen                // it was just made, so this cannot fail
     bcs muSvCreateBad
-    jsr muBlockPad              // the pages behind the image go out as zeroes
-    //  --- the new file's whole length, out of the block ---
-    jsr muRecArg
     lda #0
-    sta kArg+2
-    sta kArg+3
-    sta kArg+6                  // len lo = 0
+    sta muTmpL
     lda muNeedPage
-    sta kArg+7                  // len = pages x 256
-    jsr muImgToKPtr
-    jsr kReuWriteAt
+    sta muTmpH                  // len = pages x 256
+    jsr muSvWrite
     bcs muSvWriteBad
     ldy #MU_FLEN                // the disk holds whole pages now
     lda #0
@@ -1302,65 +1254,46 @@ muFindTempo:
     lda #8
     sta muScanOff               // voice 1 starts right after the header
 muFtVoice:
-    //  the voice's size word: image + 2 + 2 * voice
+    //  the voice's size word: image offset 2 + 2 * voice, always page 0
+    jsr muImgSeat
     lda muScanV
     asl
     clc
     adc #2
-    sta muJifT
-    ldy #MU_IMG
-    lda (dataPtr),y
-    clc
-    adc muJifT
-    sta srcPtr
-    ldy #MU_IMG+1
-    lda (dataPtr),y
-    adc #0
-    sta srcPtr+1
-    ldy #0
-    lda (srcPtr),y
+    tay
+    lda (kPtr),y
     sta muScanLen
     iny
-    lda (srcPtr),y
+    lda (kPtr),y
     sta muScanLen+1
     lda muScanLen
     sta muScanN
     lda muScanLen+1
     sta muScanN+1
-    //  and the stream itself
-    ldy #MU_IMG
-    lda (dataPtr),y
-    clc
-    adc muScanOff
-    sta srcPtr
-    ldy #MU_IMG+1
-    lda (dataPtr),y
-    adc muScanOff+1
-    sta srcPtr+1
 muFtWalk:
     lda muScanN
     ora muScanN+1
     beq muFtVoiceDone           // the stream ran out
+    jsr muScanSeat              // kPtr = the 2-byte event about to be read
     ldy #0
-    lda (srcPtr),y
+    lda (kPtr),y
     and #$03
     beq muFtVoiceDone           // a note: the leading run is over
-    ldy #0
-    lda (srcPtr),y
+    lda (kPtr),y
     cmp #$01
     beq muFtVoiceDone           // HLT
     cmp #$06
     bne muFtSkip
     ldy #1
-    lda (srcPtr),y              // the TEM option
+    lda (kPtr),y                // the TEM option
     sta muTempo
 muFtSkip:
-    lda srcPtr
+    lda muScanOff
     clc
     adc #2
-    sta srcPtr
+    sta muScanOff
     bcc muFtNoHi
-    inc srcPtr+1
+    inc muScanOff+1
 muFtNoHi:
     lda muScanN
     sec
@@ -1385,6 +1318,22 @@ muFtVoiceDone:
     bcs muFtRts                 // out of branch range: invert and jump
     jmp muFtVoice
 muFtRts:
+    rts
+
+// --- muScanSeat -- kPtr = the image at MU_SCANOFF, in window 0 ---
+//  muFindTempo's walk: every stream starts on an even offset and every event is
+//  two bytes, so the pair it reads can never straddle a page.
+muScanSeat:
+    txa
+    pha
+    lda muScanOff
+    sta muWinOfs
+    lda muScanOff+1
+    sta muWinOfs+1
+    ldx #0
+    jsr muWinSeat
+    pla
+    tax
     rts
 
 // ==========================================
@@ -1546,7 +1495,7 @@ muSiVoLp:
     dex
     bpl muSiVoLp
     //  --- the three stream starts: image + 8, then each length word ---
-    jsr muImgToKPtr             // for the length words below, which are read straight
+    jsr muImgSeat               // for the length words below, which are read straight
     lda #8                      //   out of the image
     sta muAccLo                 // the song proper starts at file offset 8: 2 bytes of
     lda #0                      //   load address and three size words ahead of the
@@ -3543,17 +3492,21 @@ muSkRecord:
     sta muSekKind               // provisionally inside: muSkCovered decides gap vs split
     rts
 
-// --- muSeekKPtr -- kPtr = the image at MU_SEKLO/HI ---
+// --- muSeekKPtr -- kPtr = the image at MU_SEKLO/HI, in window 0 ---
+//  The window copies one page, so kPtr is good for that page only -- and an event
+//  is a 2-byte pair at an EVEN offset, so a pair never straddles one.
+//  Clobbers A, Y, kPtr, srcPtr; C comes back 0 and X survives.
 muSeekKPtr:
-    ldy #MU_IMG
-    lda (dataPtr),y
-    clc
-    adc muSekLo
-    sta kPtr
-    ldy #MU_IMG+1
-    lda (dataPtr),y
-    adc muSekHi
-    sta kPtr+1
+    txa
+    pha
+    lda muSekLo
+    sta muWinOfs
+    lda muSekHi
+    sta muWinOfs+1
+    ldx #0
+    jsr muWinSeat
+    pla
+    tax
     rts
 
 // --- muNoteClick -- a piano click enters its pitch on the cursor's row ---
@@ -4391,16 +4344,19 @@ muCoLp:
 muCoRts:
     rts
 
-// --- muRecKPtr -- kPtr = the image at MU_RECOFF ---
+// --- muRecKPtr -- kPtr = the image at MU_RECOFF, in window 0 ---
+//  Same one-page rule as muSeekKPtr: a record's old/new byte count is at most 2.
 muRecKPtr:
-    jsr muImgToKPtr
-    lda kPtr
-    clc
-    adc muRecOff
-    sta kPtr
-    lda kPtr+1
-    adc muRecOff+1
-    sta kPtr+1
+    txa
+    pha
+    lda muRecOff
+    sta muWinOfs
+    lda muRecOff+1
+    sta muWinOfs+1
+    ldx #0
+    jsr muWinSeat
+    pla
+    tax
     rts
 
 // --- muUndoKPtr -- srcPtr = muUndoBuf + A/X (lo/hi offset) ---
@@ -4420,7 +4376,6 @@ muUndoKPtr:
 //  multi-voice insert undoes and redoes as one step. An overflow drops the whole
 //  history, but only at an action's start, so a group is never torn.
 muPushEdit:
-    jsr muImgChanged             // the edit landed in the block: the file follows
     lda muRecCont
     bne muPeAppend
     lda #1
@@ -4850,20 +4805,21 @@ muLsRts:
     rts
 
 // --- muImgRoom -- C=0 when MU_INSN more bytes fit behind MU_LEN ---
-//  Grows the block by one spare page when they do not, so a run of small
-//  inserts does not reallocate on every one. C=1 MU_STR holds the reason.
+//  The working file is MU_SCR_PAGES pages however long the tune is, so growing the
+//  image is only a length check: nothing is allocated and nothing moves.
+//  C=1 MU_STR holds the reason.
 muImgRoom:
     jsr muImgNeed
-    ldy #MU_PAGES
-    lda (dataPtr),y
-    sta muRoomHi
     lda muNeedHi
-    cmp muRoomHi
+    cmp #MU_SCR_PAGES
     bcc muIrOk
-    bne muImgGrow
+    bne muIrBad
     lda muNeedLo
-    beq muIrOk              // exactly to the end of the block
-    jmp muImgGrow
+    beq muIrOk              // exactly to the end of the file
+muIrBad:
+    muStr(muSNoRoom)
+    sec
+    rts
 muIrOk:
     clc
     rts
@@ -4879,91 +4835,6 @@ muImgNeed:
     lda (dataPtr),y
     adc #0
     sta muNeedHi
-    rts
-
-// --- muImgGrow -- a bigger block, the image copied across, the old one freed ---
-//  Two blocks live at once, so the pool has to hold both for a moment; if it
-//  cannot, nothing is freed and the edit is refused.
-muImgGrow:
-    lda muNeedHi            // pages = MU_NEED / 256, rounded up, plus a spare
-    sta muGrowPages
-    lda muNeedLo
-    beq muIgPages
-    inc muGrowPages
-muIgPages:
-    inc muGrowPages
-    lda muGrowPages
-    jsr kMalloc
-    bcs muIgRoom
-    lda kPtr
-    sta muNewLo
-    lda kPtr+1
-    sta muNewHi
-    lda kArg+4              // the page echo: never a register
-    sta muGrowPages
-    jsr muImgToKPtr         // src = the old block
-    lda kPtr
-    sta srcPtr
-    lda kPtr+1
-    sta srcPtr+1
-    lda muNewLo             // dst = the new one
-    sta kPtr
-    lda muNewHi
-    sta kPtr+1
-    jsr muImgCopy
-    lda srcPtr              // kFree takes the block in kPtr
-    sta kPtr
-    lda srcPtr+1
-    sta kPtr+1
-    jsr kFree
-    ldy #MU_IMG
-    lda muNewLo
-    sta (dataPtr),y
-    ldy #MU_IMG+1
-    lda muNewHi
-    sta (dataPtr),y
-    ldy #MU_PAGES
-    lda muGrowPages
-    sta (dataPtr),y
-    jsr muImgToKPtr
-    jsr muTuneRefresh           // the block moved: the child must read the new one
-    clc
-    rts
-muIgRoom:
-    muStr(muSNoRoom)
-    sec
-    rts
-
-// --- muImgCopy -- MU_LEN bytes from srcPtr to kPtr, both advancing ---
-muImgCopy:
-    ldy #MU_LEN
-    lda (dataPtr),y
-    sta muCountLo
-    ldy #MU_LEN+1
-    lda (dataPtr),y
-    sta muCountHi
-muIcLp:
-    lda muCountLo
-    ora muCountHi
-    beq muIcRts
-    ldy #0
-    lda (srcPtr),y
-    sta (kPtr),y
-    inc srcPtr
-    bne muIcS
-    inc srcPtr+1
-muIcS:
-    inc kPtr
-    bne muIcD
-    inc kPtr+1
-muIcD:
-    lda muCountLo
-    bne muIcN
-    dec muCountHi
-muIcN:
-    dec muCountLo
-    jmp muIcLp
-muIcRts:
     rts
 
 // --- muInsGap -- open MU_INSN bytes at MU_INSLO/HI ---
@@ -6013,15 +5884,37 @@ muClkRts:
 //  Playback
 // ==========================================
 //  The music runs in a thread CHILD. It shares this code page, so it reads the
-//  parent's bytes (muPlayOn, muPlayQuit, muTuneLo/Hi) and never the instance
-//  buffer -- a thread child does not share dataPtr. The parent mirrors MU_IMG
-//  into muTuneLo/Hi whenever the tune's block is placed or moved.
+//  parent's bytes (muPlayOn, muPlayQuit, muSidCfgB) and never the instance buffer --
+//  a thread child does not share dataPtr. kSidPlay is asked for MODE 1, so the child
+//  pages <base>.wrk through windows 3-5 (which the editor never seats) and a tune
+//  costs no RAM however long it is: the child reads the same file the editor edits,
+//  so an edit is heard on the next pass with no copy at all.
+
+// --- muSidCfg -- the 9-byte kSidPlay config: the file's offset, then three windows ---
+muSidCfg:
+    lda muSFrec+2               // the working file's filesystem offset, lo/mid/hi
+    sta muSidCfgB
+    lda muSFrec+3
+    sta muSidCfgB+1
+    lda muSFrec+4
+    sta muSidCfgB+2
+    ldx #6                      // windows 3, 4, 5: muWin is lo/hi pairs, so x = 6, 8, 10
+    ldy #3
+muScLp:
+    lda muWin,x
+    sta muSidCfgB,y
+    iny
+    lda muWin+1,x
+    sta muSidCfgB,y
+    iny
+    inx
+    inx
+    cpx #12
+    bne muScLp
+    rts
 
 // --- muMusicInit -- spawn the child once, at startup ---
 muMusicInit:
-    lda muTuneLo
-    ora muTuneHi
-    beq muMiNone                // no tune in RAM: no child, no music
     lda #<muMusicThread
     sta spawnPtr
     lda #>muMusicThread
@@ -6038,16 +5931,6 @@ muMusicInit:
 muMiNone:
     lda #$ff
     sta muPlaySlot
-    rts
-
-// --- muTuneRefresh -- copy MU_IMG into the code bytes the child reads ---
-muTuneRefresh:
-    ldy #MU_IMG
-    lda (dataPtr),y
-    sta muTuneLo
-    ldy #MU_IMG+1
-    lda (dataPtr),y
-    sta muTuneHi
     rts
 
 // --- muPlayToggle -- SPACE: start when stopped, stop when playing ---
@@ -6764,9 +6647,9 @@ muMusicThread:
     bne muMtExit
     lda muPlayOn
     beq muMtIdle
-    lda muTuneLo
+    lda #<muSidCfgB               // mode 1: this is the 9-byte config, not the tune
     sta kPtr
-    lda muTuneHi
+    lda #>muSidCfgB
     sta kPtr+1
     lda #MU_MUS_DELAY
     sta kArg                    // ticks per jiffy
@@ -6777,10 +6660,8 @@ muMusicThread:
     sta kArg+3                  //   machine's pitch shift to this itself
     lda #1                      // a play attempt is made: kSidHush from the parent
     sta muSidOk                 //   is only safe once sid.lib has loaded
-    lda #0                      // mode 0: the image is in RAM at kPtr. NOT optional --
-    jsr kSidPlay                //   A selects RAM vs a REU-paged file, and mode 1 would
-                                //   read this tune image as a 9-byte config block and
-                                //   DMA from a garbage filesystem offset
+    lda #1                      // mode 1: <base>.wrk paged through windows 3-5. A
+    jsr kSidPlay                //   wrong mode reads the config as a tune image
     bcs muMtRefused             // refused: another task owns the SID
     lda muPlayOn
     beq muMusicThread           // we were hushed: the parent asked for the stop
@@ -7156,13 +7037,11 @@ muRowNew:   .byte 0
 // --- the grid's state: the window, and each voice's place in the walk ---
 // --- the window service. Code-image state: the music child never reads it, and
 //     the windows outlive any one tune, so a set is taken once (muWinInit).
-muWin:      .fill 6, 0          // the three window pointers, lo/hi interleaved
-muWinPg:    .fill 3, 0          // the image page each window holds
-muWinOk:    .fill 3, 0          // 1 = that window has been filled
+muWin:      .fill 12, 0         // the six window pointers, lo/hi interleaved
+muWinPg:    .fill 6, 0          // the page each window holds
+muWinOk:    .fill 6, 0          // 1 = that window has been filled
 muWinOfs:   .word 0             // muWinSeat in: the offset wanted
 muWinPage:  .byte 0             // its page, while the seat works
-muWinCnt:   .byte 0             // muWinCheck: pages left
-muWcPt:     .word 0             // muWinCheck: the independent walk pointer
 
 muTop:      .word 0             // the timeline row at the top of the window
 muVRow:     .fill 3,0          // each voice's next event row
