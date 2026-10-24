@@ -121,6 +121,7 @@ $assets = @(
     @{ name = "gkpad.spr";   file = "assets/sprites/gkpad.spr" },
     @{ name = "godzi.spr";   file = "assets/sprites/godzi.spr" },
     @{ name = "pointer.spr"; file = "assets/sprites/pointer.spr" },
+  @{ name = "dot.spr";     file = "assets/sprites/dot.spr" },
     # .pic pictures, written by tools/img2pic.py from the matching -src.png.
     @{ name = "hires.pic";   file = "assets/pics/hires.pic" },
     @{ name = "mc.pic";      file = "assets/pics/mc.pic" },

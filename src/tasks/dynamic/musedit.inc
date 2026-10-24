@@ -4983,6 +4983,158 @@ muDcRts:
     rts
 
 // ==========================================
+//  The playing-note dots
+// ==========================================
+//  Three red dots, one per voice, pinned on the piano keys that are sounding.
+//  The player publishes each voice's next-command pointer, so the option byte of
+//  the note currently sounding is simply the byte before it: no history, no
+//  second walk, and it is exact for a whole note and a 64th alike.
+.const MU_DOT_SLOT0 = 5           // slots 0 and 1 are the pointer
+.const MU_DOT_Y     = 213         // a sprite's y is a RASTER line: the display
+.const MU_DOT_XO    = 14          //   window starts at 51, and the dot is 10 rows
+.const MU_DOT_XMIN  = 24          //   into the shape. X: the window starts at 24
+.const MU_DOT_XMAX  = 310         //   and the dot is 10 columns in, so +14 centre
+.const MU_DOT_KEYS  = $e3         // slots 5, 6, 7 (and the pointer's two)
+
+// --- muDotInit -- resolve the dot art, once ---
+muDotInit:
+    sprColour(MU_DOT_SLOT0+0, 2)  // red
+    sprColour(MU_DOT_SLOT0+1, 2)
+    sprColour(MU_DOT_SLOT0+2, 2)
+    sprPriority(0)                // in front: a dot on a black key still shows
+    lda #<muSDot
+    sta kPtr
+    lda #>muSDot
+    sta kPtr+1
+    lda #MU_DOT_SLOT0             // a sheet record is per sprite, so three calls
+    jsr kSpriteSheet
+    lda #MU_DOT_SLOT0+1
+    jsr kSpriteSheet
+    lda #MU_DOT_SLOT0+2
+    jsr kSpriteSheet
+    ldx #0                        // frame 0: the one dot
+    lda #MU_DOT_SLOT0
+    jsr kSpriteFrame
+    ldx #0
+    lda #MU_DOT_SLOT0+1
+    jsr kSpriteFrame
+    ldx #0
+    lda #MU_DOT_SLOT0+2
+    jmp kSpriteFrame
+
+// --- muDots -- one pass: put each sounding voice's dot on its key ---
+//  Called once per displayed frame. kSpritePos writes the shadow only, so the
+//  dots move with the music and the kernel's raster commit publishes them.
+muDots:
+    lda #0
+    sta muDotMask
+    sta muDotV
+muDvLp:
+    ldx muDotV                  // the newest event at or above the playhead: the
+    lda muHistN,x               //   ring is walked newest first, so the first row
+    sec                         //   that is not below the playhead's is the one
+    sbc #1                      //   that is sounding
+    and #MU_HIST-1
+    sta muDotS
+    lda #MU_HIST
+    sta muDotC
+    txa
+    asl
+    asl
+    asl
+    asl
+    asl
+    sta muDotBase               // voice x MU_HIST
+muDvScan:
+    lda muDotS
+    clc
+    adc muDotBase
+    tay
+    lda muHistRHi,y
+    cmp muPhCurLo+1
+    bcc muDvFound               // a row below the playhead's high byte: it is at or
+    beq muDvRowCmp              //   before the playhead, so it is the one sounding
+    jmp muDvScanNx
+muDvRowCmp:
+    lda muHistRLo,y
+    cmp muPhCurLo
+    bcc muDvFound
+    beq muDvFound
+muDvScanNx:
+    dec muDotS
+    lda muDotS
+    and #MU_HIST-1
+    sta muDotS
+    dec muDotC
+    bne muDvScan
+    jmp muDvNext                // nothing recorded yet for this voice
+muDvFound:
+    lda muHistOpt,y
+    sta muDotOpt
+    and #$07
+    beq muDvNext                // a rest: no dot
+    tay
+    lda muLetterSem,y
+    sta muDotSem
+    lda muDotOpt                // 01 sharp, 11 flat, 10 plain
+    and #$c0
+    cmp #$40
+    bne muDvNotSharp
+    inc muDotSem
+    jmp muDvOct
+muDvNotSharp:
+    cmp #$c0
+    bne muDvOct
+    dec muDotSem
+muDvOct:
+    lda muDotOpt
+    lsr
+    lsr
+    lsr
+    and #$07
+    eor #7                      // the field is stored inverted: field = 7 - octave
+    sta muDotTmp
+    asl
+    clc
+    adc muDotTmp                // octave x 3 ...
+    asl
+    asl                         // ... x 4 = x 12, the table's row
+    clc
+    adc muDotSem
+    tay
+    lda muDotTab,y
+    sta muDotX
+    ldx muDotV                  // this voice's slot bit in the enable mask
+    lda muDotBit,x
+    ora muDotMask
+    sta muDotMask
+    lda muDotV                  // kSpritePos: X = sprite, A = x lo, Y = y, C = 0
+    clc
+    adc #MU_DOT_SLOT0
+    tax
+    lda muDotX
+    ldy #MU_DOT_Y
+    clc
+    jsr kSpritePos
+muDvNext:
+    inc muDotV
+    lda muDotV
+    cmp #3
+    bcs muDvEnd
+    jmp muDvLp
+muDvEnd:
+    lda muDotMask
+    ora #%00000011              // the pointer's two slots stay on
+    ldx #SPR_SHD_ENABLE
+    jmp kSpriteReg
+
+// --- muDotsOff -- hide the dots (the tune stopped, or ended) ---
+muDotsOff:
+    lda #%00000011
+    ldx #SPR_SHD_ENABLE
+    jmp kSpriteReg
+
+// ==========================================
 //  The pointer
 // ==========================================
 // --- muPtrInit -- the two-sprite pointer, or a refusal ---
@@ -5036,6 +5188,7 @@ muPtrZero:
     lda frameCount              // the first displayed frame counts as a change
     ldy #MU_FRAME
     sta (dataPtr),y
+    jsr muDotInit               // the playing-note dots share the sprite state
     jmp muPlace                 // show it before the first sample
 
 muNoArt:
@@ -5657,6 +5810,7 @@ muPlayStop:
     lda #0
     sta muPlayOn
     sta muPlayHush
+    jsr muDotsOff
     jmp muSidHushSafe
 
 // --- muPlayRewind -- the tune ended: the playhead goes back to the beginning ---
@@ -5678,6 +5832,7 @@ muPlayRewind:
     sta muPhPtrHi
     lda tickCount
     sta muPhLast
+    jsr muDotsOff
     jmp muRedrawAll             // grid, head and cursor, in that order
 
 // --- muPlayTick -- once per idle pass: refusal report, playhead, second hush ---
@@ -5714,7 +5869,7 @@ muPtPlaying:
     cmp muPhFrame
     beq muPtRts
     sta muPhFrame
-    inc $54aa
+    jsr muDots
     jmp muPlayhead
 muPtStopped:
     lda muPlayHush               // the cursor stays where the music stopped
@@ -6144,6 +6299,8 @@ muHistAdd:
     sta muHistRLo,y
     lda muVRowHi,x
     sta muHistRHi,y
+    lda muSopt                  // the pitch, for the keyboard dots
+    sta muHistOpt,y
     rts
 
 // --- muHistFind -- C=1 and muValLo/muValHi = the row, for voice muHistV ---
@@ -6342,6 +6499,18 @@ muSRow2:    .text " R"
             .byte 0
 // One letter per note index 1..7 (C D E F G A B), in semitones from C.
 muLetterSem: .byte 0, 0, 2, 4, 5, 7, 9, 11
+    // The piano's geometry: an octave is 40 pixels, and each semitone's key is
+    // where the piano drawing puts it (the black keys are offset on purpose).
+    muDotBit:   .byte 32, 64, 128 // the dot slots in the $D015 mask
+muDotTab:   // octave x 12 + semitone -> the dot's x, in raster coordinates
+    .byte 24, 24, 24, 24, 25, 31, 34, 37, 40, 43, 45, 48
+    .byte 54, 57, 60, 63, 65, 71, 74, 77, 80, 83, 85, 88
+    .byte 94, 97, 100, 103, 105, 111, 114, 117, 120, 123, 125, 128
+    .byte 134, 137, 140, 143, 145, 151, 154, 157, 160, 163, 165, 168
+    .byte 174, 177, 180, 183, 185, 191, 194, 197, 200, 203, 205, 208
+    .byte 214, 217, 220, 223, 225, 231, 234, 237, 240, 243, 245, 248
+    .byte 254, 257, 260, 263, 265, 271, 274, 277, 280, 283, 285, 288
+    .byte 294, 297, 300, 303, 305, 310, 310, 310, 310, 310, 310, 310
 muLaneCol:  .byte 3, 16, 28    // the first lane cell of each voice
 muLaneW:    .byte 12, 11, 11   // ...and how many cells it has
 muSBar:     .text "DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q"
@@ -6479,6 +6648,8 @@ muBarMapEnd:
 // other or the build stops.
 .assert "bar map covers the row", (muBarMapEnd - muBarMap) == MU_SCREEN_COLS ? 1 : 0, 1
 .assert "bar text ends at the Q column", (muSBarEnd - muSBar) == 38 ? 1 : 0, 1
+muSDot:     .text "dot.spr"
+    .byte 0
 muSPointer: .text "pointer.spr"
             .byte 0
 // Two characters per semitone, C- .. B-: the readout appends the octave digit.
@@ -6515,6 +6686,15 @@ muFreeMid:  .byte 0
 muFreeHi:   .byte 0
 muClrRow:   .byte 0
 muTempo:    .byte 0             // the tempo in force at the first note
+muDotTmp:   .byte 0
+muDotS:     .byte 0             // the ring slot being read
+muDotC:     .byte 0             // entries left to scan
+muDotBase:  .byte 0
+muDotMask:  .byte 0             // the enable mask the dots last asked for
+muDotV:     .byte 0
+muDotOpt:   .byte 0
+muDotSem:   .byte 0
+muDotX:     .byte 0
 muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
 muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a utility, then whole..32nd
 muDurByte:  .byte 0
@@ -6704,6 +6884,7 @@ muLnRow:    .word 0             // the timeline row the bottom line shows
 //  a power of two so the index is a shift.
 muHistPLo:  .fill 3*MU_HIST, 0
 muHistPHi:  .fill 3*MU_HIST, 0
+muHistOpt:  .fill 3*MU_HIST, 0  // the option byte of each recorded event
 muHistRLo:  .fill 3*MU_HIST, 0
 muHistRHi:  .fill 3*MU_HIST, 0
 muFollow:   .byte 1             // the window follows the playhead, always
