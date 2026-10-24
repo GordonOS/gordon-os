@@ -98,7 +98,6 @@
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
-.const MU_SYNC_WIN      = 4   // rows a matched row may differ by and still be taken
 .const MU_PH_SLOW       = 4   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
@@ -6231,57 +6230,16 @@ muPsNew:
     bcs muPsFound
     rts
 muPsFound:
-    ldx muHistV
-    lda muValLo                 // forward: only a row close to the clock is
-    sec                         //   believable -- an entry an earlier pass left
-    sbc muPhCurLo               //   behind can name any row in the tune
-    sta muTmpL
-    lda muValHi
-    sbc muPhCurLo+1
-    bmi muPsBack
-    bne muPsStale               // far ahead: a stale entry, keep the tempo
-    lda muTmpL
-    cmp #MU_SYNC_WIN+1
-    bcc muPsTake
-muPsStale:
-    rts
-muPsBack:
-    //  A rewind is a section loop or the song starting again. The walker has
-    //  wrapped to the same place, so its own row confirms the match -- a stale
-    //  entry would not agree with it.
-    lda muValLo
-    sec
-    sbc muVRow,x
-    sta muTmpL
-    lda muValHi
-    sbc muVRowHi,x
-    bne muPsRts
-    lda muTmpL
-    cmp #3
-    bcs muPsRts
-    lda muValLo                 // the playhead is on the row the walker wrapped
-    sta muPhCurLo               //   to: take it and put the window back on it
-    lda muValHi
-    sta muPhCurLo+1
-    lda #0
-    sta muPhAcc
-    sta muPhAcc+1
-    lda tickCount
-    sta muPhLast
-    lda muPhCurLo
-    sec
-    sbc #MU_FOLLOW_CENTER
-    sta muTop
-    lda muPhCurLo+1
-    sbc #0
-    sta muTop+1
-    bcs muPsPaint
-    lda #0
-    sta muTop
-    sta muTop+1
-muPsPaint:
-    jsr muRedrawNoHead          // the one repaint playback performs
-    jmp muPhCursor
+    //  The POINTER is authoritative: it is the event the player is starting, and
+    //  the renderer recorded the row it drew that event on. Taking it every time
+    //  is what keeps the clock from running away -- with a window test (this row
+    //  must be within N of the clock) a stretch that cannot anchor, such as a
+    //  voice resting, lets the free-running clock drift ahead; after that every
+    //  anchor reads as "behind" and is refused, so the drift never comes back and
+    //  the view scrolls off the end of the tune into blank rows while the player
+    //  reads the file correctly and keeps playing. A row that is wrong self-
+    //  corrects on the next event, because muHistFind scans newest first and every
+    //  pointer the player can reuse resolves to this pass.
 muPsTake:
     lda muValLo
     sta muPhCurLo
