@@ -112,15 +112,17 @@
 //  THREAD child of this task, because kSidPlay BLOCKS: it sleeps a tick per jiffy
 //  inside its own loop, so the game loop cannot make that call. The two talk
 //  through three bytes in this image: gtMusOn (1 = play, 0 = be silent),
-//  gtMusQuit (leave the loop for good) and gtTuneLo/Hi (the kMalloc'd tune).
+//  gtMusQuit (leave the loop for good) and gtTuneLo/Hi (the tune's config block).
 //
 //    * the child declares ZP $02-$0A (kArg+6/+7 at spawn) -- sid.lib's own
 //      scratch window, which its player expects to survive the yields in its
 //      sleep loop. It has to be the CHILD's own declaration: the scheduler's ZP
 //      save/restore is gated on the switching task's own region. The game itself
 //      declares no ZP region and keeps every byte of state in this image.
-//    * the tune is loaded at startup from the REU FS into a kMalloc block
-//      (gtLoadTune, "tetris.mus" -- our own arrangement, see gtTuneName). Its
+//    * the tune is STREAMED, not buffered: gtLoadTune asks the REU FS where the
+//      file is and kMallocs three 256-byte windows for the player to page it
+//      into (gtTuneCfg + gtTuneBufLo/Hi), so the RAM cost is three pages
+//      whatever the tune's length. Its
 //      library hold is NOT given back the way
 //      sidplay gives filesys.lib back -- the hi-score table has to be written, so
 //      both declared libraries stay held for the session (see HI SCORES).
@@ -216,8 +218,10 @@
 //  How many tunes the game loads and switches (see the MUSIC note in the header).
 //  1 = the one tune it plays today. 3 = the reference's arrangement -- a title
 //  tune, the game tune and a game-over tune -- which needs two more names in
-//  `music/` and another kMalloc block each. The plumbing is written either way.
+//  `music/`, another nine-byte config and another three window pages each. The
+//  plumbing is written either way.
 .const GT_MUSIC_TUNES = 1
+.const GT_TUNE_WIN_PAGES = 3    // the stream windows: one 256-byte page per voice
 
 //  Which tune a mode wants (gtMusicTune). Only meaningful once GT_MUSIC_TUNES is
 //  more than 1: with one tune loaded, every mode plays that one.
@@ -1183,31 +1187,24 @@ gtCllDone:
 gtMusicInit:
     lda #<gtTuneName            // the tune every mode plays today: see gtMusicTune
     ldx #>gtTuneName
-    jsr gtLoadTune              // C=1 = no music (missing, unreadable, or no room)
+    jsr gtLoadTune              // C=1 = no music (missing, or no pool room)
     bcs gtMiHold
-    lda gtTuneBufLo
-    sta gtTuneLo
-    lda gtTuneBufHi
-    sta gtTuneHi
 //  --------------------------------------------------------------------------
 //  THE OTHER TUNES -- NOT LOADED. The reference plays three: a title
 //  tune in attract (SND_MUSIC_TITLE), the game tune in play (SND_TETRIS) and a
-//  game-over tune (SND_MUSIC_GAMEOVER). Each one is another kMalloc block (~6
-//  pool pages at 1.5 KB) held for the whole session, and `music/` has only one
-//  more tune to offer (`fsonata`), so this port plays one tune throughout. To
-//  switch them on: give GT_MUSIC_TUNES its value, add the two names below, and
-//  put the body back in gtMusicTune (it is written out there). The loader is
-//  already generic -- it takes a name and returns a buffer -- so each extra tune
-//  is exactly this, once per name:
+//  game-over tune (SND_MUSIC_GAMEOVER). Each one is another three-page window
+//  block plus its own nine-byte config, held for the whole session, and
+//  `music/` has only one more tune to offer (`fsonata`), so this port plays one
+//  tune throughout. To switch them on: give GT_MUSIC_TUNES its value, add the
+//  two names below, and put the body back in gtMusicTune (it is written out
+//  there). The loader is already generic -- it takes a name and fills gtTuneCfg
+//  -- so each extra tune is exactly this, once per name:
 //
 //      lda #<gtTune2Name           ; the title tune
 //      ldx #>gtTune2Name
-//      jsr gtLoadTune
+//      jsr gtLoadTune              ;   (a second config block and window set)
 //      bcs gtMiHold                ; a missing extra tune is not a failure: the
-//      lda gtTuneBufLo             ;   game falls back to the one it has
-//      sta gtTune2Lo
-//      lda gtTuneBufHi
-//      sta gtTune2Hi
+//                                  ;   game falls back to the one it has
 //
 //      .text "fsonata.mus"         ; gtTune2Name (base names stay <= 7 chars)
 //  --------------------------------------------------------------------------
@@ -1217,7 +1214,7 @@ gtMiHold:
     //  that only reads a tune, but a hi-score table has to be WRITTEN, and
     //  kLibHold is one-way -- a released library comes back owned by nobody. So
     //  both declared libraries are held for the session (see the HI SCORES note).
-    lda gtTuneLo                // no tune in RAM: no child, and no music
+    lda gtTuneLo                // no tune: no child, and no music
     ora gtTuneHi
     beq gtMiDone
     lda #<gtMusicThread
@@ -1235,53 +1232,61 @@ gtMiHold:
 gtMiDone:
     rts
 
-//  gtLoadTune: A/X = the FS name pointer (A = lo, X = hi) -> gtTuneBufLo/Hi = the
-//  kMalloc'd image of that file, or C=1 on any failure (not in the FS, unreadable,
-//  or no pool room). kReuFindFile, kMalloc and kReuLoad all clobber kPtr and kArg,
-//  so the name arrives in registers and is re-set in kArg before each call that
-//  wants it; kMalloc's block comes back in kPtr, which is stashed at once.
+//  gtLoadTune: A/X = the FS name pointer (A = lo, X = hi) -> gtTuneLo/Hi = the
+//  player's config block for that file, and gtTuneBufLo/Hi = the three window
+//  pages it pages the file into; both are cleared and C=1 on any failure (not in
+//  the FS, or no pool room). kReuFindFile and kMalloc clobber kPtr and kArg, so
+//  the name arrives in registers and is re-set in kArg for the call that wants
+//  it; kMalloc's block comes back in kPtr, which is stashed at once.
 gtLoadTune:
     sta gtNameLo
     stx gtNameHi
+    lda #0                      // not loaded until the windows are ours
+    sta gtTuneBufLo
+    sta gtTuneBufHi
+    sta gtTuneLo
+    sta gtTuneHi
+    lda gtNameLo
     sta kArg
-    stx kArg+1
-    jsr kReuFindFile            // C=1 not in the FS; size in reuFsRemain
+    lda gtNameHi
+    sta kArg+1
+    jsr kReuFindFile            // C=1 not in the FS; the offset is in reuFsPtr
     bcs gtLtDone
-    lda reuFsRemain
-    clc
-    adc #$ff                    // carry set when the low byte is non-zero
-    lda reuFsRemain+1
-    adc #0                      // A = ceil(size / 256)
-    bcs gtLtDone                // an absurd size: give up
-    bne gtLtMalloc
-    lda #1                      // an empty file still needs one page
-gtLtMalloc:
-    jsr kMalloc                 // A = pages -> kPtr = block (C=1: no room)
+    ldy #0                      // config +0..+2: the file's FS offset
+    lda reuFsPtr
+    sta gtTuneCfg,y
+    iny
+    lda reuFsPtr+1
+    sta gtTuneCfg,y
+    iny
+    lda reuFsPtr+2
+    sta gtTuneCfg,y
+    lda #GT_TUNE_WIN_PAGES       // one 256-byte window per voice
+    jsr kMalloc                 // -> kPtr = the block (C=1: no room)
     bcs gtLtDone
     lda kPtr
     sta gtTuneBufLo
     lda kPtr+1
     sta gtTuneBufHi
-    lda gtNameLo                // the FS wants the name in kArg again
-    sta kArg
-    lda gtNameHi
-    sta kArg+1
-    lda gtTuneBufLo             // and the destination in kPtr
-    sta kPtr
-    lda gtTuneBufHi
-    sta kPtr+1
-    jsr kReuLoad
-    bcc gtLtDone                // C=0: it is in RAM
-    //  Unreadable: hand the block straight back and forget it.
+    ldy #3                      // config +3..+8: the windows, lo/hi interleaved.
+    ldx #0                      //   The block is page-aligned, so all three low
+gtLtWin:                        //   bytes are its own; the high bytes count up
     lda gtTuneBufLo
-    sta kPtr
-    lda gtTuneBufHi
-    sta kPtr+1
-    jsr kFree
-    lda #0
-    sta gtTuneBufLo
-    sta gtTuneBufHi
-    sec                         // kFree left its own carry: say so explicitly
+    sta gtTuneCfg,y
+    iny
+    txa
+    clc
+    adc gtTuneBufHi
+    sta gtTuneCfg,y
+    iny
+    inx
+    cpx #GT_TUNE_WIN_PAGES
+    bne gtLtWin
+    lda #<gtTuneCfg             // the player is handed the CONFIG, not an image
+    sta gtTuneLo
+    lda #>gtTuneCfg
+    sta gtTuneHi
+    clc
 gtLtDone:
     rts
 
@@ -1332,26 +1337,26 @@ gtMusicStop:
 //          jsr gtMusicStart            ; and play it (the song restarts from the
 //          rts                         ;   top: a restarted player, not resumed)
 //
-//  What else it needs: the extra names and buffers loaded in gtMusicInit (that
+//  What else it needs: the extra names and configs loaded in gtMusicInit (that
 //  block is written out there), gtTuneTabLo/Hi built when they load, and
 //  GT_MUSIC_TUNES set. A third tune needs a third .mus in `music/`.
 gtMusicTune:
     rts
 
 //  gtMusicBye -- the exit path: leave the player loop for good, make sure the
-//  child really is gone, then hand its tune buffer back. The order matters: the
-//  child can still be inside the player holding that pointer, so the free is last.
+//  child really is gone, then hand its window block back. The order matters: the
+//  child can still be inside the player reading those windows, so the free is last.
 gtMusicBye:
     lda #1
     sta gtMusQuit
     jsr gtMusicStop
     jsr gtMusicReap
-    lda gtTuneLo
-    ora gtTuneHi
+    lda gtTuneBufLo
+    ora gtTuneBufHi
     beq gtMbDone
-    lda gtTuneLo
+    lda gtTuneBufLo
     sta kPtr
-    lda gtTuneHi
+    lda gtTuneBufHi
     sta kPtr+1
     jsr kFree                   // kPtr = the block
 gtMbDone:
@@ -1405,7 +1410,7 @@ gtMusicThread:
     sta kArg+2                  //   pitch shift itself (+1 here is one octave DOWN)
     lda #0
     sta kArg+3                  // no semitone offset
-    lda #0                      // mode: the image is in RAM at kPtr
+    lda #1                      // mode: the tune is paged from the REU
     jsr kSidPlay                //   The loop lives HERE, not in the file: tetris.mus
                                 //   is a single pass that ends in HLT (no HED/TAL), so
                                 //   `run sidplay tetris` plays it once and stops while
@@ -3430,12 +3435,14 @@ gtMusQuit:  .byte 0             // 1 = leave for good      (game -- child)
 gtMusSlot:  .byte $ff           // the child's slot, $FF = no child
 gtMusHush:  .byte 0             // the unfocused second-hush guard
 gtReapCnt:  .byte 0             // countdown while waiting for the child to exit
-gtTuneLo:   .byte 0             // the kMalloc'd tune image
+gtTuneLo:   .byte 0             // the player's config block (gtTuneCfg), 0 = none
 gtTuneHi:   .byte 0
 gtNameLo:   .byte 0             // gtLoadTune in: the FS name pointer
 gtNameHi:   .byte 0
-gtTuneBufLo: .byte 0            // gtLoadTune out: the kMalloc'd block
+gtTuneBufLo: .byte 0            // gtLoadTune out: the window pages, 0 = none
 gtTuneBufHi: .byte 0
+gtTuneCfg:  .fill 9, 0          // sid.lib's streamed config: the file's FS offset
+                                //   then three 256-byte, page-aligned windows
 gtMusTune:  .byte 0             // the tune the mode asked for (gtMusicTune)
 gtRepeat:   .byte 0             // frames between accepted repeats (INPUTDELAY)
 gtRepeatFast: .byte 0           // and for the drop keys (gtSetRepeat)

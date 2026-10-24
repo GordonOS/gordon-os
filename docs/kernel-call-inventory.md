@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1215 total call sites** found across `src/`.
+- **1209 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -127,20 +127,20 @@ API surface this document is inventorying.
 | [`kClearScreen`](#kclearscreen) | `$E000` | 12 | 5 | Fill the screen with spaces and home the cursor to (0,0). |
 | [`kReuFindFile`](#kreufindfile) | `$E0BA` | 12 | 8 | Locate a named file in the REU filesystem and return its offset + size, without transferring any data. |
 | [`kByteToDec`](#kbytetodec) | `$E02A` | 11 | 9 | Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y. |
-| [`kFree`](#kfree) | `$E0B1` | 11 | 5 | Return the pool block at `kPtr` to the free pool (pairs with `kMalloc`; also happens automatically on task exit/kill). |
 | [`kMalloc`](#kmalloc) | `$E0AE` | 11 | 7 | Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright. |
 | [`kFreeScreen`](#kfreescreen) | `$E051` | 10 | 9 | Release the current task's surface back to the free pool; falls back to the shared `$2000` framebuffer if it was the last one. |
 | [`kGetTaskName`](#kgettaskname) | `$E04B` | 10 | 8 | Look up a task's name by index; returns a pointer directly into the kernel's name table (no copy). |
 | [`kMul16`](#kmul16) | `$E02D` | 10 | 3 | 16-bit x 16-bit unsigned multiply, producing a 32-bit result. |
 | [`kBlitCharRev`](#kblitcharrev) | `$E0F0` | 9 | 1 | Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0. |
 | [`kCsrBoth`](#kcsrboth) | `$E096` | 8 | 3 | Set cursor visibility and sync the surface matrix tail in one call -- the low-level primitive behind `kEnableCursor`/`kDisableCursor`. |
+| [`kFree`](#kfree) | `$E0B1` | 8 | 5 | Return the pool block at `kPtr` to the free pool (pairs with `kMalloc`; also happens automatically on task exit/kill). |
 | [`kDiv16`](#kdiv16) | `$E030` | 7 | 5 | 16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder. |
 | [`kReuDmaRange`](#kreudmarange) | `$E116` | 7 | 6 | Stream a file range from the REU to C64 memory given a 24-bit FS data offset, without hand-computing multi-bank addresses. |
-| [`kReuLoad`](#kreuload) | `$E087` | 7 | 5 | Load a named block from the REU filesystem into C64 memory. |
 | [`kWaitKey`](#kwaitkey) | `$E01B` | 6 | 5 | Block until a key is pressed, spinning on `kScanKeyboard`. |
 | [`kPrintCharAt`](#kprintcharat) | `$E0A5` | 5 | 3 | Write one glyph at an explicit cell without moving the cursor, wrapping, or scrolling -- used for fixed-position UI like a line editor's bottom row. |
 | [`kScanKeyboard`](#kscankeyboard) | `$E01E` | 5 | 5 | Pop one key from the IRQ-filled ring buffer, non-blocking. |
 | [`kSetGfxMode`](#ksetgfxmode) | `$E10D` | 5 | 3 | Switch the current task's surface between hires and multicolour in place, preserving pixels/matrix/colour RAM and per-task colours. |
+| [`kReuLoad`](#kreuload) | `$E087` | 4 | 4 | Load a named block from the REU filesystem into C64 memory. |
 | [`kDynLoad`](#kdynload) | `$E08D` | 3 | 2 | Load a task binary from the REU filesystem and spawn it, applying relocation fixups as the code streams into a pool page. |
 | [`kFillColorRam`](#kfillcolorram) | `$E110` | 3 | 3 | Fill all 1000 colour-RAM slots with a colour (low nibble only -- the MC bitmap pixel-value-3 colour). |
 | [`kLibHold`](#klibhold) | `$FFE6` | 3 | 2 | Release every library the calling task declared except those in the keep mask -- hands the pool pages back early instead of waiting for task exit. |
@@ -752,20 +752,6 @@ Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-ter
 | `src/tasks/cmd/resume.inc` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 
-### kFree
-
-``$E0B1`` — **11 calls** across 5 file(s)
-
-Return the pool block at `kPtr` to the free pool (pairs with `kMalloc`; also happens automatically on task exit/kill).
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/tasks/dynamic/godzi.inc` | 3 |
-| `src/tasks/dynamic/gortris.inc` | 2 |
-| `src/tasks/dynamic/grknoid.inc` | 1 |
-| `src/tasks/dynamic/sidplay.asm` | 1 |
-
 ### kMalloc
 
 ``$E0AE`` — **11 calls** across 7 file(s)
@@ -851,6 +837,20 @@ Set cursor visibility and sync the surface matrix tail in one call -- the low-le
 | `src/tasks/dynamic/basicedit.inc` | 3 |
 | `src/kernel/kernel.asm` | 1 |
 
+### kFree
+
+``$E0B1`` — **8 calls** across 5 file(s)
+
+Return the pool block at `kPtr` to the free pool (pairs with `kMalloc`; also happens automatically on task exit/kill).
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/tasks/dynamic/godzi.inc` | 1 |
+| `src/tasks/dynamic/gortris.inc` | 1 |
+| `src/tasks/dynamic/grknoid.inc` | 1 |
+| `src/tasks/dynamic/sidplay.asm` | 1 |
+
 ### kDiv16
 
 ``$E030`` — **7 calls** across 5 file(s)
@@ -879,20 +879,6 @@ Stream a file range from the REU to C64 memory given a 24-bit FS data offset, wi
 | `src/libs/sidplay.inc` | 1 |
 | `src/tasks/cmd/type.inc` | 1 |
 | `src/tasks/dynamic/shell.inc` | 1 |
-
-### kReuLoad
-
-``$E087`` — **7 calls** across 5 file(s)
-
-Load a named block from the REU filesystem into C64 memory.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/gortris.inc` | 2 |
-| `src/tasks/dynamic/grknoid.inc` | 2 |
-| `src/tasks/dynamic/godzi.inc` | 1 |
-| `src/tasks/dynamic/shell.inc` | 1 |
-| `src/tasks/dynamic/sidplay.asm` | 1 |
 
 ### kWaitKey
 
@@ -945,6 +931,19 @@ Switch the current task's surface between hires and multicolour in place, preser
 | `src/tasks/dynamic/grpaint.inc` | 3 |
 | `src/tasks/dynamic/basic.asm` | 1 |
 | `src/tasks/dynamic/grview.inc` | 1 |
+
+### kReuLoad
+
+``$E087`` — **4 calls** across 4 file(s)
+
+Load a named block from the REU filesystem into C64 memory.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/gortris.inc` | 1 |
+| `src/tasks/dynamic/grknoid.inc` | 1 |
+| `src/tasks/dynamic/shell.inc` | 1 |
+| `src/tasks/dynamic/sidplay.asm` | 1 |
 
 ### kDynLoad
 

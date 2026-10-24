@@ -128,13 +128,25 @@ will use offsets only; the distinction is documented there rather than here.
 - [x] **4. One caller.** `sidplay.tsk`: four pages or more streams, three or less is buffered, and a
       fifth argument forces either way (1 = stream, 2 = RAM). Instance data grew 18 → 27 bytes for
       the config.
-- [ ] **5. The rest of the callers.** `gortris`, `godzi`, `grknoid` — all four now pass `A = 0`
-      explicitly, so nothing regressed, but none of them streams yet. Their loops must behave
-      identically when they switch: `gortris` calls with `repeats = 0`, the others with `1`, and
-      `grknoid` owns one 18-page buffer for three tunes — the case streaming exists for.
-- [ ] **6. Gates and docs.** `check-pool-budget.ps1`'s `sidplay` row still models the worst-case
-      tune as an 18-page malloc; it becomes 3 once the callers stream. `docs/lib-sid.md` carries the
-      mode, the config block and the window rules (done); the call inventories are current.
+- [x] **5. The rest of the callers.** `gortris`, `godzi` and `grknoid` all stream, each with one
+      three-page window block taken at startup and freed after the child is reaped: `gortris` reuses
+      its existing tune-buffer fields, `godzi` shares one window set between its two tunes and
+      rewrites the config's three offset bytes on a switch, and `grknoid` drops its 18-page buffer
+      for one config that a load only rewrites. Their loops are unchanged apart from the mode byte:
+      `gortris` calls with `repeats = 0`, the others with `1`.
+- [x] **6. Gates and docs.** `check-pool-budget.ps1` models every player at three window pages
+      (`$LiveMallocMusic` is empty now), the player guides carry the new footprints, and
+      `docs/lib-sid.md` has the mode, the config block and the window rules. The call inventories
+      are current.
+
+What the pool now reports for the four players (109-page pool):
+
+| Player | before | after |
+|---|---|---|
+| `sidplay` | 45 | **30** |
+| `grknoid` | 62 | **47** |
+| `godzi` | 43 | **33** |
+| `gortris` | 52 | **51** |
 
 ## 4. How it is tested
 
