@@ -5985,12 +5985,8 @@ muPtStart:
     sta muPhCurLo+1
     sta muPhAcc
     sta muPhAcc+1
-    sta muPhPubLo               // nothing anchored yet, on any voice
-    sta muPhPubLo+1
-    sta muPhPubLo+2
-    sta muPhPubHi
-    sta muPhPubHi+1
-    sta muPhPubHi+2
+    sta muPhPtrLo               // nothing anchored yet
+    sta muPhPtrHi
     lda #$ff
     sta muPhBaseLo
     sta muPhBaseLo+1
@@ -6139,12 +6135,8 @@ muRewindView:
     sta muHistN
     sta muHistN+1
     sta muHistN+2
-    sta muPhPubLo               // a fresh pass: no pointer is known yet
-    sta muPhPubLo+1
-    sta muPhPubLo+2
-    sta muPhPubHi
-    sta muPhPubHi+1
-    sta muPhPubHi+2
+    sta muPhPtrLo
+    sta muPhPtrHi
     muSet(MU_ROW, MU_GRID_TOP)  // the cursor, and with it the head's BAR and R
     jsr muDotsOff
     jmp muRedrawAll             // grid, head and cursor, in that order
@@ -6212,41 +6204,49 @@ muPlayhead:
     jsr muPhFollow
     jmp muPhCursor
 
-// --- muPhSync -- anchor the clock where ANY voice starts an event ---
-//  The pointer a voice publishes is the next command it will run, so a change of it
-//  means an event has just begun and the playhead is exactly on that event's row.
-//  The walker recorded (pointer -> row) as it drew the line, so the row is a lookup,
-//  not a second walk.
-//  ALL THREE voices are watched, not the cursor's alone: a voice can rest for bars,
-//  and while it does the clock has nothing to correct it -- its own rate is a
-//  fraction slow (see muPhPer), so the walk falls behind the music for exactly that
-//  stretch and is already out of step when the voice comes back in.
-//  On a pass where no pointer changed the clock keeps its own tempo: anchoring on a
-//  standing match would drag the cursor back onto the event's onset every frame.
+// --- muPhSync -- anchor the clock where the player starts an event ---
+//  The pointer the player publishes is the next command it will run, so a change
+//  of it means an event has just begun and the playhead is exactly on that
+//  event's row. The walker recorded (pointer -> row) as it drew the line, so the
+//  row is a lookup, not a second walk. On a pass where the pointer has not
+//  changed the clock keeps its own tempo: anchoring on a standing match would
+//  drag the cursor back onto the event's onset on every frame.
 muPhSync:
-    ldx #0
-muPsLoop:
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    sta muHistV
+    tax
     lda MU_POS_BLOCK,x
-    ora MU_POS_BLOCK+3,x
-    beq muPsNext                // never published (a halted voice): nothing to say
-    lda MU_POS_BLOCK,x
-    cmp muPhPubLo,x
-    bne muPsNew
+    cmp muPhPtrLo
+    beq muPsHi
+    jmp muPsNew
+muPsHi:
     lda MU_POS_BLOCK+3,x
-    cmp muPhPubHi,x
-    beq muPsNext                // this voice's event has not changed
+    cmp muPhPtrHi
+    bne muPsNew
+    rts                         // same event: the clock carries on
 muPsNew:
     lda MU_POS_BLOCK,x
-    sta muPhPubLo,x
+    sta muPhPtrLo
     sta muPhTgtLo,x
     lda MU_POS_BLOCK+3,x
-    sta muPhPubHi,x
+    sta muPhPtrHi
     sta muPhTgtHi,x
-    stx muHistV
     jsr muHistFind              // C=1 -> muValLo/muValHi = the row it is on
-    bcc muPsNext
-    //  The POINTER is authoritative: it is the event the player is starting, and the
-    //  renderer recorded the row it drew that event on, so the clock is set to it.
+    bcs muPsFound
+    rts
+muPsFound:
+    //  The POINTER is authoritative: it is the event the player is starting, and
+    //  the renderer recorded the row it drew that event on. Taking it every time
+    //  is what keeps the clock from running away -- with a window test (this row
+    //  must be within N of the clock) a stretch that cannot anchor, such as a
+    //  voice resting, lets the free-running clock drift ahead; after that every
+    //  anchor reads as "behind" and is refused, so the drift never comes back and
+    //  the view scrolls off the end of the tune into blank rows while the player
+    //  reads the file correctly and keeps playing. A row that is wrong self-
+    //  corrects on the next event, because muHistFind scans newest first and every
+    //  pointer the player can reuse resolves to this pass.
+muPsTake:
     lda muValLo
     sta muPhCurLo
     lda muValHi
@@ -6256,10 +6256,7 @@ muPsNew:
     sta muPhAcc+1
     lda tickCount
     sta muPhLast
-muPsNext:
-    inx
-    cpx #3
-    bcc muPsLoop
+muPsRts:
     rts
 
 // --- muPhStep -- add the ticks that went by, one row per `unit` of them ---
@@ -7064,8 +7061,8 @@ muPfN:      .byte 0             // lines the follow path walks in one pass
 muHeadRowCol: .byte 0           // the head's row number, for the row-only update
 muHeadBarCol: .byte 0           // where the head's BAR field starts, for the playhead
 muHeadBar:  .word 0
-muPhPubLo:  .fill 3, 0          // each voice's published next-command pointer, last pass
-muPhPubHi:  .fill 3, 0
+muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
+muPhPtrHi:  .byte 0
 muPhNeed:   .byte 1             // the current row's length in ticks
 muPhFrac:   .byte 1             // rows left before that length grows by one
 muPhRowT:   .byte 1             // ticks one row takes, machine speed included
