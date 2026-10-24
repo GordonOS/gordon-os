@@ -162,8 +162,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-kernel.ps1   # W
 
 What it does, in order:
 
-1. **Three tripwires**, each of which exits non-zero and stops the build:
-   `check-fs-offsets.ps1`, `check-lib-ids.ps1`, `check-header-offsets.ps1` (section 6).
+1. **Four tripwires**, each of which exits non-zero and stops the build:
+   `check-fs-offsets.ps1`, `check-lib-ids.ps1`, `check-zp-indirect.ps1`,
+   `check-header-offsets.ps1` (section 6).
 2. **Patches the generated `build.ninja`** so its `asm` rule runs
    `tools/kick.ps1` instead of `java -jar KickAss.jar` directly, which is what turns a
    failed `.assert` into a failed build. If the rule is neither the known direct form
@@ -346,6 +347,7 @@ show up on the machine as a wrong number, a stale binary or a garbled screen.
 | `tools/kick.ps1` | a failed `.assert` — KickAssembler prints `Made N asserts, M FAILED!` and still exits 0, so the wrapper turns that into a non-zero exit | every KickAssembler invocation, both builds |
 | `check-fs-offsets.ps1` | 24-bit REU-FS offset arithmetic: a copy of `reuFsPtr` that drops the bank byte, a hard-coded bank byte, or a 24-bit add whose carry never reaches `+2`. A deliberate case is marked `fs-lint: allow` | kernel + task builds |
 | `check-lib-ids.ps1` | the `LIB_*` ids in `task-header.inc` against the positional descriptor tables in `src/main.asm` — a reorder would load the **wrong library silently** | kernel + task builds |
+| `check-zp-indirect.ps1` | an **indirect operand outside zero page**. `(label),y` addresses zero page only, and KickAssembler does not reject a label above it -- it truncates the operand to the label's LOW BYTE, so `lda (muWcPt),y` with `muWcPt` at `$893A` silently reads the pointer at `$3A`. It assembles, every `.assert` passes, and the fault shows up as a logic bug in the routine. Every name in an indirect operand must resolve below `$100` (zero-page `.const`, an assembled symbol, or a `.const` chain ending at one); a name that cannot be resolved is a failure, because a check that goes quiet on new code goes quiet exactly when it matters |
 | `check-header-offsets.ps1` | a header field read as a bare `+N` on `scratchBuf`/`reuDirBuf` instead of an `HDR_*` constant. No `.assert` can see this (it is an index into a DMA'd page, not a label) | kernel build |
 | `check-pool-budget.ps1` | a task's **live footprint** — its code, the libraries it holds while alive (the eager ones its `libMask` names *and* the lazy ones its own code loads: a `$LiveLazy` table, since no header can state that) and the `kMalloc` blocks it holds (`$LiveMallocMusic`, recomputed from each tune file, and `$LiveMallocFixed`, in pages). The loader's pre-need sum counts the eager libraries only, so an over-budget task loads and then dies at the first lazy call | task build |
 | `check-task-headers.py` | every built binary's header, re-derived from its bytes: magic, size identity, trailer, fixup bounds and order, the `$FFFF` sentinel, zero padding, page-aligned origin | end of the task build |
@@ -365,7 +367,7 @@ show up on the machine as a wrong number, a stale binary or a garbled screen.
 | `check-links.py` | that every relative link in the tracked Markdown resolves. Fenced and inline code are skipped, so a syntax example is not read as a link; the two binaries-repo templates are excluded and are checked by `publish-binaries.ps1` in their published layout |
 
 **Run by CI, on every push and pull request:** `check-fs-offsets`, `check-lib-ids`,
-`check-header-offsets`, `gen-task-asm -Check`, `verify-jumptable-docs`,
+`check-zp-indirect`, `check-header-offsets`, `gen-task-asm -Check`, `verify-jumptable-docs`,
 `verify-inventory-docs`, `check-ascii.py`, `check-links.py`, and `scan-history.py` as a read-out —
 the `.github/workflows/gates.yml` workflow, the half of the build that needs no
 assembler and no emulator. The rest need built binaries under `tasks-out/` or

@@ -30,6 +30,12 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & "$PSScriptRoot/check-lib-ids.ps1"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Tripwire for an indirect operand outside zero page: `(label),y` addresses zero
+# page only, and KickAssembler truncates a label's address to its low byte rather
+# than refusing it -- an assembles-and-passes build with a wrong read in it.
+& "$PSScriptRoot/check-zp-indirect.ps1"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # KickAssembler jar location - see tools/toolpaths.ps1
 . "$PSScriptRoot/toolpaths.ps1"                   # machine paths: $KickAssJar
 $kick = $KickAssJar

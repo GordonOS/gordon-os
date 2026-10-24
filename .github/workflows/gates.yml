@@ -44,6 +44,8 @@ jobs:
 
       - name: Library ids vs the descriptor tables
         run: pwsh -NoProfile -File tools/check-lib-ids.ps1
+      - name: Indirect operands are zero page
+        run: pwsh -NoProfile -File tools/check-zp-indirect.ps1
 
       - name: Header fields read as HDR_* constants
         run: pwsh -NoProfile -File tools/check-header-offsets.ps1
