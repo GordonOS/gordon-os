@@ -5516,7 +5516,9 @@ muTuneRefresh:
 // --- muPlayToggle -- SPACE: start when stopped, stop when playing ---
 muPlayToggle:
     lda muPlayOn
-    bne muPlayStop
+    beq muPtStart
+    jmp muPlayStop
+muPtStart:
     lda muPlaySlot
     cmp #$ff
     beq muPtNoChild             // the player is gone (see muPlayTick): nothing can play
@@ -5531,12 +5533,60 @@ muPlayToggle:
     lda #$ff                    // nothing anchored yet
     sta muPhBaseLo
     sta muPhBaseLo+1
+    jsr muPhPer                 // how many ticks a row really takes
     lda tickCount               // the clock starts here
     sta muPhLast
     rts
 muPtNoChild:
     muStr(muSNoPlayer)
     jmp muStatus
+
+// --- muPhPer -- ticks one row really takes: unit jiffies x the player's delay ---
+//  A row is the tempo's unit of jiffies, and a jiffy is MU_MUS_DELAY ticks scaled
+//  by the machine's speed -- exactly the scaling kSidPlay applies through
+//  sidScaleDelay, because a faster machine's jiffies are shorter and the player
+//  sleeps MORE ticks per jiffy to keep the tune's tempo in real time. The clock
+//  has to scale the same way or the cursor runs ahead of the music on a fast
+//  machine and behind it on a slow one.
+muPhPer:
+    lda #MU_MUS_DELAY
+    ldy sysSpeedShift
+    beq muPtUnit
+    bmi muPtDown
+muPtUp:
+    asl
+    bcs muPtMax
+    dey
+    bne muPtUp
+    beq muPtUnit
+muPtMax:
+    lda #255
+    jmp muPtUnit
+muPtDown:
+    lsr
+    iny
+    bne muPtDown
+    cmp #1
+    bcs muPtUnit
+    lda #1
+muPtUnit:
+    ldy muUnitVal               // the jiffies a row runs for
+    bne muPtMul0
+    ldy #1
+muPtMul0:
+    sta muTmp
+    sta muPhRowT
+    dey
+    beq muPtRet
+muPtMul:
+    lda muPhRowT
+    clc
+    adc muTmp
+    sta muPhRowT
+    dey
+    bne muPtMul
+muPtRet:
+    rts
 
 // --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
 //  A lazy library that fails to load does not return: the kernel prints
@@ -5633,12 +5683,12 @@ muPhStLp:
     lda muPhAcc+1
     bne muPhStGo
     lda muPhAcc
-    cmp muUnitVal
+    cmp muPhRowT
     bcc muPhStRts
 muPhStGo:
     lda muPhAcc
     sec
-    sbc muUnitVal
+    sbc muPhRowT
     sta muPhAcc
     lda muPhAcc+1
     sbc #0
@@ -6281,6 +6331,7 @@ muNumSquash: .byte 0
 muTmpL:     .byte 0
 muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
+muPhRowT:   .byte 1             // ticks one row takes, machine speed included
 muPhHeadT:  .byte 0             // rows left before the head is redrawn
 muPhCand:   .fill 2, 0          // the row the last rejected rewind named
 muNeedPage: .byte 0
