@@ -607,7 +607,8 @@ muLdOpen:
     jsr muScrOpen
     bcs muLdNoScr
     jsr muLdCopy                // the tune's pages -> the working file
-    bcc muLdCheck
+    bcs muLdNoScr
+    jmp muLdCheck
 muLdNoScr:
     muStr(muSNoScr)
     sec
@@ -692,7 +693,9 @@ muLdPgBad:
 // --- muLdNew -- the blank tune a name with no file stands for ---
 muLdNew:
     jsr muScrOpen
-    bcs muLdNoScr
+    bcc muLnGo
+    jmp muLdNoScr               // out of branch range
+muLnGo:
     jsr muWin0Ptr
     ldy #0
 muLdNewLp:
@@ -3561,6 +3564,7 @@ muNcReplace:
     iny
     lda muNewOpt
     sta (kPtr),y
+    jsr muWinFlush0             // the pair reaches its page before the record reads it
     jsr muPushEdit             // ...become 2 new bytes there
     ldy #MU_ROW                 // the pitch is the only thing that moved
     lda (dataPtr),y
@@ -4277,6 +4281,7 @@ muRkGo:
     iny
     lda #0
     sta (kPtr),y
+    jsr muWinFlush0             // the pair reaches its page before the record reads it
     jsr muPushEdit
     ldy #MU_ROW                 // only the rested row changed
     lda (dataPtr),y
@@ -4555,7 +4560,7 @@ muRrLp:
     iny
     bne muRrLp
 muRrDone:
-    rts
+    jmp muWinFlush0            // the pair reaches the page it lives on
 
 // --- muUndo -- Z: take back the newest action (its whole group) ---
 muUndo:
@@ -4789,18 +4794,20 @@ muLeStore:
     ora #$40
     sta muLpDur
 muLsPlain:
+    jsr muSeekKPtr              // kPtr = the page the pair lives on, at MU_SEKLO/HI
     ldy #0
     lda muLpDur
     sta (kPtr),y
     iny
     lda muLenOpt
     sta (kPtr),y
-    lda kPtr
+    jsr muWinFlush0            // the pair reaches the page it came from
+    lda muSekLo                 // on to the next pair
     clc
     adc #2
-    sta kPtr
+    sta muSekLo
     bcc muLsRts
-    inc kPtr+1
+    inc muSekHi
 muLsRts:
     rts
 
@@ -4840,75 +4847,17 @@ muImgNeed:
 // --- muInsGap -- open MU_INSN bytes at MU_INSLO/HI ---
 //  In: MU_INSLO/HI the offset (an event boundary), MU_INSN the byte count,
 //      A = the voice whose length word grows.
-//  Out: C=0 the gap is open, kPtr = the image; C=1 MU_STR the reason and the
-//       image is unchanged.
+//  Out: C=0 the gap is open; C=1 MU_STR the reason and the image is unchanged.
 muInsGap:
     sta muInsV
     jsr muImgRoom
-    bcc muInGo
-    sec                     // out of branch range: the tail is far away
-    rts
-muInGo:
-    ldy #MU_LEN             // MU_LEN into muCount, so the arithmetic is one pair
-    lda (dataPtr),y
-    sta muCountLo
-    ldy #MU_LEN+1
-    lda (dataPtr),y
-    sta muCountHi
-    jsr muImgToKPtr
-    lda kPtr                // src = image + MU_LEN - 1
-    clc
-    adc muCountLo
-    sta srcPtr
-    lda kPtr+1
-    adc muCountHi
-    sta srcPtr+1
-    lda srcPtr
-    bne muInSd
-    dec srcPtr+1
-muInSd:
-    dec srcPtr
-    lda srcPtr              // dst = src + MU_INSN
-    clc
-    adc muInsN
-    sta kPtr
-    lda srcPtr+1
-    adc #0
-    sta kPtr+1
-    lda muCountLo           // count = MU_LEN - MU_INSLO
-    sec
-    sbc muInsLo
-    sta muCountLo
-    lda muCountHi
-    sbc muInsHi
-    sta muCountHi
-muInLp:
-    lda muCountLo
-    ora muCountHi
-    beq muInMoved
-    ldy #0
-    lda (srcPtr),y
-    sta (kPtr),y
-    lda srcPtr
-    bne muInS
-    dec srcPtr+1
-muInS:
-    dec srcPtr
-    lda kPtr
-    bne muInD
-    dec kPtr+1
-muInD:
-    dec kPtr
-    lda muCountLo
-    bne muInC
-    dec muCountHi
-muInC:
-    dec muCountLo
-    jmp muInLp
-muInMoved:
-    //  --- the voice's length word, at image offset 2 + 2 * voice ---
-    jsr muImgToKPtr             // first: it sets Y itself
-    lda muInsV
+    bcs muInRts
+    lda #1
+    sta muGapUp                 // the tail moves UP: the pages are walked backwards
+    jsr muGapMove
+    bcs muInRts
+    jsr muImgSeat               // page 0: the length words live there
+    lda muInsV                  // the voice's word, at image offset 2 + 2 * voice
     asl
     clc
     adc #2
@@ -4923,8 +4872,8 @@ muInMoved:
     adc #0
     sta (kPtr),y
 muInLenHi:
-    //  --- and the image length ---
-    ldy #MU_LEN
+    jsr muWinFlush0
+    ldy #MU_LEN                 // and the image's own length
     lda (dataPtr),y
     clc
     adc muInsN
@@ -4935,7 +4884,6 @@ muInLenHi:
     adc #0
     sta (dataPtr),y
 muInOk:
-    jsr muImgToKPtr
     clc
 muInRts:
     rts
@@ -4947,60 +4895,11 @@ muInRts:
 //      one piece, so nothing in the image has to be patched.
 muDelGap:
     sta muInsV
-    jsr muImgToKPtr
-    lda kPtr                // srcPtr = image + MU_INSLO: where the tail lands
-    clc
-    adc muInsLo
-    sta srcPtr
-    lda kPtr+1
-    adc muInsHi
-    sta srcPtr+1
-    lda srcPtr              // kPtr = past the gap: where the tail is now
-    clc
-    adc muInsN
-    sta kPtr
-    lda srcPtr+1
-    adc #0
-    sta kPtr+1
-    ldy #MU_LEN             // count = MU_LEN - MU_INSLO - MU_INSN
-    lda (dataPtr),y
-    sec
-    sbc muInsLo
-    sta muCountLo
-    ldy #MU_LEN+1
-    lda (dataPtr),y
-    sbc muInsHi
-    sta muCountHi
-    lda muCountLo
-    sec
-    sbc muInsN
-    sta muCountLo
-    bcs muDgLp
-    dec muCountHi
-muDgLp:
-    lda muCountLo
-    ora muCountHi
-    beq muDgMoved
-    ldy #0
-    lda (kPtr),y
-    sta (srcPtr),y
-    inc kPtr
-    bne muDgS
-    inc kPtr+1
-muDgS:
-    inc srcPtr
-    bne muDgD
-    inc srcPtr+1
-muDgD:
-    lda muCountLo
-    bne muDgC
-    dec muCountHi
-muDgC:
-    dec muCountLo
-    jmp muDgLp
-muDgMoved:
-    //  --- the voice's length word, at image offset 2 + 2 * voice ---
-    jsr muImgToKPtr             // first: it sets Y itself
+    lda #0
+    sta muGapUp                 // the tail moves DOWN: the pages are walked forwards
+    jsr muGapMove
+    bcs muDgRts
+    jsr muImgSeat
     lda muInsV
     asl
     clc
@@ -5016,7 +4915,7 @@ muDgMoved:
     sbc #0
     sta (kPtr),y
 muDgLenHi:
-    //  --- and the image length ---
+    jsr muWinFlush0
     ldy #MU_LEN
     lda (dataPtr),y
     sec
@@ -5028,7 +4927,135 @@ muDgLenHi:
     sbc #0
     sta (dataPtr),y
 muDgOk:
+    clc
+muDgRts:
     rts
+
+// --- muGapMove -- shift the image's tail from MU_INSLO/HI by MU_INSN bytes ---
+//  MU_GAPUP = 1 opens a gap (up, so the pages are walked BACKWARDS and no source
+//  byte is overwritten before it has moved) and 0 closes one (forwards). Window 0
+//  is the page buffer, and the move stays inside the working file, whose size never
+//  changes -- so nothing is copied in RAM and no page count is involved.
+//  Out: C=0 moved; C=1 the filesystem refused a page.
+muGapMove:
+    jsr muLdPages               // A = the image's pages, never 0
+    sta muScrN
+    lda muGapUp
+    beq muGmDown
+    lda muScrN                  // up: from the last page down to the gap's own
+    sec
+    sbc #1
+    sta muScrPg
+muGmUpLp:
+    jsr muGapPage
+    bcs muGmRts
+    lda muScrPg
+    cmp muInsHi
+    bcc muGmOk
+    beq muGmOk
+    dec muScrPg
+    jmp muGmUpLp
+muGmDown:
+    lda muInsHi                 // down: from the gap's page up to the last one
+    sta muScrPg
+muGmDnLp:
+    jsr muGapPage
+    bcs muGmRts
+    inc muScrPg
+    lda muScrPg
+    cmp muScrN
+    bcc muGmDnLp
+muGmOk:
+    jsr muWinReset              // the pages behind every cache tag just moved
+    clc
+muGmRts:
+    rts
+
+// --- muGapPage -- move the run of bytes that belongs to page MU_SCRPG ---
+//  The page the gap starts on is only moved from the gap's low byte onwards; every
+//  other page moves whole. A run is 256 bytes, so a length of 256 is stored as a
+//  high byte of 1.
+muGapPage:
+    lda #0
+    sta muScrSh
+    lda muScrPg
+    cmp muInsHi
+    bne muGpLen
+    lda muInsLo
+    sta muScrSh                 // the gap starts part way into this page
+muGpLen:
+    lda #0
+    sta muScrLen+1
+    sec
+    sbc muScrSh
+    sta muScrLen
+    bne muGpLoad
+    lda #1
+    sta muScrLen+1              // start was 0: the whole page moves
+muGpLoad:
+    jsr muPgLoad                // window 0 := page muScrPg
+    bcs muGpRts
+    lda muScrSh                 // destination = page x 256 + start, then +/- MU_INSN
+    sta muDstLo
+    lda muScrPg
+    sta muDstHi
+    lda muGapUp
+    beq muGpSub
+    lda muDstLo
+    clc
+    adc muInsN
+    sta muDstLo
+    bcc muGpOut
+    inc muDstHi
+muGpSub:
+    lda muDstLo
+    sec
+    sbc muInsN
+    sta muDstLo
+    bcs muGpOut
+    dec muDstHi
+muGpOut:
+    jsr muSFrecArg
+    lda muDstLo
+    sta kArg+2
+    lda muDstHi
+    sta kArg+3
+    lda muScrLen
+    sta kArg+6
+    lda muScrLen+1
+    sta kArg+7
+    lda muWin                  // kPtr = window 0 + the run's start
+    clc
+    adc muScrSh
+    sta kPtr
+    lda muWin+1
+    adc #0
+    sta kPtr+1
+    jmp kReuWriteAt
+muGpRts:
+    rts
+
+// --- muPgLoad -- window 0 := page MU_SCRPG of the working file ---
+muPgLoad:
+    jsr muSFrecArg
+    lda #0
+    sta kArg+2
+    lda muScrPg
+    sta kArg+3                  // pos = page x 256
+    lda #0
+    sta kArg+6
+    lda #1
+    sta kArg+7                  // len = 256
+    jsr muWin0Ptr
+    jmp kReuReadAt
+
+// --- muWinFlush0 -- window 0 goes back to the page it holds, and forget the rest ---
+//  WARNING: the page is the one the window RECORDS in muWinPg, never an assumed 0 --
+//  only the header lives on page 0.
+muWinFlush0:
+    ldx #0
+    jsr muWinFlush
+    jmp muWinReset              // the move changed the pages behind every cache tag
 
 // --- muKeyNote -- a note key, or nothing ---
 //  The home row plays the white keys and W E T Y U O P the black ones, an octave
@@ -6855,9 +6882,15 @@ muNewTuneEnd:
 muFsName:   .fill 12, 0         // <base>.mus in screen codes + NUL
 muSFName:   .fill 12, 0         // <base>.wrk, the working image
 muSFrec:    .fill 5, 0          // its record: size lo/hi, base lo/mid/hi
-muScrPg:    .byte 0             // muScrFill: the page being copied
-muScrCnt:   .byte 0             // ...and how many are left
-muScrV:     .byte 0             // muWinFill: the voice, across kReuReadAt
+muScrPg:    .byte 0             // the page a scratch walk is on
+muScrCnt:   .byte 0             // ...and a counter for it
+muScrV:     .byte 0             // muWinFill/muWinFlush: the voice, across a call
+muGapUp:    .byte 0             // muGapMove: 1 = the tail moves up
+muScrN:     .byte 0             // ...the image's page count
+muScrSh:    .byte 0             // ...the run's start inside the page
+muScrLen:   .word 0             // ...and its length (256 is stored as a high byte of 1)
+muDstLo:    .byte 0             // ...and where it goes, as an image offset
+muDstHi:    .byte 0
 muDirName:  .fill 12, 0         // kReuDirEntry's name buffer (slot 0 only)
 // The powers muNum16 subtracts: five cover every 16-bit value.
 muPowLo:    .byte <10000, <1000, <100, <10, <1
@@ -7100,10 +7133,6 @@ muInsN:     .byte 0             // how many bytes
 muInsV:     .byte 0             // the voice whose length word grows
 muNeedLo:   .byte 0             // MU_LEN + MU_INSN
 muNeedHi:   .byte 0
-muRoomHi:   .byte 0             // MU_PAGES * 256, high byte only
-muGrowPages: .byte 0
-muNewLo:    .byte 0
-muNewHi:    .byte 0
 muCountLo:  .byte 0             // a byte count, 16 bits
 muCountHi:  .byte 0
 muLimLo:    .byte 0
@@ -7167,8 +7196,7 @@ muPlayHush: .byte 0             // the stop second-hush guard
 muPlayRefd: .byte 0             // the child sets this when the SID is busy
 muSidOk:    .byte 0             // a play attempt was made (sid.lib may be loaded)
 muReapCnt:  .byte 0             // countdown while waiting for the child to exit
-muTuneLo:   .byte 0             // MU_IMG mirrored into code, for the child to read
-muTuneHi:   .byte 0
+muSidCfgB:  .fill 9, 0          // kSidPlay mode 1: the file's FS offset, then windows 3-5
 // --- the playhead: the walk maps each voice's published pointer to a row ---
 muPhFrame:  .byte 0             // frameCount at the last playhead update
 muPhTgtLo:  .fill 3, 0          // each voice's published next-command pointer
