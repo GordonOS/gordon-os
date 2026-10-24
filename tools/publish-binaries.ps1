@@ -145,7 +145,7 @@ try {
     #  NEUTRALISED rather than copied -- the target stays in the text as a bare name in
     #  code font, and the copied guides are then resolved link by link, so a guide that
     #  gains a link to a developer doc cannot publish it dead.
-    $guides = @('edit.md', 'gordonpaint.md', 'gortris.md', 'grknoid.md', 'gordonbasic.md')
+    $guides = @('edit.md', 'gordonpaint.md', 'gortris.md', 'grknoid.md', 'gordonbasic.md', 'musedit.md')
     $docDir = Join-Path $root "docs"
     $docsOut = Join-Path $BinDir "docs"
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false

@@ -810,6 +810,18 @@ run basic              ← open/create the BASIC working file (basicwrk)
   also holds `filesys.lib` for the session, because the score file is written at
   game over and its child reads a tune file on every switch.
   Full reference: [grknoid.md](grknoid.md)
+- **`musedit`** ? the tracker-style **editor for COMPUTE!'s Sidplayer tunes**: `run musedit
+  immig` opens a `.mus` from the REU FS on a screen of its own, with the tune as a
+  three-voice grid, one row per grid step, a hand-over of the display it owns while it
+  runs, and the same player `sidplay` uses, so what plays is what ships. A note reads as
+  its pitch and its duration on one row (`C-4 16`), the window follows the music a line
+  at a time, and three coloured dots on the eight-octave piano show what each voice is
+  sounding (red, yellow, cyan). Editing is by cursor: note keys enter a pitch at the
+  cursor, `1`-`7` arm a duration, INST/DEL writes a rest, `I` inserts a row in all three
+  voices, `C` opens the command panel, `Z`/`X` undo and redo, `W` saves. `SPACE` starts
+  and stops the tune ? one pass, then the score rewinds ? and `q` leaves. It declares
+  `filesys.lib` and `sid.lib` and needs the mouse (`mouse 1351`), like `grpaint`.
+  Full reference: [musedit.md](musedit.md)
 - **`fstest`** (`.com`, typed as `fstest`) - REU filesystem **bank-boundary self-test**.
   Reads a 16-byte window that spans a bank wrap, writes the complement of those
   bytes back over it, re-reads to prove the write landed exactly there, then

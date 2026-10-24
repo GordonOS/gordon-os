@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1269 total call sites** found across `src/`.
+- **1270 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -131,10 +131,10 @@ API surface this document is inventorying.
 | [`kReuFindFile`](#kreufindfile) | `$E0BA` | 12 | 8 | Locate a named file in the REU filesystem and return its offset + size, without transferring any data. |
 | [`kByteToDec`](#kbytetodec) | `$E02A` | 11 | 9 | Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y. |
 | [`kFreeScreen`](#kfreescreen) | `$E051` | 11 | 10 | Release the current task's surface back to the free pool; falls back to the shared `$2000` framebuffer if it was the last one. |
+| [`kDiv16`](#kdiv16) | `$E030` | 10 | 6 | 16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder. |
 | [`kGetTaskName`](#kgettaskname) | `$E04B` | 10 | 8 | Look up a task's name by index; returns a pointer directly into the kernel's name table (no copy). |
 | [`kMul16`](#kmul16) | `$E02D` | 10 | 3 | 16-bit x 16-bit unsigned multiply, producing a 32-bit result. |
 | [`kBlitCharRev`](#kblitcharrev) | `$E0F0` | 9 | 1 | Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0. |
-| [`kDiv16`](#kdiv16) | `$E030` | 9 | 6 | 16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder. |
 | [`kCsrBoth`](#kcsrboth) | `$E096` | 8 | 3 | Set cursor visibility and sync the surface matrix tail in one call -- the low-level primitive behind `kEnableCursor`/`kDisableCursor`. |
 | [`kReuLoad`](#kreuload) | `$E087` | 8 | 6 | Load a named block from the REU filesystem into C64 memory. |
 | [`kWaitKey`](#kwaitkey) | `$E01B` | 7 | 6 | Block until a key is pressed, spinning on `kScanKeyboard`. |
@@ -828,6 +828,21 @@ Release the current task's surface back to the free pool; falls back to the shar
 | `src/tasks/dynamic/shell.inc` | 1 |
 | `src/tasks/dynamic/sidplay.asm` | 1 |
 
+### kDiv16
+
+``$E030`` — **10 calls** across 6 file(s)
+
+16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/musedit.inc` | 3 |
+| `src/tasks/dynamic/spirog.inc` | 3 |
+| `src/kernel/char-shadow.inc` | 1 |
+| `src/kernel/screen-mgmt.inc` | 1 |
+| `src/tasks/dynamic/edit.inc` | 1 |
+| `src/tasks/dynamic/gfxdemo.inc` | 1 |
+
 ### kGetTaskName
 
 ``$E04B`` — **10 calls** across 8 file(s)
@@ -866,21 +881,6 @@ Like `kBlitChar` but reverse video -- a solid bar in the text colour with the gl
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/edit.inc` | 9 |
-
-### kDiv16
-
-``$E030`` — **9 calls** across 6 file(s)
-
-16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/spirog.inc` | 3 |
-| `src/tasks/dynamic/musedit.inc` | 2 |
-| `src/kernel/char-shadow.inc` | 1 |
-| `src/kernel/screen-mgmt.inc` | 1 |
-| `src/tasks/dynamic/edit.inc` | 1 |
-| `src/tasks/dynamic/gfxdemo.inc` | 1 |
 
 ### kCsrBoth
 

@@ -68,7 +68,7 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
   (`kSidPlay`/`kSidHush`/`kIpcPost`/`kIpcPick`) — the `$E000` table is full.
 - 38 of them have at least one call site in the current source tree; 4 have
   none.
-- **228 total call sites** found across `src/`.
+- **237 total call sites** found across `src/`.
 
 ## By library
 
@@ -81,7 +81,7 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
 | [`string.lib`](#stringlib) | lib 4, lazy | 7 | 26 |
 | [`sid.lib`](#sidlib) | lib 5, lazy | 2 | 11 |
 | [`ipc.lib`](#ipclib) | lib 6, lazy | 2 | 7 |
-| [`sprite.lib`](#spritelib) | lib 7, eager | 4 | 46 |
+| [`sprite.lib`](#spritelib) | lib 7, eager | 4 | 55 |
 | [`mouse.lib`](#mouselib) | lib 8, eager | 1 | 7 |
 
 ## time.lib
@@ -602,21 +602,22 @@ No call sites in the current source tree.
 
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kSpriteReg`](#kspritereg) | `$CDEA` | 15 | 5 | Set any of the remaining single-byte sprite shadow fields -- enable, colours, MC colours, priority, MC mode, X/Y expand. |
-| [`kSpriteFrame`](#kspriteframe) | `$CDE1` | 11 | 5 | Load one frame of a sprite slot's bound sheet into the slot. |
-| [`kSpriteSheet`](#kspritesheet) | `$CDDE` | 11 | 5 | Bind a REU FS file to a sprite slot as its animation sheet. |
-| [`kSpritePos`](#kspritepos) | `$CDE4` | 9 | 5 | Place a sprite on screen -- the hot path, called once per sprite per tick. |
+| [`kSpriteReg`](#kspritereg) | `$CDEA` | 17 | 6 | Set any of the remaining single-byte sprite shadow fields -- enable, colours, MC colours, priority, MC mode, X/Y expand. |
+| [`kSpriteFrame`](#kspriteframe) | `$CDE1` | 14 | 5 | Load one frame of a sprite slot's bound sheet into the slot. |
+| [`kSpriteSheet`](#kspritesheet) | `$CDDE` | 14 | 5 | Bind a REU FS file to a sprite slot as its animation sheet. |
+| [`kSpritePos`](#kspritepos) | `$CDE4` | 10 | 5 | Place a sprite on screen -- the hot path, called once per sprite per tick. |
 
 ### kSpriteReg
 
 `$CDEA` — Set any of the remaining single-byte sprite shadow fields -- enable, colours, MC colours, priority, MC mode, X/Y expand.
 
-**15 calls** across 5 file(s):
+**17 calls** across 6 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/sprite-shadow.inc` | 7 |
 | `src/tasks/dynamic/godzi.inc` | 5 |
+| `src/tasks/dynamic/musedit.inc` | 2 |
 | `src/tasks/dynamic/grknoid.inc` | 1 |
 | `src/tasks/dynamic/grpaint.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
@@ -625,42 +626,42 @@ No call sites in the current source tree.
 
 `$CDE1` — Load one frame of a sprite slot's bound sheet into the slot.
 
-**11 calls** across 5 file(s):
+**14 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
+| `src/tasks/dynamic/musedit.inc` | 5 |
 | `src/tasks/dynamic/godzi.inc` | 4 |
 | `src/tasks/dynamic/grknoid.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 2 |
-| `src/tasks/dynamic/musedit.inc` | 2 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
 ### kSpriteSheet
 
 `$CDDE` — Bind a REU FS file to a sprite slot as its animation sheet.
 
-**11 calls** across 5 file(s):
+**14 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
+| `src/tasks/dynamic/musedit.inc` | 5 |
 | `src/tasks/dynamic/godzi.inc` | 4 |
 | `src/tasks/dynamic/grknoid.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 2 |
-| `src/tasks/dynamic/musedit.inc` | 2 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
 ### kSpritePos
 
 `$CDE4` — Place a sprite on screen -- the hot path, called once per sprite per tick.
 
-**9 calls** across 5 file(s):
+**10 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/godzi.inc` | 4 |
 | `src/tasks/dynamic/grknoid.inc` | 2 |
+| `src/tasks/dynamic/musedit.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 1 |
-| `src/tasks/dynamic/musedit.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
 ## mouse.lib

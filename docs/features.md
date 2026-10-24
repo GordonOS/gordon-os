@@ -171,6 +171,11 @@ See [lib-gfx.md](lib-gfx.md).
   from the machine's declared speed, so the same call is right on any machine.
 - **The SID is a claimed resource.** A second player is refused, `kill` silences the
   chip for a task that declared `sid.lib`, and `sidrst` is the manual fallback.
+- **`musedit` edits those tunes on the machine**: a three-voice grid with the note and its
+  duration on one row, a playhead that follows the music line by line through the kernel's
+  REU row scroll, three coloured dots on an eight-octave piano showing what each voice is
+  sounding, an editing model (insert, rest, command panel, undo/redo) and save back to the
+  REU FS. See [musedit.md](musedit.md).
 - See [lib-sid.md](lib-sid.md).
 
 ## 10. Storage: the REU filesystem

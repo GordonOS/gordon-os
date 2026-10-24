@@ -33,8 +33,8 @@ Every image is a real capture from VICE at the project's own profile
 The rest, one per subsystem, sit in the docs they belong to: the `dir` options in
 [quick-start.md](docs/quick-start.md), each game in its own guide
 ([gortris](docs/gortris.md), [grknoid](docs/grknoid.md), [gordonpaint](docs/gordonpaint.md)),
-the picture viewers in [pic-format.md](docs/pic-format.md), and the 1351 readout in
-[lib-mouse.md](docs/lib-mouse.md).
+the picture viewers in [pic-format.md](docs/pic-format.md), the tune editor in
+[musedit.md](docs/musedit.md), and the 1351 readout in [lib-mouse.md](docs/lib-mouse.md).
 
 **Key features currently implemented and working:**
 
@@ -51,6 +51,15 @@ the picture viewers in [pic-format.md](docs/pic-format.md), and the 1351 readout
 - **Bitmap graphics** — REU-backed bitmap surfaces (28 slots) in standard hires (320×200) and multicolor (160×200) modes. `gfx.lib` provides the full primitive set (`kPlot`/`kLine`/`kBox`/`kFillBox`/`kCircle`/`kEllipse`/`kFloodFill`/`kGetPixel`/`kClearBitmap`/`kSetGfxColor`/`kFillMatrix`) plus pixel-positioned text (`kGfxChar`/`kGfxString`), all hires- and MC-aware
 - **Hardware sprites** — all **8** VIC-II sprites through **`sprite.lib`** (`kSpriteSheet`/`kSpriteFrame`/`kSpritePos`/`kSpriteReg`/`kSpriteCollide`) with the art stored in the REU FS as 64-byte-frame sheets. Tasks write a 39-byte RAM **shadow** and the kernel publishes it to `$D000-$D02E` once per frame in the vertical blank, so nothing can tear from a badly-timed write; collisions come back as frame-latched masks. Each task's sprite state (shadow, sheet records, frame indices) is saved per task and **handed over with the display**, so two sprite tasks coexist. Demos: `run sprdemo` (bouncing balls) and `run godzi` (the ported walker/Godzilla demo). See **[docs/lib-sprite.md](docs/lib-sprite.md)**
 - **GordonPaint, and a 1351 mouse** — `mouse.lib` (lib 8) reads the Commodore **1351** through the SID's POT lines behind one dispatching call, and **`grpaint`** is the paint program built on it: a canvas in hires or multicolour, a palette/tool band over the bottom two cell rows, thirteen tools, an undo/redo ring five steps each way, and `<name>.pic` save/load in a documented 10,032-byte format (`grview` is its viewer). Declare the mouse with `mouse 1351`; `mtest` is the readout that settles the protocol on a machine. See **[docs/gordonpaint.md](docs/gordonpaint.md)**, **[docs/pic-format.md](docs/pic-format.md)** and **[docs/lib-mouse.md](docs/lib-mouse.md)**
+- **`musedit`, a tracker for Sidplayer tunes** ? `run musedit <tune>` opens a COMPUTE!'s
+  Sidplayer `.mus` on its own screen as a three-voice grid in which a note reads as its pitch
+  and its duration on one row (`C-4 16`). A playhead driven by the player's own jiffy clock
+  follows the music a line at a time, the window scrolling through the kernel's REU row move
+  and drawing only the row that arrives; three coloured dots on an eight-octave piano show what
+  each voice is sounding, and the notes are placed from the piano's own key geometry. Editing
+  is by cursor ? note keys, arming durations, rests, row insert across all three voices, a
+  command panel for every effect the format has, and undo/redo ? and a pass plays once and
+  rewinds. See **[docs/musedit.md](docs/musedit.md)**
 - **REU video playback (`granim`)** — a full-screen **animation** played out of the REU filesystem: the bundled film is 360 multicolour frames at 24 fps (15 seconds) in 60 chunks of six frames plus a manifest, and `run granim llama` plays it. Each frame is six `kReuReadAt` calls, so no window holds interrupts off for more than ~2,000 bytes, and they run in the beam's own order — matrix and colour RAM before the pixels — so the rewrite stays ahead of the raster and never shows a seam; the film clock steps on the machine's **declared speed**, so the film is the same length in *real* time on a 200% emulator as on a real C64; and the display is checked before every update, so an F-key switch **pauses** the film instead of drawing into the new owner's screen. See **[docs/pic-format.md](docs/pic-format.md)** → *The `.anm` film container*
 - **Per-task ZP preservation** — tasks declare a ZP region; scheduler DMAs it to/from REU on every switch (zero overhead for non-declaring tasks)
 - **Counting semaphores** — 4 semaphores with yield-based blocking (tasks yield instead of spinning)
