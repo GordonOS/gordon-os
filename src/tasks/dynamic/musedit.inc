@@ -48,6 +48,12 @@
 .const MU_PIANO_BOT = 23
 .const MU_BAR_ROW   = 24
 .const MU_PIANO_COLS = 40
+// The three lanes are one width and one column apart, and the first starts at
+// MU_LANE1_COL -- the cell just under its header. Both the drawing and the click
+// hit test read these, so a note and the cell that edits it cannot disagree.
+.const MU_LANE1_COL = 4
+.const MU_LANE_W    = 11
+.const MU_LANE_STEP = MU_LANE_W+1
 
 // --- screen codes and colours ---
 .const MU_SPACE     = $20
@@ -5670,17 +5676,17 @@ muClkGrid:
     cmp #MU_GRID_BOT+1
     bcs muClkLow
     lda muXl
-    cmp #4                      // lane 1: columns 4-14
+    cmp #MU_LANE1_COL                       // lane 1
     bcc muClkRts
-    cmp #15
+    cmp #MU_LANE1_COL+MU_LANE_W
     bcc muClkV0
-    cmp #16                     // column 15 is a separator
+    cmp #MU_LANE1_COL+MU_LANE_STEP          // the column between lanes
     bcc muClkRts
-    cmp #27                     // lane 2: 16-26
+    cmp #MU_LANE1_COL+MU_LANE_STEP+MU_LANE_W
     bcc muClkV1
-    cmp #28                     // column 27 is a separator
+    cmp #MU_LANE1_COL+2*MU_LANE_STEP        // the column between lanes
     bcc muClkRts
-    cmp #39                     // lane 3: 28-38; 39 is the spare column
+    cmp #MU_LANE1_COL+2*MU_LANE_STEP+MU_LANE_W
     bcc muClkV2
     bcs muClkRts
 muClkV0:
@@ -6554,12 +6560,6 @@ muDotTabHi: // ...and its ninth bit, which kSpritePos takes in C
     .byte 215, 218, 221, 224, 226, 232, 235, 238, 241, 244, 247, 249
     .byte 255, 258, 261, 264, 266, 272, 275, 278, 281, 284, 287, 289
     .byte 295, 298, 301, 304, 306, 310, 310, 310, 310, 310, 310, 310
-// The lanes are one width and one column apart, and the first one starts at
-// MU_LANE1_COL -- the cell just under its header. Everything else is derived, so
-// a lane cannot drift off its header.
-.const MU_LANE1_COL = 4
-.const MU_LANE_W    = 11
-.const MU_LANE_STEP = MU_LANE_W+1
 muLaneCol:  .byte MU_LANE1_COL, MU_LANE1_COL+MU_LANE_STEP, MU_LANE1_COL+2*MU_LANE_STEP
 muLaneW:    .byte MU_LANE_W, MU_LANE_W, MU_LANE_W
 muVoiceCol: .byte 2, 7, 3       // red, yellow, cyan -- the dot colours, voice 1..3
