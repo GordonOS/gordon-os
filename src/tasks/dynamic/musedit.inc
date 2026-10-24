@@ -79,7 +79,6 @@
 .const MU_SIM_CAP   = 6000    // events a whole run may execute
 .const MU_TRACE_N   = 18      // events the trace key prints, one per grid row
 .const MU_GRID_ROWS = 19      // the rows a window shows
-.const MU_BAR_CH    = '='     // a note's length, one cell per row
 .const MU_REST_CH   = '.'     // a rest
 .const MU_CMD_CH    = '*'     // the event arrived with commands
 .const MU_OFF_CH    = '?'     // its onset fell between rows
@@ -94,7 +93,6 @@
 .const MU_MUS_REPEATS = 1     // one pass through the tune: the end stops it
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
-.const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
 .const MU_SYNC_WIN      = 4   // rows a matched row may differ by and still be taken
 .const MU_PH_SLOW       = 4   // rows per extra tick of the player's own work
