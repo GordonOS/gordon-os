@@ -3867,12 +3867,12 @@ muFgGo:
     jmp muStatus                // muInsGap left the reason in MU_STR
 muFgW:
     jsr muSeekKPtr
-    lda kPtr                    // step over the event that is already there
+    lda muSekLo                 // step over the event that is already there
     clc
     adc #2
-    sta kPtr
+    sta muSekLo
     bcc muFgRest
-    inc kPtr+1
+    inc muSekHi
 muFgRest:
     lda #1
     sta muLenMode
@@ -4034,12 +4034,12 @@ muIvAppFit:
     jsr muInsGap
     bcs muIvAppRts
     jsr muSeekKPtr
-    lda kPtr                    // step past the event that ran before T0
+    lda muSekLo                 // step past the event that ran before T0
     clc
     adc #2
-    sta kPtr
+    sta muSekLo
     bcc muIvApR
-    inc kPtr+1
+    inc muSekHi
 muIvApR:
     lda #1
     sta muLenMode
@@ -4351,6 +4351,8 @@ muCoRts:
 
 // --- muRecKPtr -- kPtr = the image at MU_RECOFF, in window 0 ---
 //  Same one-page rule as muSeekKPtr: a record's old/new byte count is at most 2.
+//  Clobbers A, Y, kPtr, srcPtr -- the seat fills a window, so srcPtr does NOT
+//  survive it: a caller that needs srcPtr must derive it after the call.
 muRecKPtr:
     txa
     pha
@@ -4445,7 +4447,10 @@ muPeOld:
     bne muPeOld
 muPeOldDone:
     sty muRecTmp                // save the write cursor: muRecKPtr clobbers Y
-    jsr muRecKPtr               // the new bytes, from the image
+    jsr muRecKPtr               // the new bytes, from the image -- and this SEAT
+    lda muUndoTop               //   destroys srcPtr, so it is derived again here
+    ldx muUndoTop+1
+    jsr muUndoKPtr
     ldx #0
 muPeNew:
     cpx muRecNewN

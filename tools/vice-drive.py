@@ -60,7 +60,7 @@ BOOT_SETTLE = 9.0    # enough for the banner and the shell prompt
 # --- launch: VISIBLE, its own step -------------------------------------------
 def cmd_launch(args):
     cmd = [os.environ.get("VICE_EXE", "x64sc"),
-           "-speed", "100",
+           "-speed", "200",          # the project speed: the SID player compensates tempo and pitch for it
            "-reu", "-reusize", "16384",
            "-reuimage", str(ROOT / "reu" / "REU.bin"),
            "-reuimagerw",                       # tasks are loaded into the image
