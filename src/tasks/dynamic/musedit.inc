@@ -99,7 +99,7 @@
 .const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
 .const MU_SYNC_WIN      = 4   // rows a matched row may differ by and still be taken
-.const MU_PH_SLOW       = 8   // rows per extra tick of the player's own work
+.const MU_PH_SLOW       = 4   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 
