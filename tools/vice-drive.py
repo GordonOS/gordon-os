@@ -15,9 +15,11 @@ them (they cost a session once):
     first key after every focus change ("run musedit" arrives as "un musedit")
     and drops keys mid-word ("tetrs"), because an instant press/release falls
     between two 60 Hz hardware scans. Timing and re-focusing do not fix it.
-  * MODIFIERS cannot be poked. kbPoll reads shift off the matrix, so an injected
-    "s" is an unshifted s, and keybShift ($E229) is a copy re-derived from the
-    matrix. To exercise something behind SHIFT, use the bare key or a click.
+  * MODIFIER STATE cannot be poked -- kbPoll reads shift off the matrix, so an
+    injected "s" is an unshifted s, and keybShift ($E229) is a copy re-derived
+    from it. But the SHIFTED SCREEN CODE usually can be: an app that compares the
+    incoming code is reached directly. musedit's save is `cmp #$53`, so
+    `key(0x53)` saves. Check what the code tests before calling a path untestable.
 
 Two rules about the emulator itself:
 
