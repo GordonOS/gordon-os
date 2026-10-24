@@ -1,8 +1,15 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: the editor is built, wired and shipped.** `musedit.asm`, `musedit.inc` and the
-> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **92 code pages of 109** (17 of
+> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **93 pages of 109** (16 of
 > margin, with `sprite`/`mouse`/`filesys`/`sid` counted by `tools/check-pool-budget.ps1`).
+>
+> **`main`'s streamed player is merged in.** A tune no longer has to be in RAM: `kSidPlay` takes a
+> mode in `A` and, in mode 1, pages a file out of the REU through three page-aligned 256-byte
+> windows. Two consequences reach this plan: the player publishes each voice's next command as a
+> **file offset** at `$54A2` (it works in offsets now, and a paged tune has no address), so the
+> playhead ring is keyed on offsets already; and **step 12 is what lets the editor itself stop
+> holding the tune**, which is why it exists.
 > Everything in steps 1-6 is verified, as is playback (step 8.1-8.9): a music thread child plays
 > the tune through `kSidPlay`, `SPACE` toggles it, `sidplay.inc` publishes each voice's position
 > at `$54A2`, the cursor is the playhead and is stepped by the tick clock between events, the
@@ -643,7 +650,7 @@ saves again.
 | exit | `kSwitchView` to the parent **before** `kFreeScreen`, then `SYS_EXIT`; drain the key queue by capacity (16 reads) first |
 
 Footprint: code target **≤ 12 KB** (48 pages) + mouse 2 + sprite 1 + filesys 10 + sid 13 + the
-largest tune 18 = **92 of 109 pages**, margin 17. `basic` is the tight resident case at 109;
+largest tune 18 = **93 of 109 pages**, margin 16.
 with `musedit` resident and pinned, `run basic` fails with `? no space in pool` — the
 documented cost of `KF_NOT_EVICTABLE`, which it needs because it holds unsaved work. The
 three eager pages the pointer costs are part of that pin.
@@ -910,7 +917,10 @@ The published block, the thread child, stop/reap, follow.
 
 ### Step 9 — Gates and release
 
-- [x] **9.1 Budget.** *Verified: 92 pages of 109, 17 to spare* (the polish pass in step 11 spent two of them). `check-pool-budget.ps1` — exit 0, `musedit` at its measured footprint, with filesys, sid, mouse and sprite counted and the tune pages counted.
+- [x] **9.1 Budget.** `check-pool-budget.ps1` exit 0, `musedit` at its measured
+  footprint, with filesys, sid, mouse and sprite counted and the tune pages counted.
+  The running figure is in section 11; the polish pass and the merge of the streamed
+  player have each cost a page since.
 - [x] **9.2 Builds.** *Verified: kernel 233 asserts 0 failed, tasks and REU exit 0, and `check-reu-current.ps1` reports the image current — no source changed since the build and all 49 binaries byte-identical.* Kernel, tasks and REU all exit 0; `check-reu-current.ps1` reports the image holds the binaries just built.
 - [x] **9.3 Doc gates.** *Verified: `verify-map.ps1` all checks passed, `verify-jumptable-docs.ps1` clean, `verify-inventory-docs.ps1` current (198 addresses agree with the jump table; the call inventories were regenerated — 1270 kernel and 237 library call sites), `check-links.py` 0 unresolved, `check-ascii.py` OK, `scan-history.py` 0 flagged lines.* `verify-map.ps1`, `verify-jumptable-docs.ps1`, `verify-inventory-docs.ps1`, `check-links.py`, `check-ascii.py`, `scan-history.py` — all exit 0 (the last is advisory but read it).
 - [x] **9.4 Wiring.** *Done: `tools/tasks.json` and `project-config.json` `sources` already named it; added to `README.md` (feature bullet + guide link), `docs/features.md` (Sound), `docs/quick-start.md` (the `run <filename>` task list), `tools/quickstart.binaries.md` (the binaries task table) and `publish-binaries.ps1`'s `$guides` — without that last one the guide would never ship. The task binary needs no publish wiring: it travels inside `reu/REU.bin`.* `tools/tasks.json`, `project-config.json` `sources`, `README.md`'s task table, `docs/features.md`, `docs/quick-start.md`, `tools/quickstart.binaries.md` and `publish-binaries.ps1`'s `$guides` all name `musedit` / `docs/musedit.md`.
@@ -1012,11 +1022,14 @@ does now; the observations behind them live in the git log, not here.
 
 ### Step 12 — Streaming the tune (unbounded tune size)
 
-**Status: designed, not started.** Every number below was measured (see the note at the end).
+**Status: designed, not started.** Every number below was measured (see the note at the
+end). The player's half is **built, released and merged** -- this is the editor's half,
+and it is the reason the player's half was done first: it defines the entry point and
+the window discipline that 12.1 and 12.7 below adopt.
 
 **The problem.** `musedit` holds the whole `.mus` in one `kMalloc` block for its life: playback
 hands those bytes to `sid.lib`, an edit changes them, a save writes them back. The block is
-`ceil(size/256)` pages *on top of* the 92 pages of code and libraries, so the largest bundled tune
+`ceil(size/256)` pages *on top of* the 93 pages of code and libraries, so the largest bundled tune
 (18 pages) does not fit at all, and every page the editor grows costs a tune page. The goal is that
 **tune size stops being a pool question**: the file ceiling is the filesystem's 16-bit size field,
 64 KB, which is fourteen times the biggest tune we have.
@@ -1041,10 +1054,14 @@ hands those bytes to `sid.lib`, an edit changes them, a save writes them back. T
   stays safe. `SAVE` writes the *dirty pages* back and deletes the scratch; a *resize* is an FS
   create + page copy, and a save that leaves the scratch complete can **delete the original and
   `kReuRename` the scratch over it** (the resize path already does exactly that).
-- **Windows, not a block:** one sliding 256-byte read window per voice (3 pages) plus one dirty
-  write page. A window is a *sliding* 256-byte range, not a page-aligned one — the guard is
-  "is the offset inside `[winOfs, winOfs+256)`", and when it is not (or the command would run off
-  the end) the window slides to the offset. That handles a command straddling a page end without
+- **Windows, not a block:** one **page-aligned** 256-byte read window per voice (3 pages) plus one
+  dirty write page, and they are page-aligned for the reason the player's are: the address of an
+  offset is then simply `winHi : offsetLo`, with no per-access arithmetic and no `winOfs` to keep
+  in step. It is safe for commands because every command is a 2-byte pair at an **even** offset,
+  so a command and its option byte can never straddle the end of a window -- crossing a page
+  refills the window before the next command is read, exactly as `sidWinSeat` does. The editor and
+  the player therefore seat the *same* windows over the *same* file, which is what makes 12.7 a
+  handover rather than a second implementation.
   loading a second page.
 - **The accessors funnel** is `muPtrToK` today; every image access becomes "seat the window for
   this voice, then read `win + (ofs - winOfs)`". The walker keeps `muPtrLo/Hi,x` as **file
@@ -1063,18 +1080,25 @@ hands those bytes to `sid.lib`, an edit changes them, a save writes them back. T
 - [ ] **12.2 Load.** `muLoad` copies the file into a scratch file (create + page loop) instead of
       `kMalloc`; `MU_IMG`/`MU_PAGES` become the record + size; the no-room refusal goes away
       (only "no scratch room" and "file bigger than 64 KB" remain).
-- [ ] **12.3 The walker.** `muSimInit`/`muPtrToK`/`muPtrBump` on offsets through the windows; the
-      ring (`muHist*`) stores offsets; `muPhSync` compares offsets.
+- [ ] **12.3 The walker.** `muSimInit`/`muPtrToK`/`muPtrBump` on offsets through the windows.
+      **Half done by the merge:** `$54A2` now publishes offsets and `muHistAdd` stores
+      `muPtr - imageBase`, so the ring and `muPhSync` already compare in the player's own unit.
+      What remains is the walker itself -- its `muPtrLo/Hi` become offsets and every read goes
+      through the window service, at which point the base subtraction in `muHistAdd` goes away.
 - [ ] **12.4 Drawing.** `muGdCells`/`muGdPitch`/`muNumDur`/`muCmdN` and the header readers
       (`muFindTempo`, `muUnitNow`, `muNameAt`, the description) through the window service.
 - [ ] **12.5 Editing.** The 23 write sites (`muNcReplace`, `muInMoved`, `muDgMoved`, the length
       writer, the gap opener, `muPe*`) with page-chunked range ops and dirty marking.
 - [ ] **12.6 Save and grow.** Dirty pages → the file; a resize creates, copies and renames;
       the round-trip byte-for-byte property is re-checked.
-- [ ] **12.7 Playback.** `kSidPlayStream` (the player's new entry, see the player plan) against
-      the *scratch* file, so the child pages the same image the editor edits.
-- [ ] **12.8 Budget and gates.** `musedit`'s malloc row becomes a fixed ~4-6 pages;
-      `check-pool-budget.ps1`'s rows updated; `verify-map` / inventories / the guide.
+- [ ] **12.7 Playback.** `kSidPlay` in **mode 1** -- `A = 1` with `kPtr` at a 9-byte config: the
+      scratch file's 3-byte FS offset, then the three window pointers. The windows are the
+      editor's own (the caller keeps them; the player copies the config at entry), so the child
+      pages the same scratch file the editor edits and an edit is heard on the next pass with no
+      copy at all.
+- [ ] **12.8 Budget and gates.** `musedit`'s tune block (up to 18 pages today) becomes a fixed
+      ~4-6: three read windows, one write page, and the scratch record. `check-pool-budget.ps1`'s
+      rows updated; `verify-map` / inventories / the guide.
 - [ ] **12.9 Test pass.** Every bundled tune opens, plays and saves; a synthetic tune at the 64 KB
       ceiling opens and scrolls; undo/redo, insert, delete, transpose and the command panel behave;
       `quit` without saving leaves the file byte-identical.
