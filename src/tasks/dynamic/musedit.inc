@@ -431,7 +431,8 @@ muWiLp:
     inx
     cpx #MU_WIN_PAGES
     bne muWiLp
-muWiRts:
+    clc                         // the loop ends with C=1 (its own compare), and the
+muWiRts:                        //   caller tests this carry for "no room"
     rts
 
 // --- muWinReset -- forget what the windows hold (a new image) ---
