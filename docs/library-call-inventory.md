@@ -68,7 +68,7 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
   (`kSidPlay`/`kSidHush`/`kIpcPost`/`kIpcPick`) — the `$E000` table is full.
 - 38 of them have at least one call site in the current source tree; 4 have
   none.
-- **208 total call sites** found across `src/`.
+- **209 total call sites** found across `src/`.
 
 ## By library
 
@@ -79,7 +79,7 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
 | [`gfx.lib`](#gfxlib) | lib 2, lazy | 13 | 38 |
 | [`fp.lib`](#fplib) | lib 3, eager | 1 | 2 |
 | [`string.lib`](#stringlib) | lib 4, lazy | 7 | 26 |
-| [`sid.lib`](#sidlib) | lib 5, lazy | 2 | 9 |
+| [`sid.lib`](#sidlib) | lib 5, lazy | 2 | 10 |
 | [`ipc.lib`](#ipclib) | lib 6, lazy | 2 | 7 |
 | [`sprite.lib`](#spritelib) | lib 7, eager | 4 | 41 |
 | [`mouse.lib`](#mouselib) | lib 8, eager | 1 | 4 |
@@ -531,7 +531,7 @@ No call sites in the current source tree.
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
 | [`kSidHush`](#ksidhush) | `$FF81` | 5 | 3 | Silence the SID and stop a running player, from any task, at any time. |
-| [`kSidPlay`](#ksidplay) | `$FF7E` | 4 | 4 | Play a SID tune image (`kPtr`, delay in `kArg`, repeat count in `kArg+1`), blocking by yielding each jiffy; C=1 if another task already owns the chip. |
+| [`kSidPlay`](#ksidplay) | `$FF7E` | 5 | 4 | Play a SID tune image (`kPtr`, delay in `kArg`, repeat count in `kArg+1`), blocking by yielding each jiffy; C=1 if another task already owns the chip. |
 
 ### kSidHush
 
@@ -549,14 +549,14 @@ No call sites in the current source tree.
 
 `$FF7E` — Play a SID tune image (`kPtr`, delay in `kArg`, repeat count in `kArg+1`), blocking by yielding each jiffy; C=1 if another task already owns the chip.
 
-**4 calls** across 4 file(s):
+**5 calls** across 4 file(s):
 
 | File | Calls |
 |---|---:|
+| `src/tasks/dynamic/sidplay.asm` | 2 |
 | `src/tasks/dynamic/godzi.inc` | 1 |
 | `src/tasks/dynamic/gortris.inc` | 1 |
 | `src/tasks/dynamic/grknoid.inc` | 1 |
-| `src/tasks/dynamic/sidplay.asm` | 1 |
 
 ## ipc.lib
 

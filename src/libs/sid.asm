@@ -7,17 +7,43 @@
 //      kSidPlay   call 33 -- play a tune, BLOCKING, at a given speed
 //      kSidHush   call 34 -- silence the SID and stop a running player
 //
+//  `kSidPlay` has ONE entry but TWO modes, because the call index space has no
+//  room for a third (its tables are flush against the gfx LUTs -- the same reason
+//  fp.lib is a single dispatching entry): `A` selects where the tune comes from.
+//       A = 0   kPtr = the `.mus` image in RAM
+//       A = 1   kPtr = a 9-byte config block naming an image in the REU filesystem
+//
 //  The player body itself is `sidplay.inc`, which
 //  is why the entry points are thin: this file owns the *policy* -- who may play,
 //  how many times, how to stop -- and the body owns the music.
 //
 //  WARNING: THE CALLER OWNS THE TUNE BUFFER, AND THIS LIBRARY NEVER ALLOCATES.
-//  `kSidPlay` takes a pointer to a `.mus` image already in RAM (the task's
+//  Mode 0 takes a pointer to a `.mus` image already in RAM (the task's
 //  `kMalloc` block, or a tune linked into the task's own image). The library
 //  cannot load it itself: a library's `libMask` is structurally 0, so if it
 //  called `kReuFindFile`/`kReuLoad` those filesys references would be held by
 //  nobody, and filesys.lib could be freed under a running player. Keeping the
 //  load in the task keeps this library free of library dependencies.
+//
+//  WARNING: MODE 1 IS HOW A TUNE STOPS NEEDING A BUFFER AT ALL, and it
+//  keeps the same rule. The CALLER still owns the file: it calls `kReuFindFile`
+//  (filesys.lib) and passes the 24-bit offset that call returns, so this library
+//  still references no filesystem entry. The image is then paged from the REU on
+//  demand -- a page-aligned 256-byte window per voice, refilled when a voice
+//  crosses into a new page -- so tune size is unbounded and the cost is three
+//  pages of task RAM however long the file is. The page fetch goes through
+//  `kReuDmaRange`, a KERNEL entry, not through filesys.lib. The config block the
+//  caller builds at `kPtr` is 9 bytes:
+//
+//      +0 +1 +2   the file's FS offset (lo, mid, hi) -- from `kReuFindFile`
+//      +3 +4      voice 1's window pointer (lo, hi)
+//      +5 +6      voice 2's
+//      +7 +8      voice 3's
+//
+//  Each window is 256 bytes and MUST be page-aligned (`lo` = 0): the player
+//  addresses a command as `winHi:offsetLo`, so a window whose low byte is not 0
+//  would need arithmetic on every command. The windows must not overlap and must
+//  not move while the tune plays -- the player keeps no other record of them.
 //
 //  WARNING: THE CALLER MUST DECLARE ZP $02-$0A. The player's scratch is remapped into
 //  that range by the port (see `sidplay.inc`), and a library cannot declare ZP --
@@ -88,10 +114,13 @@ sidCode:
     .word sidPlay, sidHush
 
 // ==========================================
-//  sidPlay -- kSidPlay: play the tune at (kPtr), blocking
+//  sidPlay -- kSidPlay: play a tune, blocking
 // ==========================================
-//  Input:  kPtr/kPtr+1 = the .mus image in RAM, INCLUDING its 2-byte load
+//  Input:  A           = mode: 0 = the image is in RAM at kPtr
+//                        1 = kPtr points at the 9-byte REU-file config block
+//          kPtr/kPtr+1 = mode 0: the .mus image, INCLUDING its 2-byte load
 //                        address (the song proper starts at +2)
+//                        mode 1: the config block described in the header
 //          kArg        = delay: scheduler ticks slept per jiffy AT 100% (0 -> 1)
 //                        -- this library scales it by the machine's speed
 //          kArg+1      = repeats: 0 = forever, 1 = once, 2-255 = that many
@@ -103,7 +132,13 @@ sidCode:
 //          C = 1 refused -- another task is already playing
 //  Clobbers: A, X, Y, kArg+0/+1 (the loop sleeps through kArg+1)
 //  Returns with the SID silent and `sidOwner` released.
+//  WARNING: NOTHING may touch the player's state until the SID is OURS. The mode byte and the
+//  config copy below are library data that a RUNNING player dereferences on every command, so
+//  a caller that is about to be refused must not have written them -- the owner test comes
+//  first, and the mode rides on the stack across it. (The refusal path is ordinary: `gortris`,
+//  `godzi` and `grknoid` all retry a busy SID, `grknoid` every ~1 s.)
 sidPlay:
+    pha                          // the mode, across the ownership test
     php
     sei
     lda sidOwner
@@ -113,6 +148,7 @@ sidPlay:
     lda taskState,x              // the recorded owner: is it still ALIVE?
     beq sidClaim                 // no -- it died without husking: take over
     plp
+    pla                          // refused: drop the parked mode and say so
     sec
     rts                          // C=1: somebody else owns the SID
 sidClaim:
@@ -121,12 +157,34 @@ sidClaim:
     lda #0
     sta sidStop                  // a fresh player has nothing to stop for
     plp
-    //  Latch the arguments into library data: kArg+1 is the sleep's own
-    //  argument, so it cannot double as the repeat counter.
+    pla                          // A = the mode, now that it may be acted on
+    and #1                       //   0 = image in RAM, 1 = paged from the REU
+    sta sidplay.StreamMode
+    beq sidPlayRam
+sidPlayStream:
+    lda #0                       // a paged image has no RAM address, and no window
+    sta sidplay.SidBaseLo        //   has been filled yet (the page tag alone cannot
+    sta sidplay.SidBaseHi        //   say that: every value 0-255 is a real page)
+    sta sidplay.StreamValid
+    sta sidplay.StreamValid+1
+    sta sidplay.StreamValid+2
+    ldy #8
+spsCopy:
+    lda (kPtr),y                 // +0..+8: the file offset, then the three windows
+    sta sidplay.StreamPtrLo,y
+    dey
+    bpl spsCopy
+    jmp sidPlayGo
+sidPlayRam:
     lda kPtr
     sta sidTuneLo
+    sta sidplay.SidBaseLo
     lda kPtr+1
     sta sidTuneHi
+    sta sidplay.SidBaseHi
+sidPlayGo:
+    //  Latch the arguments into library data: kArg+1 is the sleep's own
+    //  argument, so it cannot double as the repeat counter.
     lda kArg
     bne sidDelayOk
     lda #1                       // a delay of 0 ticks would be a tight loop
@@ -210,9 +268,13 @@ sdsDown:
 sdsRet:
     rts
 
-//  Start (or restart) the song: X/Y = the song's first byte, which is the
-//  image + 2 because a .mus file opens with its 2-byte load address.
+//  Start (or restart) the song: X/Y = the song's first byte.
 sidSongInit:
+    lda sidplay.StreamMode
+    beq ssiRam
+    jsr sidplay.sidStreamBegin   // X/Y = the size words, at file offset 2
+    jmp ssiGo
+ssiRam:
     lda sidTuneLo
     clc
     adc #2
@@ -220,6 +282,7 @@ sidSongInit:
     lda sidTuneHi
     adc #0
     tay
+ssiGo:
     jsr sidplay.sidInitSong      // X/Y = song start
     lda #$07
     sta sidplay.SID_STATUS       // enable all three voices

@@ -90,13 +90,16 @@
 //  its own -- the arrangement `gortris` uses, and for the same reason: the call
 //  BLOCKS (it sleeps a tick per jiffy), so the demo itself cannot make it.
 //
-//  Both tunes are loaded ONCE, at startup, into `kMalloc` blocks:
+//  Both tunes are STREAMED, so neither is ever copied into RAM:
 //      mode 1 -> music/commodo.mus      mode 2 -> music/fsonata.mus
-//  A mode switch is therefore a pointer swap plus a hush, never a load -- nothing
-//  needs the filesystem after startup, so `filesys.lib` is handed straight back
-//  with `kLibHold` and only `sid.lib` and `sprite.lib` stay held for the session.
-//  That is ~10 pool pages less than keeping all of them resident, and it is why
-//  the art and BOTH tunes are loaded before the hold: `kLibHold` is one-way.
+//  At startup the two files are only LOOKED UP -- each tune's filesystem offset is
+//  kept -- and one three-page window block is taken for the player to page them
+//  into, so the RAM cost is the same three pages whatever the tunes' length. A
+//  mode switch is three bytes written into the player's config plus a hush, never
+//  a load and never an allocation. Nothing needs the filesystem after startup, so
+//  `filesys.lib` is handed straight back with `kLibHold` and only `sid.lib` and
+//  `sprite.lib` stay held for the session -- and it is why the art and BOTH tunes
+//  are located before the hold: `kLibHold` is one-way.
 //
 //  WARNING: THE CHILD DECLARES ITS OWN ZP WINDOW ($02-$0A). sid.lib's player runs out
 //  of that range, and the ZP save/restore is gated on the SWITCHING task's own
@@ -139,12 +142,17 @@
 // ---- the sentinel for "no child yet" ----
 //  Slots are 0..MAX_TASKS-1, so $FF can never be one.
 .const GZ_NO_SLOT = $FF
+.const GZ_NO_TUNE = $FF          // gzMusTune's "nothing selected yet" value
 
 // ---- music: the player's pace, and how long the exit waits for the child ----
 //  delay 1 -- scheduler ticks slept per jiffy AT 100%, i.e. the file's own tempo
 //  (one jiffy of music per jiffy). sid.lib scales it by the machine's speed, so
 //  the tune runs at the same real-time tempo on any machine (see docs/lib-sid.md).
 .const GZ_MUSIC_DELAY = 1
+//  The window pages: one 256-byte, page-aligned window per voice, taken once and
+//  shared by both tunes (the player re-arms its page tags when it starts, so a
+//  switch never plays a page the previous tune left there).
+.const GZ_TUNE_WIN_PAGES = 3
 //  Frames to let the child leave after a hush before force-killing it. A yield
 //  clobbers Y, so the countdown has to live in memory (see gzMusicReap).
 .const GZ_MUSIC_REAP = 20
@@ -618,37 +626,30 @@ gzGodziXY2:
 // ==========================================
 //  See the MUSIC note in the header for the design. The demo calls these; the
 //  child is reached only through spawnPtr:
-//      gzMusicInit   once at startup -- load both tunes, kLibHold, spawn the child
-//      gzMusicTune   startup + mode switch -- point the child at a tune and play it
+//      gzMusicInit   once at startup -- locate both tunes, take the windows, kLibHold,
+//                    spawn the child
+//      gzMusicTune   startup + mode switch -- point the config at a tune and play it
 //      gzMusicStart  ask for music (gzMusicTune's last step)
 //      gzMusicStop   hush the chip and ask the child to leave the player loop
-//      gzMusicBye    the exit -- quit, stop, reap the child, free both buffers
+//      gzMusicBye    the exit -- quit, stop, reap the child, free the windows
 
-//  gzMusicInit -- load BOTH tunes, hand filesys.lib back, start the child.
+//  gzMusicInit -- locate BOTH tunes, take the window pages, hand filesys.lib back,
+//  start the child.
 //  Every failure here is simply "no music": the demo is already on screen, and a
 //  tune is not worth an error the player has to read and dismiss. A mode whose
-//  tune did not load falls back to the other one (see gzMusicTune), and if neither
-//  loaded, no child is started at all.
+//  tune is not in the FS falls back to the other one (see gzMusicTune), and if
+//  neither is there, no child is started at all.
 gzMusicInit:
+    ldy #0                       // not found -> that tune's gzTuneOk stays 0
     lda #<gzTune1Name
     ldx #>gzTune1Name
     jsr gzLoadTune
-    bcs gzMiT2                   // not loaded: the table entry stays 0
-    lda gzTuneBufLo
-    sta gzTuneTabLo+0
-    lda gzTuneBufHi
-    sta gzTuneTabHi+0
-gzMiT2:
+    ldy #1
     lda #<gzTune2Name
     ldx #>gzTune2Name
     jsr gzLoadTune
-    bcs gzMiHold
-    lda gzTuneBufLo
-    sta gzTuneTabLo+1
-    lda gzTuneBufHi
-    sta gzTuneTabHi+1
 gzMiHold:
-    //  WARNING: BOTH tunes are in RAM, so filesys.lib has done its job -- and a declared
+    //  WARNING: BOTH tunes are LOCATED, so filesys.lib has done its job -- and a declared
     //  library stays resident until the task EXITS, which would keep its pages
     //  (~10 of them) out of the pool for the whole session. kLibHold hands
     //  everything back except sid.lib and sprite.lib. The SPRITE library has to
@@ -656,16 +657,42 @@ gzMiHold:
     //  below are its entries: a released library stops serving the task that gave
     //  it back, and the demo would sit on screen with nothing moving.
     //  It is a ONE-WAY call: nothing here may touch the FS afterwards, which is
-    //  exactly why the art (gzLoadArt) and both tunes are loaded first, and why a
-    //  mode switch only swaps pointers.
+    //  exactly why the art (gzLoadArt) and both tunes are located first, and why a
+    //  mode switch only rewrites three bytes of the player's config.
     lda #(1 << LIB_SID) | (1 << LIB_SPRITE)
     jsr kLibHold
     //  Start the child only if there is something for it to play.
-    lda gzTuneTabLo+0
-    ora gzTuneTabHi+0
-    ora gzTuneTabLo+1
-    ora gzTuneTabHi+1
+    lda gzTuneOk+0
+    ora gzTuneOk+1
     beq gzMiDone                 // no tune at all: no child, no music
+    //  The window pages: one 256-byte window per voice, shared by both tunes --
+    //  the player re-arms its own page tags when it starts, so nothing stale is
+    //  ever played after a switch.
+    lda #GZ_TUNE_WIN_PAGES
+    jsr kMalloc                  // -> kPtr = the block
+    bcs gzMiDone                 // no pool room: no child either, and no music
+    lda kPtr
+    sta gzTuneBufLo
+    lda kPtr+1
+    sta gzTuneBufHi
+    ldy #3                       // config +3..+8: the windows, lo/hi interleaved.
+    ldx #0                       //   The block is page-aligned, so all three low
+gzMiWin:                         //   bytes are its own; the high bytes count up
+    lda gzTuneBufLo
+    sta gzTuneCfg,y
+    iny
+    txa
+    clc
+    adc gzTuneBufHi
+    sta gzTuneCfg,y
+    iny
+    inx
+    cpx #GZ_TUNE_WIN_PAGES
+    bne gzMiWin
+    lda #<gzTuneCfg              // the child hands the player the CONFIG
+    sta gzTuneLo
+    lda #>gzTuneCfg
+    sta gzTuneHi
     lda #<gzMusicThread
     sta spawnPtr
     lda #>gzMusicThread
@@ -681,53 +708,30 @@ gzMiHold:
 gzMiDone:
     rts
 
-//  gzLoadTune -- A/X = the FS name pointer (A = lo, X = hi) -> gzTuneBufLo/Hi, the
-//  kMalloc'd image of that file, or C=1 on any failure (not in the FS, unreadable,
-//  or no pool room). kReuFindFile, kMalloc and kReuLoad all clobber kPtr and kArg,
-//  so the name arrives in registers and is re-set in kArg before each call that
-//  wants it; kMalloc's block comes back in kPtr, which is stashed at once.
+//  gzLoadTune -- A/X = the FS name pointer (A = lo, X = hi), Y = the tune index ->
+//  that tune's filesystem offset in gzFsLo/Mid/Hi,y and gzTuneOk,y = 1, or C=1 if
+//  it is not in the FS (nothing is copied: sid.lib pages the file in later).
+//  kReuFindFile clobbers kPtr and kArg, so the name arrives in registers and is
+//  set in kArg for the call that wants it; the index rides in gzTuneIx, because
+//  the routine needs Y for the stores.
 gzLoadTune:
+    sty gzTuneIx
     sta gzNameLo
     stx gzNameHi
     sta kArg
     stx kArg+1
-    jsr kReuFindFile             // C=1 not in the FS; size in reuFsRemain
+    jsr kReuFindFile             // C=1 not in the FS; the offset lands in reuFsPtr
+    ldy gzTuneIx                 // (ldy does not disturb C)
     bcs gzLtDone
-    lda reuFsRemain
+    lda reuFsPtr
+    sta gzFsLo,y
+    lda reuFsPtr+1
+    sta gzFsMid,y
+    lda reuFsPtr+2
+    sta gzFsHi,y
+    lda #1
+    sta gzTuneOk,y
     clc
-    adc #$ff                     // carry set when the low byte is non-zero
-    lda reuFsRemain+1
-    adc #0                       // A = ceil(size / 256)
-    bcs gzLtDone                 // an absurd size: give up
-    bne gzLtMalloc
-    lda #1                       // an empty file still needs one page
-gzLtMalloc:
-    jsr kMalloc                  // A = pages -> kPtr = block (C=1: no room)
-    bcs gzLtDone
-    lda kPtr
-    sta gzTuneBufLo
-    lda kPtr+1
-    sta gzTuneBufHi
-    lda gzNameLo                 // the FS wants the name in kArg again
-    sta kArg
-    lda gzNameHi
-    sta kArg+1
-    lda gzTuneBufLo              // and the destination in kPtr
-    sta kPtr
-    lda gzTuneBufHi
-    sta kPtr+1
-    jsr kReuLoad
-    bcc gzLtDone                 // C=0: it is in RAM
-    //  Unreadable: hand the block straight back and forget it.
-    lda gzTuneBufLo
-    sta kPtr
-    lda gzTuneBufHi
-    sta kPtr+1
-    jsr kFree
-    lda #0
-    sta gzTuneBufLo
-    sta gzTuneBufHi
-    sec                          // kFree left its own carry: say so explicitly
 gzLtDone:
     rts
 //  gzMusicStart -- ask the child for music (it plays the tune from the top).
@@ -753,10 +757,13 @@ gzMusicStop:
 
 //  gzMusicTune -- A = the tune this mode wants: 0 = commodo, 1 = fsonata.
 //  Switching is: remember it, hush (which is what unblocks the child -- see
-//  gzMusicStop), point gzTuneLo/Hi at that tune, and ask for music again. The
-//  table holds what actually LOADED, so a tune missing from the FS falls back to
-//  tune 0 rather than to a null pointer; if that failed too the pointers are 0
-//  and gzMusicStart quietly does nothing.
+//  gzMusicStop), write that tune's filesystem offset into the player's config, and
+//  ask for music again. gzTuneOk says which tunes are actually in the FS, so a
+//  missing one falls back to tune 0; with neither there -- or with no window pages,
+//  because their kMalloc failed -- gzTuneLo/Hi are 0 and nothing plays.
+//  WARNING: the config is rewritten while the child is still inside the previous
+//  kSidPlay -- that is safe because the player COPIES the nine bytes at entry, so
+//  the running tune is unaffected; only the next call reads the new offset.
 //  Clobbers A, X.
 gzMusicTune:
     cmp gzMusTune
@@ -764,53 +771,57 @@ gzMusicTune:
     sta gzMusTune
     jsr gzMusicStop
     ldx gzMusTune
-    lda gzTuneTabLo,x
+    lda gzTuneOk,x
+    bne gzMtuSel                 // this tune is in the FS
+    ldx #0                       // it is not: fall back to tune 0 (commodo)
+    lda gzTuneOk
+    beq gzMtuNone
+gzMtuSel:
+    lda gzTuneBufLo              // no window pages (their kMalloc failed): there is
+    ora gzTuneBufHi              //   nowhere for the player to page a tune into
+    beq gzMtuNone
+    lda gzFsLo,x                 // config +0..+2: this tune's FS offset
+    sta gzTuneCfg
+    lda gzFsMid,x
+    sta gzTuneCfg+1
+    lda gzFsHi,x
+    sta gzTuneCfg+2
+    lda #<gzTuneCfg
     sta gzTuneLo
-    lda gzTuneTabHi,x
+    lda #>gzTuneCfg
     sta gzTuneHi
-    ora gzTuneLo
-    bne gzMtuGo                  // this tune loaded
-    lda gzTuneTabLo              // it did not: fall back to tune 0 (commodo)
-    sta gzTuneLo
-    lda gzTuneTabHi
-    sta gzTuneHi
-gzMtuGo:
     jsr gzMusicStart
 gzMtuDone:
     rts
+gzMtuNone:
+    lda #0                       // nothing playable
+    sta gzTuneLo
+    sta gzTuneHi
+    lda #GZ_NO_TUNE              // ...and a later request must re-run this test
+    sta gzMusTune
+    rts
 
 //  gzMusicBye -- the exit path: leave the player loop for good, make sure the
-//  child really is gone, then hand BOTH tune buffers back. The order matters:
-//  the child can still be inside the player, holding gzTuneLo/Hi, so the frees
-//  are last -- and the reap is what makes that safe (see gzMusicReap).
-//  Clobbers A, X, Y (kFree clobbers X, which is why the two blocks are written
-//  out rather than looped).
+//  child really is gone, then hand the window pages back. The order matters: the
+//  child can still be inside the player, reading those windows, so the free is
+//  last -- and the reap is what makes that safe (see gzMusicReap).
+//  Clobbers A, X, Y (kFree clobbers X).
 gzMusicBye:
     lda #1
     sta gzMusQuit
     jsr gzMusicStop
     jsr gzMusicReap
-    lda gzTuneTabLo+0
+    lda gzTuneBufLo
+    ora gzTuneBufHi
+    beq gzMbDone                 // no windows were taken
+    lda gzTuneBufLo
     sta kPtr
-    lda gzTuneTabHi+0
+    lda gzTuneBufHi
     sta kPtr+1
-    ora kPtr
-    beq gzMbT2                   // nothing loaded at tune 0
     jsr kFree
     lda #0                       // do not leave a pointer to a freed block
-    sta gzTuneTabLo+0
-    sta gzTuneTabHi+0
-gzMbT2:
-    lda gzTuneTabLo+1
-    sta kPtr
-    lda gzTuneTabHi+1
-    sta kPtr+1
-    ora kPtr
-    beq gzMbDone                 // nothing loaded at tune 1
-    jsr kFree
-    lda #0
-    sta gzTuneTabLo+1
-    sta gzTuneTabHi+1
+    sta gzTuneBufLo
+    sta gzTuneBufHi
 gzMbDone:
     rts
 
@@ -866,6 +877,7 @@ gzMusicThread:
     sta kArg+2                   //   pitch shift itself (+1 is one octave DOWN)
     lda #0                       // no semitone offset
     sta kArg+3
+    lda #1                       // mode: the tune is paged from the REU
     jsr kSidPlay                 //   so this loop never has to watch for that
     bcc gzMusicThread            // returned: hushed, or the tune finished
     lda #0                       // refused: another task owns the SID
@@ -892,9 +904,10 @@ gzGodziName: .text "godzi.spr"
              .byte 0
 
 //  ---- the tunes, and the child that plays them ----
-//  Both are loaded ONCE, at startup (see gzMusicInit): a mode switch must not
+//  Both are LOCATED once, at startup (see gzMusicInit): a mode switch must not
 //  need the filesystem, because filesys.lib is handed back with kLibHold(5) the
-//  moment both are in RAM.
+//  moment both are found. The files themselves stay in the REU and sid.lib pages
+//  them in.
 //
 //  WARNING: THIS STATE IS CODE-IMAGE, PER INSTANCE, AND SHARED WITH THE CHILD -- which
 //  is why none of it is in ZP: ZP is virtualized per task, so the child could not
@@ -908,15 +921,21 @@ gzTune2Name: .text "fsonata.mus"
 gzMusOn:     .byte 0             // 1 = play, 0 = be silent      (demo -> child)
 gzMusQuit:   .byte 0             // 1 = leave for good         (demo -> child)
 gzMusSlot:   .byte GZ_NO_SLOT    // the child's slot, $FF = none
-gzMusTune:   .byte $FF           // the tune the mode wants -- $FF until the first
+gzMusTune:   .byte GZ_NO_TUNE    // the tune the mode wants -- $FF until the first
                                  //   gzMusicTune, so that first call always starts
-gzTuneLo:    .byte 0             // the tune the child is playing (a table entry)
+gzTuneLo:    .byte 0             // the config block the child plays (0 = nothing)
 gzTuneHi:    .byte 0
-gzTuneTabLo: .byte 0, 0          // what actually loaded: [0] commodo, [1] fsonata
-gzTuneTabHi: .byte 0, 0          //   (0 = that tune is not in the FS)
+gzTuneCfg:   .fill 9, 0          // sid.lib's streamed config: the tuned file's FS
+                                 //   offset (rewritten per tune) then three
+                                 //   256-byte, page-aligned window pointers
+gzFsLo:      .byte 0, 0          // each tune's FS offset: [0] commodo, [1] fsonata
+gzFsMid:     .byte 0, 0
+gzFsHi:      .byte 0, 0
+gzTuneOk:    .byte 0, 0          // 1 = that tune is in the FS
+gzTuneIx:    .byte 0             // gzLoadTune: the tune index, while it works
 gzNameLo:    .byte 0             // gzLoadTune in: the FS name pointer
 gzNameHi:    .byte 0
-gzTuneBufLo: .byte 0             // gzLoadTune out: the kMalloc'd block
+gzTuneBufLo: .byte 0             // the window pages, taken once at startup
 gzTuneBufHi: .byte 0
 gzReapCnt:   .byte 0             // countdown while waiting for the child to exit
 gzStep:      .byte 0             // the walk step, for this machine (gzPaceInit)

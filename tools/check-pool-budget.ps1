@@ -79,17 +79,21 @@ $LiveLazy = @{
 
 # Task -> the tune FILEs it loads into a kMalloc block. A block is ceil(size /
 # 256) pages, so the number is computed from the file on disk and follows a
-# re-authored tune. '*' means "whichever file it is asked for", budgeted as the
-# largest tune in the image.
+# re-authored tune. EMPTY: every player streams its tunes now, so none of them
+# holds a buffer and each is in $LiveMallocFixed below -- the row is worth keeping
+# for the next task that buffers a tune (and for the '*' spelling, "whichever file
+# it is asked for", budgeted as the largest in the image).
 $LiveMallocMusic = @{
-    'gortris' = @('music/tetris.mus')                        # its only tune
-    'godzi'   = @('music/commodo.mus', 'music/fsonata.mus')  # both modes' tunes, held all session
-    'grknoid' = @('music/katmand.mus')                       # GK_MUS_PAGES: one buffer, the largest tune
-    'sidplay' = @('*')                                       # sized to whichever tune it is asked to play
 }
 
 # Task -> a kMalloc block whose size is a constant, in pages.
 $LiveMallocFixed = @{
+    # The stream windows: one 256-byte, page-aligned window per voice, so a
+    # player's tune cost is three pages whatever the tune's length.
+    'sidplay' = 3    # ...and a tune of three pages or less is buffered, not paged
+    'gortris' = 3    # one tune (tetris)
+    'godzi'   = 3    # both tunes share the one window set
+    'grknoid' = 3    # three tunes, one config rewritten per switch
     'edit'   = 32    # the document: MAX_CHUNKS x CHUNK_PAGES (8 chunks of 4 pages).
                      # The clipboard is NOT here: it is transient, and a select-all
                      # copy of a full document asks for ~32 more pages, which the
