@@ -5666,8 +5666,62 @@ muPtRts:
 //  walks down one row at a time, and the window follows it a line at a time.
 muPlayhead:
     jsr muPhStep
+    jsr muPhRewind              // the song restarted, or a section looped
     jsr muPhFollow
     jmp muPhCursor
+
+// --- muPhRewind -- the player went backwards: follow it there ---
+//  The player's next-command pointer only ever moves forward while a pass runs,
+//  so a lower value means the song restarted at its first row or a HED/TAL
+//  section looped. The walker has already wrapped to that point, so its row is
+//  the cursor's row, the clock restarts there, and the window is repainted once
+//  onto it -- the only repaint playback performs.
+muPhRewind:
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    tax
+    lda MU_POS_BLOCK,x
+    sta muTmpL
+    lda MU_POS_BLOCK+3,x
+    sta muTmpH
+    lda muTmpL                  // new - previous, 16-bit
+    cmp muPhPtrLo
+    lda muTmpH
+    sbc muPhPtrHi
+    bcs muPrKeep                // moved forward: remember and go
+    lda muVRow,x                // rewound: the walker's row is where it went
+    sta muPhCurLo
+    lda muVRowHi,x
+    sta muPhCurLo+1
+    lda muPhCurLo
+    sec
+    sbc #MU_FOLLOW_CENTER
+    sta muTop
+    lda muPhCurLo+1
+    sbc #0
+    sta muTop+1
+    bcs muPrClamp
+    lda #0
+    sta muTop
+    sta muTop+1
+muPrClamp:
+    lda #0
+    sta muPhAcc
+    sta muPhAcc+1
+    lda tickCount
+    sta muPhLast
+    lda muTmpL
+    sta muPhPtrLo
+    lda muTmpH
+    sta muPhPtrHi
+    jsr muRedrawNoHead          // the band is back at the loop point
+    jmp muPhCursor
+muPrKeep:
+    lda muTmpL
+    sta muPhPtrLo
+    lda muTmpH
+    sta muPhPtrHi
+    rts
 
 // --- muPhStep -- add the ticks that went by, one row per `unit` of them ---
 muPhStep:
@@ -6339,6 +6393,8 @@ muNumSquash: .byte 0
 muTmpL:     .byte 0
 muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
+muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
+muPhPtrHi:  .byte 0
 muPhNeed:   .byte 1             // the current row's length in ticks
 muPhFrac:   .byte 1             // rows left before that length grows by one
 muPhRowT:   .byte 1             // ticks one row takes, machine speed included
