@@ -1010,6 +1010,79 @@ does now; the observations behind them live in the git log, not here.
   cursor is elsewhere, a full repaint only for a scrolled window. The rewind runs *before*
   `muPlayOn` is set — see §9 for why the order matters.
 
+### Step 12 — Streaming the tune (unbounded tune size)
+
+**Status: designed, not started.** Every number below was measured (see the note at the end).
+
+**The problem.** `musedit` holds the whole `.mus` in one `kMalloc` block for its life: playback
+hands those bytes to `sid.lib`, an edit changes them, a save writes them back. The block is
+`ceil(size/256)` pages *on top of* the 92 pages of code and libraries, so the largest bundled tune
+(18 pages) does not fit at all, and every page the editor grows costs a tune page. The goal is that
+**tune size stops being a pool question**: the file ceiling is the filesystem's 16-bit size field,
+64 KB, which is fourteen times the biggest tune we have.
+
+**Measured, so the design is not guesswork:**
+
+- The three voices are walked **linearly**: a 256-byte window per voice is reloaded 6/5/6 times
+  across all of `katmand` (142 s, 2231 fetches) — 17 loads for a whole 18-page tune.
+- A **single shared** window would thrash: the same tune would load 1724 times (~12/s), because
+  the three streams start pages apart and each is fetched every jiffy. Per-voice windows are a
+  requirement, not an optimisation.
+- A full-band redraw **already** re-walks the tune from tick 0 (`muDgWalk` → `muSimInit`; the code
+  says "a second or two of work on a long tune"), so the page traffic a walk adds is ~2 % of a cost
+  the editor already pays.
+- One page fetch is `kReuDmaRange` (kernel, 24-bit FS offset, multi-bank handled) ≈ 400 cycles for
+  256 B; the write side is `kReuWriteAt` (filesys, already resident in this task).
+
+**The design.**
+
+- **A scratch file in the FS is the working image.** At open the tune is copied into a scratch
+  file page by page (~15 ms); the real file is untouched until `SAVE`, so "quit without saving"
+  stays safe. `SAVE` writes the *dirty pages* back and deletes the scratch; a *resize* is an FS
+  create + page copy, and a save that leaves the scratch complete can **delete the original and
+  `kReuRename` the scratch over it** (the resize path already does exactly that).
+- **Windows, not a block:** one sliding 256-byte read window per voice (3 pages) plus one dirty
+  write page. A window is a *sliding* 256-byte range, not a page-aligned one — the guard is
+  "is the offset inside `[winOfs, winOfs+256)`", and when it is not (or the command would run off
+  the end) the window slides to the offset. That handles a command straddling a page end without
+  loading a second page.
+- **The accessors funnel** is `muPtrToK` today; every image access becomes "seat the window for
+  this voice, then read `win + (ofs - winOfs)`". The walker keeps `muPtrLo/Hi,x` as **file
+  offsets** rather than RAM addresses — which also means the published block `$54A2` and the
+  editor's playhead ring agree by construction, and a block move can no longer invalidate either.
+- **Range operations are page-chunked:** `muRecLoad`, `muInMoved`, `muDgMoved`, `muNcReplace`,
+  `muSaveNow` and the grow-by-copy path all copy across a page boundary today; each becomes a loop
+  over windows. Undo is unaffected — its range-diff records already keep the old bytes in RAM.
+
+**The work.** In order, each a checkpoint that builds and passes the gates on its own:
+
+- [ ] **12.1 Window service.** A `muWin*` pair (`seat the window for voice X at offset`, `read
+      byte`, `write byte`) over a scratch-file record, built on `kReuDmaRange` / `kReuWriteAt`.
+      Dirty-page tracking + write-back. Two test tunes already exist for the read side
+      (`filltst`, `instmv`) and the host model (`tools/mus-sim.py`) covers the walk.
+- [ ] **12.2 Load.** `muLoad` copies the file into a scratch file (create + page loop) instead of
+      `kMalloc`; `MU_IMG`/`MU_PAGES` become the record + size; the no-room refusal goes away
+      (only "no scratch room" and "file bigger than 64 KB" remain).
+- [ ] **12.3 The walker.** `muSimInit`/`muPtrToK`/`muPtrBump` on offsets through the windows; the
+      ring (`muHist*`) stores offsets; `muPhSync` compares offsets.
+- [ ] **12.4 Drawing.** `muGdCells`/`muGdPitch`/`muNumDur`/`muCmdN` and the header readers
+      (`muFindTempo`, `muUnitNow`, `muNameAt`, the description) through the window service.
+- [ ] **12.5 Editing.** The 23 write sites (`muNcReplace`, `muInMoved`, `muDgMoved`, the length
+      writer, the gap opener, `muPe*`) with page-chunked range ops and dirty marking.
+- [ ] **12.6 Save and grow.** Dirty pages → the file; a resize creates, copies and renames;
+      the round-trip byte-for-byte property is re-checked.
+- [ ] **12.7 Playback.** `kSidPlayStream` (the player's new entry, see the player plan) against
+      the *scratch* file, so the child pages the same image the editor edits.
+- [ ] **12.8 Budget and gates.** `musedit`'s malloc row becomes a fixed ~4-6 pages;
+      `check-pool-budget.ps1`'s rows updated; `verify-map` / inventories / the guide.
+- [ ] **12.9 Test pass.** Every bundled tune opens, plays and saves; a synthetic tune at the 64 KB
+      ceiling opens and scrolls; undo/redo, insert, delete, transpose and the command panel behave;
+      `quit` without saving leaves the file byte-identical.
+
+**Risks.** The 60-site accessor refactor is where regressions would come from (the edit paths need
+their own pass); a page that an edit straddles must be written back exactly once; and the
+`kReuDmaRange` call clobbers `kArg..kArg+5`, so no kernel state may be live across it.
+
 ## 15. Open questions
 
 1. **Simulator/player equivalence** is the central risk. The host simulator is the reference;
