@@ -135,7 +135,9 @@
 //      kSidPlay: A = mode -- 0 = kPtr/kPtr+1 is a .mus image in RAM,
 //                1 = kPtr/kPtr+1 is a 9-byte config block naming a file in the
 //                    REU FS (the caller gets the offset from kReuFindFile) plus
-//                    one 256-byte, page-aligned window per voice
+//                    one 256-byte, page-aligned window per voice.
+//                ONLY an exact 1 streams; any other value takes the RAM path,
+//                because a wrong mode DMA's from a garbage FS offset.
 //                kArg = delay (ticks/jiffy), kArg+1 = repeats (0 = forever,
 //                1 = once, 2-255)
 //                -> C=1 refused (another task is already playing)

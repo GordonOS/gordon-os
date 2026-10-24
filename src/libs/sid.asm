@@ -13,6 +13,12 @@
 //       A = 0   kPtr = the `.mus` image in RAM
 //       A = 1   kPtr = a 9-byte config block naming an image in the REU filesystem
 //
+//  WARNING: ONLY AN EXACT 1 ASKS FOR THE REU; every other value takes the RAM path. That is
+//  not leniency, it is the safe default: the stream path reads nine bytes of whatever kPtr
+//  points at as a config block and then DMA's 256 bytes from the "filesystem offset" it finds
+//  there into the addresses the next six bytes name -- so a caller that forgot to set A would
+//  scatter writes across RAM, not merely play nothing. Set A on EVERY call.
+//
 //  The player body itself is `sidplay.inc`, which
 //  is why the entry points are thin: this file owns the *policy* -- who may play,
 //  how many times, how to stop -- and the body owns the music.
@@ -158,14 +164,22 @@ sidClaim:
     sta sidStop                  // a fresh player has nothing to stop for
     plp
     pla                          // A = the mode, now that it may be acted on
-    and #1                       //   0 = image in RAM, 1 = paged from the REU
-    sta sidplay.StreamMode
-    beq sidPlayRam
+    cmp #1                       // ONLY an exact 1 asks for the REU. Anything else -- a
+    beq sidPlayStream            //   caller that never set A included -- takes the RAM
+    lda #0                       //   path, which is what every caller before the mode
+    sta sidplay.StreamMode       //   wanted. A wrong mode here is not a quiet failure: the
+    lda kPtr                     //   stream path reads nine bytes of the TUNE IMAGE as a
+    sta sidTuneLo                //   config block and DMAs 256 bytes from a garbage
+    sta sidplay.SidBaseLo        //   filesystem offset into whatever the size words name,
+    lda kPtr+1                   //   so the safe default is the old behaviour.
+    sta sidTuneHi
+    sta sidplay.SidBaseHi
+    jmp sidPlayGo
 sidPlayStream:
-    lda #0                       // a paged image has no RAM address, and no window
-    sta sidplay.SidBaseLo        //   has been filled yet (the page tag alone cannot
-    sta sidplay.SidBaseHi        //   say that: every value 0-255 is a real page)
-    sta sidplay.StreamValid
+    lda #1                       // a paged image has no window filled yet (the page
+    sta sidplay.StreamMode       //   tag alone cannot say that: every value 0-255 is a
+    lda #0                       //   real page). SidBase needs no clearing -- it is
+    sta sidplay.StreamValid      //   read only under StreamMode = 0.
     sta sidplay.StreamValid+1
     sta sidplay.StreamValid+2
     ldy #8
@@ -174,14 +188,6 @@ spsCopy:
     sta sidplay.StreamPtrLo,y
     dey
     bpl spsCopy
-    jmp sidPlayGo
-sidPlayRam:
-    lda kPtr
-    sta sidTuneLo
-    sta sidplay.SidBaseLo
-    lda kPtr+1
-    sta sidTuneHi
-    sta sidplay.SidBaseHi
 sidPlayGo:
     //  Latch the arguments into library data: kArg+1 is the sleep's own
     //  argument, so it cannot double as the repeat counter.

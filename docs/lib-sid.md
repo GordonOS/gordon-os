@@ -26,6 +26,12 @@ room for a third: `A` says where the tune comes from (0 = RAM, 1 = a file in the
 REU filesystem). Everything else — the delay, the repeats, the transposes,
 blocking, ownership — is identical, and so is the sound.
 
+**Only an exact `1` asks for the REU**; every other value takes the RAM path. Set `A` on
+every call and do not rely on that: a wrong mode is not a quiet failure. Mode 1 reads the
+first nine bytes of whatever `kPtr` points at as a config block — so a caller that handed
+it a tune image turns the image's three size words into window pointers and DMA's 256 bytes
+from a garbage filesystem offset into them.
+
 ## Before you call
 
 - **Declare ZP `$02-$0A`** (base 2, length 9) in your task header. This is not
