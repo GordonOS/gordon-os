@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1272 total call sites** found across `src/`.
+- **1273 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -122,11 +122,11 @@ API surface this document is inventorying.
 | [`kEnableCursor`](#kenablecursor) | `$E012` | 19 | 7 | Enable the blinking block cursor for the running task; persisted to the surface's matrix tail so it survives context switches. |
 | [`kPrintCharAt`](#kprintcharat) | `$E0A5` | 19 | 4 | Write one glyph at an explicit cell without moving the cursor, wrapping, or scrolling -- used for fixed-position UI like a line editor's bottom row. |
 | [`kDisableCursor`](#kdisablecursor) | `$E015` | 18 | 16 | Disable the blinking block cursor for the running task; persisted to the surface's matrix tail. |
+| [`kMalloc`](#kmalloc) | `$E0AE` | 15 | 8 | Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright. |
 | [`kRandom`](#krandom) | `$E033` | 15 | 4 | Generate a pseudo-random byte from a Galois LFSR (`randomSeed`). |
 | [`kSurfDisplayed`](#ksurfdisplayed) | `$E0BD` | 15 | 4 | Report whether a task's surface is the one currently shown on the VIC framebuffer, vs sitting in its REU slot in the background. |
 | [`kClearScreen`](#kclearscreen) | `$E000` | 14 | 6 | Fill the screen with spaces and home the cursor to (0,0). |
 | [`kGetCursor`](#kgetcursor) | `$E03F` | 14 | 8 | Read the current kernel cursor position into X (col) and Y (row). |
-| [`kMalloc`](#kmalloc) | `$E0AE` | 14 | 8 | Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright. |
 | [`kReuFindFile`](#kreufindfile) | `$E0BA` | 12 | 8 | Locate a named file in the REU filesystem and return its offset + size, without transferring any data. |
 | [`kByteToDec`](#kbytetodec) | `$E02A` | 11 | 9 | Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y. |
 | [`kFreeScreen`](#kfreescreen) | `$E051` | 11 | 10 | Release the current task's surface back to the free pool; falls back to the shared `$2000` framebuffer if it was the last one. |
@@ -684,6 +684,23 @@ Disable the blinking block cursor for the running task; persisted to the surface
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
+### kMalloc
+
+``$E0AE`` — **15 calls** across 8 file(s)
+
+Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/tasks/dynamic/musedit.inc` | 4 |
+| `src/tasks/dynamic/sidplay.asm` | 2 |
+| `src/tasks/cmd/banner.inc` | 1 |
+| `src/tasks/cmd/copy.inc` | 1 |
+| `src/tasks/dynamic/godzi.inc` | 1 |
+| `src/tasks/dynamic/gortris.inc` | 1 |
+| `src/tasks/dynamic/grknoid.inc` | 1 |
+
 ### kRandom
 
 ``$E033`` — **15 calls** across 4 file(s)
@@ -741,23 +758,6 @@ Read the current kernel cursor position into X (col) and Y (row).
 | `src/tasks/cmd/mousetest.inc` | 1 |
 | `src/tasks/cmd/time.inc` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
-
-### kMalloc
-
-``$E0AE`` — **14 calls** across 8 file(s)
-
-Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/tasks/dynamic/musedit.inc` | 3 |
-| `src/tasks/dynamic/sidplay.asm` | 2 |
-| `src/tasks/cmd/banner.inc` | 1 |
-| `src/tasks/cmd/copy.inc` | 1 |
-| `src/tasks/dynamic/godzi.inc` | 1 |
-| `src/tasks/dynamic/gortris.inc` | 1 |
-| `src/tasks/dynamic/grknoid.inc` | 1 |
 
 ### kReuFindFile
 

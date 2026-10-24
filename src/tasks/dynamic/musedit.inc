@@ -104,6 +104,8 @@
 .const MU_PH_SLOW       = 4   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
+.const MU_WIN_PAGES  = 3       // the window service: one 256-byte, page-aligned
+                               //   window per voice (see muWinSeat)
 
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
@@ -143,10 +145,21 @@ muSidFree:
     bcs muBadName
     jsr muNameSetup             // <base>.mus, in screen codes
     jsr muPtrInit               // the pointer, or a refusal when there is no mouse
+    jsr muWinInit               // the three read windows, taken once for the session
+    bcc muWinTaken
+    muStr(muSNoWin)             // no pool room for them: without windows the grid
+    jmp muPtrRefuse             //   cannot read the image at all
+muWinTaken:
     jsr muLoad                  // the tune, or a refusal when it cannot be had
     bcc muMainGo
     jmp muPtrRefuse             // muLoad left the reason in MU_STR
 muMainGo:
+    jsr muWinReset              // the windows outlived the last image: forget it
+    jsr muWinCheck              // C=1: a window does not deliver its own page
+    bcc muWinGood
+    muStr(muSNoWin)
+    jmp muPtrRefuse
+muWinGood:
     jsr muFindTempo             // the tempo the first note will hear
     jsr muUnitNow               // the row unit that tempo falls into
     jsr muTuneRefresh           // publish the tune pointer for the child
@@ -321,6 +334,153 @@ muImgToKPtr:
     ldy #MU_IMG+1
     lda (dataPtr),y
     sta kPtr+1
+    rts
+
+// ==========================================
+//  The window service
+// ==========================================
+//  Every read of the tune image goes through one of THREE windows: 256 bytes each,
+//  PAGE-ALIGNED, one per voice. Page-aligned is what turns an offset into an
+//  address with no arithmetic at all -- the address is `winHi : offsetLo` -- and it
+//  is safe for commands because a command is a 2-byte pair at an EVEN offset, so a
+//  command and its option byte can never straddle the end of a window: a voice that
+//  crosses a page refills its window before its next command is read.
+//
+//  A window holds a COPY. A write therefore has to reach the page it came from as
+//  well, which is why the write entry is not here yet: it lands with the storage it
+//  writes to. Until then this is the READ path, and it is proved by muWinCheck.
+//
+//  In:  X = the voice (0-2), muWinOfs/muWinOfs+1 = the offset wanted.
+//  Out: C=0 and kPtr = the address of that offset inside voice X's window.
+//  Clobbers: A, Y, kPtr, srcPtr (X, dataPtr and each voice's own state survive).
+//  WARNING: kPtr is only good for the bytes of THAT page. Any kernel call may take
+//  it, and a second seat may refill the window, so derive it again per read.
+muWinSeat:
+    lda muWinOfs+1              // the page the offset sits on
+    sta muWinPage
+    lda muWinOk,x               // a page tag CANNOT say "never filled" -- every value
+    beq muWsFill                //   0-255 is a real page -- so a flag says it instead
+    lda muWinPg,x
+    cmp muWinPage
+    beq muWsHave
+muWsFill:
+    lda muWinPage
+    sta muWinPg,x
+    lda #1
+    sta muWinOk,x
+    jsr muWinFill
+muWsHave:
+    txa
+    asl
+    tay
+    lda muWinOfs                // page-aligned, so the offset's LOW byte IS the
+    sta kPtr                    //   address's
+    lda muWin+1,y
+    sta kPtr+1
+    clc
+    rts
+
+// --- muWinFill -- voice X's window := the image's page muWinPage ---
+//  The image block is page-aligned too, so the page number is added to its HIGH
+//  byte and the source's low byte is 0. kPtr and srcPtr are this task's own (the
+//  scheduler saves and restores them per task), and nothing here may call the
+//  kernel: a kernel routine would take srcPtr for its own use.
+muWinFill:
+    jsr muImgToKPtr             // kPtr = the image block
+    lda kPtr+1
+    clc
+    adc muWinPage
+    sta srcPtr+1
+    lda #0
+    sta srcPtr
+    txa
+    asl
+    tay
+    lda muWin,y
+    sta kPtr
+    lda muWin+1,y
+    sta kPtr+1
+    ldy #0
+muWfLp:
+    lda (srcPtr),y
+    sta (kPtr),y
+    iny
+    bne muWfLp                  // 256 bytes: the low byte wraps and ends it
+    rts
+
+// --- muWinInit -- take the three windows, once, at startup ---
+//  Out: C=0 ready; C=1 no room (the caller refuses like any other shortage).
+//  They are held for the task's life: the kernel frees a dyn task's blocks on exit,
+//  and the windows are independent of whichever tune is open, so one set serves
+//  every tune and no open un-does another.
+muWinInit:
+    lda #MU_WIN_PAGES
+    jsr kMalloc
+    bcs muWiRts
+    ldy #0
+    ldx #0
+muWiLp:
+    lda kPtr                    // every window's low byte is the block's own: the
+    sta muWin,y                 //   block is page-aligned, so they differ only in
+    iny                         //   the high byte
+    txa
+    clc
+    adc kPtr+1
+    sta muWin,y
+    iny
+    inx
+    cpx #MU_WIN_PAGES
+    bne muWiLp
+muWiRts:
+    rts
+
+// --- muWinReset -- forget what the windows hold (a new image) ---
+muWinReset:
+    lda #0
+    sta muWinOk
+    sta muWinOk+1
+    sta muWinOk+2
+    rts
+
+// --- muWinCheck -- C=1 when a window does not deliver its own page ---
+//  The seat's page arithmetic is the one thing here that can be wrong invisibly: a
+//  carry lost between the block's high byte and the page number would hand back
+//  another page's bytes, and the tune would still look plausible. So each page is
+//  compared against an INDEPENDENT walk -- a pointer stepped 256 bytes at a time
+//  through the image, in muWcPt, which nothing in the seat touches (the seat's own
+//  pointers are kPtr/srcPtr, and srcPtr is exactly what it destroys).
+//  Window 0 serves for all three: they are the same code path.
+muWinCheck:
+    jsr muImgToKPtr
+    lda kPtr
+    sta muWcPt
+    lda kPtr+1
+    sta muWcPt+1
+    ldy #MU_PAGES
+    lda (dataPtr),y
+    sta muWinCnt                // pages left to check
+    lda #0
+    sta muWinOfs
+    sta muWinOfs+1
+muWcLp:
+    jsr muWinReset              // force a real fill, not a satisfied seat
+    ldx #0
+    jsr muWinSeat
+    ldy #0
+muWcCmp:
+    lda (muWcPt),y
+    cmp (kPtr),y
+    bne muWcBad
+    iny
+    bne muWcCmp
+    inc muWcPt+1                // the next page: only the high byte moves
+    inc muWinOfs+1
+    dec muWinCnt
+    bne muWcLp
+    clc
+    rts
+muWcBad:
+    sec
     rts
 
 // --- muSidCheck -- C=1 when another task is using sid.lib ---
@@ -6650,6 +6810,8 @@ muSSaved:   .text "? saved"
             .byte 0
 muSNoRoom:  .text "? no space"
             .byte 0
+muSNoWin:   .text "? no windows"
+            .byte 0
 muSNoFs:    .text "? no fs"
             .byte 0
 muSNoRead:  .text "? unreadable"
@@ -6851,6 +7013,16 @@ muPrevLeft: .byte 0
 muRowNew:   .byte 0
 
 // --- the grid's state: the window, and each voice's place in the walk ---
+// --- the window service. Code-image state: the music child never reads it, and
+//     the windows outlive any one tune, so a set is taken once (muWinInit).
+muWin:      .fill 6, 0          // the three window pointers, lo/hi interleaved
+muWinPg:    .fill 3, 0          // the image page each window holds
+muWinOk:    .fill 3, 0          // 1 = that window has been filled
+muWinOfs:   .word 0             // muWinSeat in: the offset wanted
+muWinPage:  .byte 0             // its page, while the seat works
+muWinCnt:   .byte 0             // muWinCheck: pages left
+muWcPt:     .word 0             // muWinCheck: the independent walk pointer
+
 muTop:      .word 0             // the timeline row at the top of the window
 muVRow:     .fill 3,0          // each voice's next event row
 muVRowHi:   .fill 3,0

@@ -95,6 +95,9 @@ $LiveMallocFixed = @{
     'gortris' = 3    # one tune (tetris)
     'godzi'   = 3    # both tunes share the one window set
     'grknoid' = 3    # three tunes, one config rewritten per switch
+    'musedit' = 3    # the window service: one 256-byte read window per voice. Its
+                     #   TUNE block is NOT modelled -- that is a per-file size and it
+                     #   is what step 12 of the editor plan removes.
     'edit'   = 32    # the document: MAX_CHUNKS x CHUNK_PAGES (8 chunks of 4 pages).
                      # The clipboard is NOT here: it is transient, and a select-all
                      # copy of a full document asks for ~32 more pages, which the
