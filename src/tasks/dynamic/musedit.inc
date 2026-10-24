@@ -99,7 +99,6 @@
 .const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
 .const MU_SYNC_WIN      = 4   // rows a matched row may differ by and still be taken
-.const MU_PH_SLOW       = 8   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 
@@ -5791,10 +5790,13 @@ muPtMul:
     dey
     bne muPtMul
 muPtRet:
-    lda muPhRowT                // sidTick's own work is spent on top of the sleep
-    sta muPhNeed                //   the player asks for, so every MU_PH_SLOW'th row
-    lda #MU_PH_SLOW             //   is one tick longer than delay x unit
-    sta muPhFrac
+    lda #0                      // the first event is timed from the start: no
+    sta muPhTicks               //   measurement yet, so muPhRowT's estimate stands
+    sta muPhTicks+1
+    lda muPhCurLo
+    sta muPhAnchorLo
+    lda muPhCurLo+1
+    sta muPhAnchorHi
     rts
 
 // --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
@@ -5958,10 +5960,14 @@ muPsBack:
     sta muTmpL
     lda muValHi
     sbc muVRowHi,x
-    bne muPsRts
+    beq muPsBkLo
+    jmp muPsRts
+muPsBkLo:
     lda muTmpL
     cmp #3
-    bcs muPsRts
+    bcc muPsBkTake
+    jmp muPsRts
+muPsBkTake:
     lda muValLo                 // the playhead is on the row the walker wrapped
     sta muPhCurLo               //   to: take it and put the window back on it
     lda muValHi
@@ -5986,13 +5992,46 @@ muPsPaint:
     jsr muRedrawNoHead          // the one repaint playback performs
     jmp muPhCursor
 muPsTake:
+    //  Measure what a row really costs on THIS machine, rather than deriving it
+    //  from the declared speed: the ticks since the previous anchor divided by the
+    //  rows the playhead travelled in them. Whatever the player's delay, the
+    //  machine's speed or the tempo does, the next event runs on the measurement.
+    lda muValLo
+    sec
+    sbc muPhAnchorLo
+    sta muTmp2
+    lda muValHi
+    sbc muPhAnchorHi
+    bne muPsTakeRow             // a rewind, or more than 255 rows: not measurable
+    lda muTmp2
+    beq muPsTakeRow             // no rows: nothing to divide by
+    sta muTmp2
+    lda muPhTicks
+    sta kArg
+    lda muPhTicks+1
+    sta kArg+1
+    lda muTmp2
+    sta kArg+2
+    lda #0
+    sta kArg+3
+    jsr kDiv16
+    lda kArg+5                  // a row of more than 255 ticks is not believable
+    bne muPsTakeRow
+    lda kArg+4
+    beq muPsTakeRow
+    sta muPhRowT
+muPsTakeRow:
     lda muValLo
     sta muPhCurLo
+    sta muPhAnchorLo
     lda muValHi
     sta muPhCurLo+1
+    sta muPhAnchorHi
     lda #0                      // a real anchor: the partial tick count belongs to
     sta muPhAcc                 //   the event that just ended, so it is dropped
     sta muPhAcc+1
+    sta muPhTicks
+    sta muPhTicks+1
     lda tickCount
     sta muPhLast
 muPsRts:
@@ -6007,6 +6046,13 @@ muPhStep:
     sta muTmpL                  // elapsed ticks
     lda tickCount
     sta muPhLast
+    lda muPhTicks               // ...and the same count, kept for the row length
+    clc                         //   the next anchor works out from it
+    adc muTmpL
+    sta muPhTicks
+    bcc muPhStAcc
+    inc muPhTicks+1
+muPhStAcc:
     lda muPhAcc
     clc
     adc muTmpL
@@ -6017,24 +6063,16 @@ muPhStLp:
     lda muPhAcc+1
     bne muPhStGo
     lda muPhAcc
-    cmp muPhNeed
+    cmp muPhRowT
     bcc muPhStRts
 muPhStGo:
     lda muPhAcc
     sec
-    sbc muPhNeed
+    sbc muPhRowT
     sta muPhAcc
     lda muPhAcc+1
     sbc #0
     sta muPhAcc+1
-    lda muPhRowT                // the next row's length: longer once every
-    sta muPhNeed                //   MU_PH_SLOW rows
-    dec muPhFrac
-    bne muPhStepRow
-    lda #MU_PH_SLOW
-    sta muPhFrac
-    inc muPhNeed
-muPhStepRow:
     inc muPhCurLo
     bne muPhStLp
     inc muPhCurLo+1
@@ -6720,8 +6758,9 @@ muPfN:      .byte 0             // lines the follow path walks in one pass
 muHeadRowCol: .byte 0           // the head's row number, for the row-only update
 muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
 muPhPtrHi:  .byte 0
-muPhNeed:   .byte 1             // the current row's length in ticks
-muPhFrac:   .byte 1             // rows left before that length grows by one
+muPhTicks:  .fill 2, 0          // ticks since the anchor, for the measurement
+muPhAnchorLo: .byte 0           // the row the tick count started from
+muPhAnchorHi: .byte 0
 muPhRowT:   .byte 1             // ticks one row takes, machine speed included
 muPhCand:   .fill 2, 0          // the row the last rejected rewind named
 muNeedPage: .byte 0
