@@ -6545,8 +6545,15 @@ muHistAdd:
     rts
 
 // --- muHistFind -- C=1 and muValLo/muValHi = the row, for voice muHistV ---
-//  Scans newest first, so a pointer that a loop reuses resolves to the pass the
-//  music is on rather than to the first time it was ever played.
+//  A phrase BODY is one offset that the renderer draws once per call, so a single
+//  offset maps to MANY rows and "the newest entry" is whichever call was drawn last
+//  -- not the one that is playing. Resolving to it pulls the playhead onto another
+//  call's row, and the further into a tune full of repeats the music gets, the more
+//  occurrences the ring holds and the further the playhead is dragged.
+//  So the match is the SMALLEST row at or after the playhead: that is this call,
+//  because the calls the player has already made are behind it. When every match is
+//  behind (a section loop, or the song starting again) the LARGEST of those is the
+//  one the music just wrapped to.
 muHistFind:
     lda muHistV
     asl
@@ -6555,6 +6562,9 @@ muHistFind:
     asl
     asl
     sta muTmpH                  // base = voice x MU_HIST
+    lda #0
+    sta muHistF                 // nothing at or after the playhead yet
+    sta muHistLow               // ...and nothing before it
     ldx muHistV
     lda muHistN,x
     sec
@@ -6563,6 +6573,8 @@ muHistFind:
     sta muHistS
     lda #MU_HIST
     sta muHistC
+muHfSkip:
+    jmp muHfNx                  // the loop head's branches cannot reach the tail
 muHfLp:
     lda muHistS
     clc
@@ -6571,16 +6583,64 @@ muHfLp:
     ldx muHistV
     lda muHistPLo,y
     cmp muPhTgtLo,x
-    bne muHfNx
+    bne muHfSkip
     lda muHistPHi,y
     cmp muPhTgtHi,x
+    bne muHfSkip
+    lda muHistRHi,y             // a match: is its row at or after the playhead?
+    cmp muPhCurLo+1
+    bcc muHfBelow
+    bne muHfAbove
+    lda muHistRLo,y
+    cmp muPhCurLo
+    bcc muHfBelow
+muHfAbove:
+    lda muHistF                 // row >= the playhead: keep the SMALLEST
+    bne muHfCmpBest
+    lda #1
+    sta muHistF
+    lda muHistRLo,y
+    sta muBestLo
+    lda muHistRHi,y
+    sta muBestHi
+    jmp muHfNx
+muHfCmpBest:
+    lda muHistRHi,y
+    cmp muBestHi
+    bcc muHfTake
     bne muHfNx
     lda muHistRLo,y
-    sta muValLo
+    cmp muBestLo
+    bcs muHfNx
+muHfTake:
+    lda muHistRLo,y
+    sta muBestLo
     lda muHistRHi,y
-    sta muValHi
-    sec
-    rts
+    sta muBestHi
+    jmp muHfNx
+muHfBelow:
+    lda muHistLow               // row is behind: keep the LARGEST of those
+    bne muHfCmpLow
+    lda #1
+    sta muHistLow
+    lda muHistRLo,y
+    sta muTmp2
+    lda muHistRHi,y
+    sta muTmp2+1
+    jmp muHfNx
+muHfCmpLow:
+    lda muHistRHi,y
+    cmp muTmp2+1
+    bcc muHfNx
+    bne muHfLowTake
+    lda muHistRLo,y
+    cmp muTmp2
+    bcc muHfNx
+muHfLowTake:
+    lda muHistRLo,y
+    sta muTmp2
+    lda muHistRHi,y
+    sta muTmp2+1
 muHfNx:
     lda muHistS
     sec
@@ -6588,7 +6648,27 @@ muHfNx:
     and #MU_HIST-1
     sta muHistS
     dec muHistC
-    bne muHfLp
+    beq muHfDone
+    jmp muHfLp                  // out of branch range: the loop body grew
+muHfDone:
+    lda muHistF
+    beq muHfLowOnly
+    lda muBestLo
+    sta muValLo
+    lda muBestHi
+    sta muValHi
+    sec
+    rts
+muHfLowOnly:
+    lda muHistLow
+    beq muHfNone
+    lda muTmp2
+    sta muValLo
+    lda muTmp2+1
+    sta muValHi
+    sec
+    rts
+muHfNone:
     clc
     rts
 
@@ -7181,6 +7261,8 @@ muHistN:    .fill 3, 0          // next slot per voice
 muHistV:    .byte 0             // the voice a lookup is for
 muHistS:    .byte 0             // its slot cursor
 muHistC:    .byte 0             // its scan countdown
+muHistF:    .byte 0             // muHistFind: a match at or after the playhead
+muHistLow:  .byte 0             // ...and one behind it
 muLnRow:    .word 0             // the timeline row the bottom line shows
 //  pointer -> row, per voice, as the renderer walks: the playhead asks this
 //  table instead of re-walking the tune every frame. MU_HIST slots a voice,
