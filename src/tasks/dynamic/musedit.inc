@@ -97,6 +97,7 @@
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
+.const MU_SYNC_WIN      = 4   // rows a matched row may differ by and still be taken
 .const MU_PH_SLOW       = 8   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = 6   // lines the window may walk in one pass to catch up
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
@@ -1852,10 +1853,26 @@ muDrawHead:
     jsr muNum16
     muStr(muSRow2)
     jsr muTextAt
+    ldy #MU_CURCOL              // where the row number goes, for the row update
+    lda (dataPtr),y
+    sta muHeadRowCol
     jsr muCursorAbs
     jsr muNum16
     muSet(MU_HOV, $ff)          // no pitch yet: three blanks, until a hover says otherwise
     jmp muHovDraw
+
+// --- muDrawHeadRow -- just the row number of the head ---
+//  The playhead moves the row every line, and rewriting the whole head for it
+//  is what made row 0 flicker. The column was recorded when the head was drawn.
+muDrawHeadRow:
+    ldy #MU_CURROW
+    lda #0
+    sta (dataPtr),y
+    ldy #MU_CURCOL
+    lda muHeadRowCol
+    sta (dataPtr),y
+    jsr muCursorAbs
+    jmp muNum16
 
 // --- muCursorAbs -- A/X = the cursor's absolute timeline row ---
 muCursorAbs:
@@ -5666,9 +5683,58 @@ muPtRts:
 //  walks down one row at a time, and the window follows it a line at a time.
 muPlayhead:
     jsr muPhStep
+    jsr muPhSync                // pull the clock onto the player's own row
     jsr muPhRewind              // the song restarted, or a section looped
     jsr muPhFollow
     jmp muPhCursor
+
+// --- muPhSync -- pull the clock onto the row the player is on ---
+//  The walker records (pointer -> row) for every event it draws, so the pointer
+//  the player publishes names the row the music is on. A ring entry from an
+//  earlier pass can name a row far away, so a match is taken only when it lies
+//  within MU_SYNC_WIN rows of the clock -- that is the real row, and snapping to
+//  it clears whatever the tick arithmetic drifts by. Anything further away is a
+//  stale entry and is ignored, leaving the clock to keep the music's tempo.
+muPhSync:
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    sta muHistV
+    tax
+    lda MU_POS_BLOCK,x
+    sta muPhTgtLo,x
+    lda MU_POS_BLOCK+3,x
+    sta muPhTgtHi,x
+    jsr muHistFind              // C=1 -> muValLo/muValHi = the row it is on
+    bcc muPsRts
+    lda muValLo                 // delta = matched row - the clock's row
+    sec
+    sbc muPhCurLo
+    sta muTmpL
+    lda muValHi
+    sbc muPhCurLo+1
+    beq muPsAhead
+    cmp #$ff
+    bne muPsRts                 // far ahead (or a wrapped high byte): ignore
+    lda muTmpL                  // behind: small only if it is just below zero
+    cmp #256-MU_SYNC_WIN
+    bcc muPsRts
+    jmp muPsTake
+muPsAhead:
+    lda muTmpL
+    cmp #MU_SYNC_WIN+1
+    bcs muPsRts
+muPsTake:
+    lda muValLo
+    sta muPhCurLo
+    lda muValHi
+    sta muPhCurLo+1
+    lda #0                      // restart the tick base: the correction is not
+    sta muPhAcc                 //   drift, so it must not be paid back later
+    sta muPhAcc+1
+    lda tickCount
+    sta muPhLast
+muPsRts:
+    rts
 
 // --- muPhRewind -- the player went backwards: follow it there ---
 //  The player's next-command pointer only ever moves forward while a pass runs,
@@ -5791,14 +5857,7 @@ muPhCursor:
     ldy #MU_ROW
     sta (dataPtr),y
     jsr muCursorShow
-    lda muPhHeadT               // the head is text and divides: once every four
-    beq muPcHead                //   rows is plenty, and it keeps a scroll cheap
-    dec muPhHeadT
-    rts
-muPcHead:
-    lda #3
-    sta muPhHeadT
-    jmp muDrawHead              // the head spells out the cursor's bar and row
+    jmp muDrawHeadRow           // only the row number changes with the playhead
 muPcGone:
     lda #MU_GRID_TOP            // out of the window: park it inside so the next
     ldy #MU_ROW                 //   hide lands on a real cell
@@ -6393,12 +6452,12 @@ muNumSquash: .byte 0
 muTmpL:     .byte 0
 muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
+muHeadRowCol: .byte 0           // the head's row number, for the row-only update
 muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
 muPhPtrHi:  .byte 0
 muPhNeed:   .byte 1             // the current row's length in ticks
 muPhFrac:   .byte 1             // rows left before that length grows by one
 muPhRowT:   .byte 1             // ticks one row takes, machine speed included
-muPhHeadT:  .byte 0             // rows left before the head is redrawn
 muPhCand:   .fill 2, 0          // the row the last rejected rewind named
 muNeedPage: .byte 0
 muFreeMid:  .byte 0
