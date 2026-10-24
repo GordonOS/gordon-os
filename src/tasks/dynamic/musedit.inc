@@ -6483,7 +6483,10 @@ muMusicThread:
     sta kArg+3                  //   machine's pitch shift to this itself
     lda #1                      // a play attempt is made: kSidHush from the parent
     sta muSidOk                 //   is only safe once sid.lib has loaded
-    jsr kSidPlay
+    lda #0                      // mode 0: the image is in RAM at kPtr. NOT optional --
+    jsr kSidPlay                //   A selects RAM vs a REU-paged file, and mode 1 would
+                                //   read this tune image as a 9-byte config block and
+                                //   DMA from a garbage filesystem offset
     bcs muMtRefused             // refused: another task owns the SID
     lda muPlayOn
     beq muMusicThread           // we were hushed: the parent asked for the stop
