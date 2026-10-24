@@ -31,8 +31,10 @@
 - **Eight sites touch `WorkNxtCmdLo/Hi`** — INIT (times two), `SetCurrentCmdAddress` (the single
   per-command fetch), and the advance. The jump paths already copy 16-bit values verbatim, so they
   need no change once the values are offsets.
-- **`sid.lib` is 3324 bytes of 3328 (4 spare)**, so any paging support takes it to **14 pages**.
-  Accepted.
+- **`sid.lib`'s code is 3318 bytes of 3328 on this branch (10 spare)** ? measured from the built
+  header (`sidlib.bin` codesize; the `musedit` branch is 6 bytes longer for its position-publish
+  stores). So paging takes it to **14 pages**: 266 bytes of room there, which the helper, the
+  stream INIT block, the advance branch and the new entry all have to fit in. Accepted.
 
 ## 2. Design
 
