@@ -1401,14 +1401,11 @@ muSiVoLp:
     dex
     bpl muSiVoLp
     //  --- the three stream starts: image + 8, then each length word ---
-    jsr muImgToKPtr
-    lda kPtr
-    clc
-    adc #8
-    sta muAccLo
-    lda kPtr+1
-    adc #0
-    sta muAccHi
+    jsr muImgToKPtr             // for the length words below, which are read straight
+    lda #8                      //   out of the image
+    sta muAccLo                 // the song proper starts at file offset 8: 2 bytes of
+    lda #0                      //   load address and three size words ahead of the
+    sta muAccHi                 //   first event, so this is where voice 1 begins
     ldx #0
 muSiPtrLp:
     lda muAccLo
@@ -1474,13 +1471,16 @@ muSnNone:
     sec
     rts
 
-// --- muPtrToK -- kPtr = the event address of voice X ---
+// --- muPtrToK -- kPtr = the address of voice X's next event ---
+//  X = the voice. The pointer is a FILE OFFSET, so the address comes from that
+//  voice's window (see muWinSeat): the editor never holds the image in one piece.
+//  Clobbers A, Y, kPtr, srcPtr -- and C comes back as 0.
 muPtrToK:
     lda muPtrLo,x
-    sta kPtr
+    sta muWinOfs
     lda muPtrHi,x
-    sta kPtr+1
-    rts
+    sta muWinOfs+1
+    jmp muWinSeat               // tail call: X is already the voice
 
 // --- muPtrBump -- voice X's pointer moves on to the next event ---
 muPtrBump:
@@ -1933,17 +1933,14 @@ muTrGo:
     //  The event's own address goes in muAccLo/Hi, which only muSimInit uses,
     //  because muNum16 borrows muTmpL while it divides down the digits.
     ldx muSv
-    lda muPtrLo,x               // the event is the pair behind the pointer
-    sec
+    lda muPtrLo,x               // the event is the pair behind the pointer, and an
+    sec                         //   offset minus 2 is still an offset
     sbc #2
-    sta muAccLo
+    sta muWinOfs
     lda muPtrHi,x
     sbc #0
-    sta muAccHi
-    lda muAccLo
-    sta kPtr
-    lda muAccHi
-    sta kPtr+1
+    sta muWinOfs+1
+    jsr muWinSeat               // kPtr = the event's own bytes
     ldy #0
     lda (kPtr),y
     sta muTmp2
@@ -3382,21 +3379,12 @@ muSkAdv:
 // --- muSkRecord -- remember the event that just played, as an image offset ---
 muSkRecord:
     ldx muSv
-    lda muPtrLo,x
-    sec
-    sbc #2
-    sta muPrtLo
+    lda muPtrLo,x               // the event is the pair behind the pointer, and the
+    sec                         //   pointer is already an image offset -- which is
+    sbc #2                      //   what the seek table wants
+    sta muSekLo
     lda muPtrHi,x
     sbc #0
-    sta muPrtHi
-    ldy #MU_IMG
-    lda muPrtLo
-    sec
-    sbc (dataPtr),y
-    sta muSekLo
-    iny
-    lda muPrtHi
-    sbc (dataPtr),y
     sta muSekHi
     lda muSpan
     sta muSekSpan
@@ -6511,8 +6499,6 @@ muGdNumLine:
 //  away, or the playhead never matches and the cursor rides the tempo instead.
 muHistAdd:
     ldx muSv
-    jsr muImgToKPtr             // kPtr = the image block, the offset's zero point
-                                //   (clobbers A and Y, so it runs before the slot)
     lda muHistN,x
     and #MU_HIST-1
     sta muTmpL                  // the slot
@@ -6526,12 +6512,9 @@ muHistAdd:
     clc
     adc muTmpL
     tay
-    lda muPtrLo,x
-    sec
-    sbc kPtr
-    sta muHistPLo,y
+    lda muPtrLo,x               // already a file offset, which is the unit the
+    sta muHistPLo,y             //   player publishes -- no conversion needed
     lda muPtrHi,x
-    sbc kPtr+1
     sta muHistPHi,y
     lda muVRow,x
     sta muHistRLo,y
@@ -7105,7 +7088,7 @@ muUnitBarHi: .byte 0
 
 // --- the simulator's state, in the code image so it is per instance ---
 muBaseTab:  .byte 0, 5, 10      // the first call-stack frame of each voice
-muPtrLo:    .fill 3, 0          // where this voice's next event is
+muPtrLo:    .fill 3, 0          // where this voice's next event is, as a FILE OFFSET
 muPtrHi:    .fill 3, 0
 muTkLo:     .fill 3, 0          // the tick that event plays on
 muTkHi:     .fill 3, 0
@@ -7113,7 +7096,7 @@ muOn:       .fill 3, 0          // a HLT clears this
 muUtv:      .fill 3, 0
 muId:       .fill 3, 0          // the phrase identity, as WorkVoiceForCallPhrase
 muHedN:     .fill 3, 0          // HED's repeat count
-muHedLo:    .fill 3, 0          // ...and the address just after it
+muHedLo:    .fill 3, 0          // ...and the offset just after it
 muHedHi:    .fill 3, 0
 muHedId:    .fill 3, 0
 muDep:      .fill 3, 0          // the next free call-stack frame
