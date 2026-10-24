@@ -1,9 +1,10 @@
 # `sid.lib` — Library Reference
 
-The COMPUTE!'s Enhanced Sidplayer as a shared library: play a `.mus` tune
-already in RAM, and silence the SID. It is the player body that `sidplay.tsk`
-wraps, so any task can play music without carrying a copy of the player —
-`sidplay.tsk` itself is **508 bytes / 49 fixups**.
+The COMPUTE!'s Enhanced Sidplayer as a shared library: play a `.mus` tune —
+from a buffer in RAM, or straight out of the REU filesystem — and silence the
+SID. It is the player body that `sidplay.tsk` wraps, so any task can play music
+without carrying a copy of the player — `sidplay.tsk` itself is **740 bytes / 71
+fixups**.
 
 | | |
 |---|---|
@@ -13,12 +14,17 @@ wraps, so any task can play music without carrying a copy of the player —
 | Call indices | 33–34 (jump entries patched via `libJumpLo/Hi` + `libInitLo/Hi`) |
 | Kernel entry points | `kSidPlay` (`$FF7E`), `kSidHush` (`$FF81`) |
 | Source | `src/libs/sid.asm` (player body: `src/libs/sidplay.inc`) |
-| Pool footprint | 13 pages (3,318 bytes of code, 483 fixups) |
+| Pool footprint | 14 pages (3,538 bytes of code, 537 fixups) |
 
 > The two entry points are **not** in the `$E000` jump table — that table is
 > full (its only free byte is `$E119`). They are ordinary 3-byte stubs in the
 > free block at `$FF7E`, exactly like the five `kSprite*` stubs in the `$CDDE`
 > pocket, and they are the *last thing assembled* in the kernel.
+
+`kSidPlay` has **one entry and two modes**, because the call-index space has no
+room for a third: `A` says where the tune comes from (0 = RAM, 1 = a file in the
+REU filesystem). Everything else — the delay, the repeats, the transposes,
+blocking, ownership — is identical, and so is the sound.
 
 ## Before you call
 
@@ -28,11 +34,13 @@ wraps, so any task can play music without carrying a copy of the player —
   `zp_base`/`zp_len`. The play loop yields with `sysSleep`, so the scheduler
   swaps ZP on every jiffy; with any other region the song's state is swapped out
   from under a running tune.
-- **Own your tune buffer.** `kSidPlay` never allocates and never touches the
-  REU filesystem. A library's `libMask` is structurally `0`, so a library that
-  called `kReuFindFile`/`kReuLoad` would hold no filesys reference and
-  `filesys.lib` could be freed under a running player. The task loads the tune
-  (`kReuFindFile` → `kMalloc` → `kReuLoad`) and passes the buffer.
+- **Own your tune — as a buffer, or as a file.** `kSidPlay` never allocates and
+  never touches the REU filesystem. A library's `libMask` is structurally `0`, so
+  a library that called `kReuFindFile`/`kReuLoad` would hold no filesys reference
+  and `filesys.lib` could be freed under a running player. So **you** either load
+  the tune into a buffer (`kReuFindFile` → `kMalloc` → `kReuLoad`, mode 0) or just
+  find it and hand over its offset plus three windows (mode 1, see *Streaming*
+  below). Either way the library references no filesystem entry of its own.
 - **Declare `libMask` bit 5** (`$0020`) so the library is refcounted to your
   task: loaded on demand, freed when the last declared task exits.
 - **If you also needed `filesys.lib` to read the tune, give it back before you
@@ -51,7 +59,9 @@ wraps, so any task can play music without carrying a copy of the player —
 
 ## `kSidPlay` — play a tune at a given speed
 
-- **Input:** `kPtr`/`kPtr+1` = the `.mus` image in RAM; `kArg` = delay, the
+- **Input:** `A` = mode — `0` = `kPtr` is the `.mus` image in RAM, `1` = `kPtr`
+  is the 9-byte config block described under *Streaming* below; `kPtr`/`kPtr+1`
+  = that pointer; `kArg` = delay, the
   scheduler ticks slept per jiffy **on a machine at 100%** (`0` is forced to `1`,
   because a delay of 0 would be a tight loop — the library scales it by the machine's
   speed); `kArg+1` = repeats, `0` = repeat forever, `1` = play
@@ -88,6 +98,7 @@ wraps, so any task can play music without carrying a copy of the player —
         sta kArg+2              //   (+1 in this field is one octave DOWN)
         lda #0                  // no semitone offset
         sta kArg+3
+        lda #0                  // mode: the image is in RAM at kPtr
         jsr kSidPlay
         bcs refused             // someone else owns the SID
 ```
@@ -108,6 +119,83 @@ callers pass 0 and a tune sounds at its written pitch on any machine. A caller's
 offset is added *after* the tune's `TPS` and *after* the compensation, so a tune that
 transposes keeps it; both are latched once per call, so the `sidInitSong` work-memory
 clear cannot wipe them.
+
+## Streaming a tune from the REU
+
+A buffer costs `ceil(size/256)` pool pages, so a tune's length used to be a
+memory question — the largest bundled tune is 18 pages, and anything bigger
+could not be played at all. Mode 1 removes it: the file stays in the REU and the
+player pages it in, so the RAM cost is **three fixed 256-byte windows** however
+long the tune is (the filesystem's 16-bit size field is the only ceiling, 64 KB).
+
+The player addresses a command by **file offset**, and turns an offset into an
+address two ways:
+
+     mode 0   address = SidBase (the image's base) + offset
+     mode 1   address = winHi : offsetLo
+
+Mode 1 works because each window is **page-aligned and exactly 256 bytes**, so a
+command's address is its window's high byte over the offset's low byte — no
+arithmetic at all. That is safe because every command is a 2-byte pair at an even
+offset, so a command and its option byte can never straddle the end of a window:
+crossing a page boundary simply refills the window before the next command is
+read. The player refills lazily — a voice's window is only reloaded when that
+voice's offset moves into a different page — and `katmand` (18 pages, 142 s)
+needs **17 reloads** for the whole song, about 400 cycles each, inside a jiffy
+of ~19,600.
+
+**The config block** (9 bytes, in *your* RAM; the player copies it at entry):
+
+| Offset | Contents |
+|---|---|
+| +0 +1 +2 | the file's filesystem offset, lo/mid/hi — from `kReuFindFile` |
+| +3 +4 | voice 1's window pointer (lo, hi) |
+| +5 +6 | voice 2's |
+| +7 +8 | voice 3's |
+
+Every window must be **page-aligned** (`lo` = 0), 256 bytes, not overlapping, and
+must not move while the tune plays: the player keeps no other record of them.
+
+```asm
+        lda dataPtr             // name of the tune, screen codes, null-terminated
+        sta kArg
+        lda dataPtr+1
+        sta kArg+1
+        jsr kReuFindFile        // -> reuFsPtr (24-bit FS offset), reuFsRemain (size)
+        bcs noTune
+
+        lda #3                  // three pages: one window per voice
+        jsr kMalloc             // -> kPtr = a page-aligned block
+        ...                     // fill the 9-byte config:
+                                //   +0..+2 from reuFsPtr, +3..+8 the block's
+                                //   first three pages (all three low bytes are the
+                                //   block's own, because it is page-aligned)
+
+        lda #1                  // mode: paged from the REU
+        jsr kSidPlay
+```
+
+Two things make this cheap for the caller. The page fetch is `kReuDmaRange`, a
+**kernel** entry that takes the filesystem offset and the destination, so the
+player needs **no library at all** to read the file — `filesys.lib` can be handed
+back with `kLibHold` before the music starts. And nothing is copied up front: the
+player reads one page per crossing, so starting a tune is a single 256-byte DMA
+whatever the file's size.
+
+`kReuDmaRange` takes its source offset from the **kernel-global** `reuFsPtr`, so
+the fetch stores that and DMA's with interrupts off (`php`/`sei`) — otherwise
+another task's filesystem call could land in between and read 256 bytes from
+somewhere else entirely. It clobbers `kArg..kArg+5` and the filesystem's own
+scratch, which no caller of `kSidPlay` can observe.
+
+**What you give up.** Nothing about the sound: the player is read-only on the
+image, the file holds no absolute addresses (streams are located from the size
+words, jumps go through runtime phrase slots), so paging needs neither relocation
+nor fixups. What you do not get is a seek — the format has none — and the read
+pattern is a voice's own stream walked forwards, which is why one window *per
+voice* is required: **one shared window would reload 1,724 times** across
+`katmand` instead of 17, because the three streams start pages apart and every
+jiffy reads all three.
 
 ## Tuning
 
@@ -226,7 +314,7 @@ Silence-on-doubt is deliberate: the drone is permanent, the glitch is not.
 
 | Caller | What it does |
 |---|---|
-| `sidplay.tsk` | The wrapper: `run sidplay <name> [delay] [repeats]` — finds the `.mus` in the REU FS, `kMalloc`s a buffer sized to the file, loads it, calls `kSidPlay`, frees the buffer, exits. On failure it takes a screen, prints `? tune <name>` / `? load <name>` / `? no memory` / `? no player`, waits for a key and hands the display back (a task with no screen cannot report anything) |
+| `sidplay.tsk` | The wrapper: `run sidplay <name> [delay] [repeats] [transpose] [mode]` — finds the `.mus` in the REU FS and then plays it **either way**: up to three pages it `kMalloc`s a buffer sized to the file and loads it (mode 0); bigger than that it streams it through three windows (mode 1), so the RAM cost stops following the tune's length. The fifth argument forces the choice for testing. On failure it takes a screen, prints `? tune <name>` / `? load <name>` / `? no memory` / `? no player`, waits for a key and hands the display back (a task with no screen cannot report anything) |
 | `godzi` | Directly, from a thread child: it loads **both** modes' tunes at startup (`commodo` and `fsonata`, via `kReuFindFile` → `kMalloc` → `kReuLoad`) and the child plays whichever the player selected, looping the tune while the demo owns the display. `1`/`2` switch the tune by pointing the child's `kPtr` at the other buffer — no re-spawn, no gap. `q` sets `gzMusQuit`, tells the child to stop, reaps it and frees both buffers. Same `filesys`-held-for-the-session arrangement as `gortris` |
 | `gortris` ([gortris.md](gortris.md)) | Directly, from a thread child: it loads `music/tetris.mus` at startup (`kReuFindFile` → `kMalloc` → `kReuLoad`) and the child calls `kSidPlay` in a loop while the game owns the display. It does **not** give `filesys.lib` back the way the wrapper does — its hi-score table has to be *written*, and `kLibHold` is one-way, so both declared libraries stay held for the session |
 | `grknoid` ([grknoid.md](grknoid.md)) | Directly, from a thread child: three **CGSC** archive tunes (`katmand`/`immig`/`firstdt`) one per mode, loaded from **one buffer for the session** — an 18-page `kMalloc` taken by the *task* at startup (`GK_MUS_PAGES`, sized for the largest tune) and freed on the way out, **after** the child has been reaped. The pool therefore sees one request per session instead of three sizes cycling, and a mode change makes no pool request at all: the allocator needs a **contiguous** run, which is what a 18/4/2-page rotation spends. A tune longer than the buffer is **refused** rather than loaded past its end, so a bigger tune means raising the constant. The game-over tune is a one-shot: when it ends the child hands the request back to the attract tune and sets `gkMusDone`, which is the cue the game-over screen waits on — so that tune always plays to its end. Two failures are handled separately: a `C=1` refusal **keeps the tune and retries** (the retry costs no FS read and no allocation), while a tune that will not load falls back to the attract tune and does not retry on a timer. `filesys.lib` stays held for the session for the same reason as `gortris` (the score table is written, and the child reads a tune file on every mode switch) |

@@ -866,6 +866,7 @@ gzMusicThread:
     sta kArg+2                   //   pitch shift itself (+1 is one octave DOWN)
     lda #0                       // no semitone offset
     sta kArg+3
+    lda #0                       // mode: the image is in RAM at kPtr
     jsr kSidPlay                 //   so this loop never has to watch for that
     bcc gzMusicThread            // returned: hushed, or the tune finished
     lda #0                       // refused: another task owns the SID

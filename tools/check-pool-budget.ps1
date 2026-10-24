@@ -79,17 +79,20 @@ $LiveLazy = @{
 
 # Task -> the tune FILEs it loads into a kMalloc block. A block is ceil(size /
 # 256) pages, so the number is computed from the file on disk and follows a
-# re-authored tune. '*' means "whichever file it is asked for", budgeted as the
-# largest tune in the image.
+# re-authored tune. A task that STREAMS instead holds three fixed 256-byte
+# windows (one per voice) whatever the tune's size, which is what `sidplay` does
+# for anything bigger than three pages -- so its worst case is the windows, not
+# the largest tune.
 $LiveMallocMusic = @{
     'gortris' = @('music/tetris.mus')                        # its only tune
     'godzi'   = @('music/commodo.mus', 'music/fsonata.mus')  # both modes' tunes, held all session
     'grknoid' = @('music/katmand.mus')                       # GK_MUS_PAGES: one buffer, the largest tune
-    'sidplay' = @('*')                                       # sized to whichever tune it is asked to play
 }
 
 # Task -> a kMalloc block whose size is a constant, in pages.
 $LiveMallocFixed = @{
+    'sidplay' = 3    # the stream windows: any tune over three pages is paged
+                     # from the REU, a smaller one is a buffer of at most 3
     'edit'   = 32    # the document: MAX_CHUNKS x CHUNK_PAGES (8 chunks of 4 pages).
                      # The clipboard is NOT here: it is transient, and a select-all
                      # copy of a full document asks for ~32 more pages, which the

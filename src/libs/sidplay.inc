@@ -222,6 +222,32 @@ DataNoteFreqHiPal:      .byte $45,$49,$4E,$52
 //  1 = PAL. It is NOT in the work window sidInitSong clears, so a song restart does not
 //  re-measure -- one measurement per library load.
 DataVideoStd:           .byte $FF
+
+//  ---- STREAMED IMAGE ----------------------------------------------------
+//  The player addresses the song by FILE OFFSET, and turns an offset into an
+//  address where it fetches a command:
+//
+//      StreamMode 0 -- the image is in RAM at SidBase:  address = SidBase + offset
+//      StreamMode 1 -- the image is paged from the REU:  address = winHi:offsetLo
+//
+//  The window trick depends on two things: each window is PAGE-ALIGNED and 256
+//  bytes, so the address of a command is simply that window's high byte over the
+//  offset's low byte (no arithmetic at all); and commands are always two bytes at
+//  an even offset, so a command and its option byte can never straddle the end of
+//  a window.
+//
+//  These live after DataVideoStd, outside the work window sidInitSong clears, so
+//  a song restart does not lose the configuration.
+StreamMode:             .byte 0                          // 0 = RAM image, 1 = paged from the REU
+SidBaseLo:              .byte 0                          // StreamMode 0: the image's base address
+SidBaseHi:              .byte 0
+StreamPtrLo:            .byte 0                          // StreamMode 1: the file's FS offset, 24-bit
+StreamPtrMid:           .byte 0
+StreamPtrHi:            .byte 0
+StreamWin:              .fill 6, 0                       // one 256-byte, page-aligned window per
+                                                        //   voice, interleaved: lo, hi
+StreamPage:             .byte $FF,$FF,$FF                // the file page each window holds ($FF = none)
+StreamVoice:            .byte 0                          // scratch: the voice during a fetch
 .assert "sidlib: sidInitSong's two clear loops stop short of the video flag",
          (((SID_STATUS + $bc) < DataVideoStd) && ((WorkPhraseCallStack + 2 + $72) < DataVideoStd)) ? 1 : 0, 1
 
@@ -381,14 +407,11 @@ initWorkPhraseLoops:    sta WorkPhraseUnknown,x
                         dex
                         bpl initWorkPhraseLoops
 
-                        lda $02                         // 61,62 contain start address of the song  lo,hi
-                        clc                             //
-                        adc #$06                        // add 6 to the low address
-                        sta $04                         // 63,64 will be the start of voice 1 data
-                        lda #$00
-                        tax
+                        lda #$08                        // the song proper starts at file offset 8:
+                        sta $04                         //   2 bytes of load address and three size
+                        lda #$00                        //   words ahead of the first event, so this
+                        tax                             //   is where voice 1 begins
                         tay
-                        adc $03
 addressOfVoiceLoop:     sta $05                         // a= hi of voice x data
                         sta WorkNxtCmdHi,x              // store hi of voice x data
                         sta WorkCmdAfterHEDHi,x         // store hi of voice x data
@@ -407,6 +430,80 @@ addressOfVoiceLoop:     sta $05                         // a= hi of voice x data
                         bne addressOfVoiceLoop
 
                         ldx $04                         // x=lo a,y=hi address of text area for song info
+                        tay
+                        rts
+}
+
+// -----------------------------------------------------------------
+//              sidWinFetch -- DMA file page StreamPage,x into voice X's window
+//              sidWinSeat  -- seat that window on the page of WorkNxtCmd and
+//                             leave its address in $08/$09
+// -----------------------------------------------------------------
+//  sidWinFetch clobbers kArg..kArg+5 and the FS scratch, so it runs with
+//  interrupts off: kReuDmaRange takes the offset from the kernel-global
+//  reuFsPtr, and a task that used the filesystem in between would overwrite it.
+//  kReuDmaRange itself handles a page that spans two REU banks.
+sidWinFetch: {
+                        php
+                        sei
+                        stx StreamVoice
+                        txa
+                        asl
+                        tay                          // y = voice * 2: its window's entry
+                        lda StreamPtrLo
+                        sta reuFsPtr                 // the file's base, byte 0
+                        lda StreamPtrMid
+                        clc
+                        adc StreamPage,x             // + page * 256
+                        sta reuFsPtr+1
+                        lda StreamPtrHi
+                        adc #$00
+                        sta reuFsPtr+2
+                        lda StreamWin,y
+                        sta kPtr
+                        lda StreamWin+1,y
+                        sta kPtr+1
+                        lda #$00
+                        sta kArg+6                   // length = $0100
+                        lda #$01
+                        sta kArg+7
+                        jsr kReuDmaRange
+                        plp
+                        ldx StreamVoice
+                        rts
+}
+
+sidWinSeat: {
+                        lda WorkNxtCmdHi,x
+                        cmp StreamPage,x             // same page as the window holds?
+                        beq sWsSeated
+                        sta StreamPage,x
+                        jsr sidWinFetch
+sWsSeated:              txa
+                        asl
+                        tay
+                        lda WorkNxtCmdLo,x           // the window is page-aligned, so the
+                        sta $08                      //   offset's low byte IS the address's
+                        lda StreamWin+1,y
+                        sta $09
+                        rts
+}
+
+// -----------------------------------------------------------------
+//              sidStreamBegin -- seat voice 1's window on page 0 and
+//              point X/Y at the three size words inside it
+// -----------------------------------------------------------------
+sidStreamBegin: {
+                        ldx #0
+                        lda #$00
+                        sta StreamPage
+                        jsr sidWinFetch
+                        lda StreamWin                // the size words are at file offset 2,
+                        clc                          //   which page 0 puts at win0 + 2
+                        adc #$02
+                        tax
+                        lda StreamWin+1
+                        adc #$00
                         tay
                         rts
 }
@@ -818,35 +915,50 @@ sweepLoop:              clc
                         sta WorkFilterCutOff
 endOfProcessNote:       rts
 
-                        // This will move the next command into the current command
-                        // The init song routine defaults these values to the same address (Start of Voice x)
-                        // Called from ProcessVoice
-SetCurrentCmdAddress:   lda WorkNxtCmdLo,x              // Load the next command lo/hi memory address into the fd,fe (Current command memory address)
+                        // $08/$09 = the address of the command at WorkNxtCmd,x. The
+                        // three voice pointers are FILE OFFSETS, so where their bytes
+                        // are depends on the mode.
+sidCmdAddress:  {       lda StreamMode
+                        bne scaStream
+                        lda WorkNxtCmdLo,x              // RAM image: address = base + offset
+                        clc
+                        adc SidBaseLo
                         sta $08
                         lda WorkNxtCmdHi,x
+                        adc SidBaseHi
                         sta $09
-                        bne ProcessCurrentCmd
-RtsToProcessVoice:      rts
+                        rts
+scaStream:              jmp sidWinSeat                  // paged: seat the window, address from it
+}
 
+RtsToProcessVoice:      rts
 ProcessCmdLoop:         jsr RouteCommand
+
+                        // Process the command at WorkNxtCmd,x. The pointer is a FILE
+                        // OFFSET, so $08/$09 (where the command's bytes are) is derived
+                        // here, every pass: the advance below moves the offset on, and a
+                        // handler that loads a new one -- CALL, END, TAL -- just returns
+                        // through this label. The init song routine leaves the three
+                        // voices' pointers at their stream starts.
+                        // Called from ProcessVoice.
+SetCurrentCmdAddress:
 ProcessCurrentCmd:      lda SID_STATUS
                         and DataVoiceBitMask,x
                         beq RtsToProcessVoice
+                        jsr sidCmdAddress
                         ldy #$00
                         lda ($08),y                     // Fetch current command byte from (fd,fe)
                         sta $0a                         // Store the current command byte in $FF
                         iny
                         lda ($08),y                     // Fetch next option by for the command from (fd,fe)
                         tay
-                        lda $08                         // Increase address in fd,fe by 2 - move it to the
-                        clc                             // start of the next command byte
-                        adc #$02
-                        sta $08                         // Store lo addrss of next comand
+                        clc                             // every command is a byte and an option
+                        lda WorkNxtCmdLo,x              //   byte, so the next command is two
+                        adc #$02                        //   offsets on
                         sta WorkNxtCmdLo,x
-                        lda $09
-                        adc #$00
-                        sta $09                         // Store hi address of next command
-                        sta WorkNxtCmdHi,x
+                        bcc nxtCmdNoCarry
+                        inc WorkNxtCmdHi,x
+nxtCmdNoCarry:
                         lda $0a                         // $ff=Current command to execute  A=Command Y=Option X=voice # (0..2)
 DecodeCommand:          and #%00000011                  // ****
                         bne ProcessCmdLoop              // Notes always end in 00.  01,10 and 11 are commands.
@@ -1425,10 +1537,10 @@ rc___110110:            lsr
                         // Stack has Repeat section number
 rc_00110110_HED:        pla                             // Command: HED
                         sta WorkHEDRepeatCnt,x          // Store current head value here (How many times to repeat this section)
-                        lda $08                         // $FD,$FE is memory address of NEXT command after HED
-                        sta WorkCmdAfterHEDLo,x         // Lo of next command after HED
-                        lda $09
-                        sta WorkCmdAfterHEDHi,x         // Hi of next command after HED
+                        lda WorkNxtCmdLo,x              // the command after HED, as a file offset
+                        sta WorkCmdAfterHEDLo,x
+                        lda WorkNxtCmdHi,x
+                        sta WorkCmdAfterHEDHi,x
                         lda WorkVoiceForCallPhrase,x
                         sta WorkVoiceForHEDDef,x
                         rts
@@ -1541,21 +1653,23 @@ ro_nnnn0010_CALL:       sta $0a                         // Store Phrase # here f
                         beq MaxInnerCallsError
                         inc WorkPhraseCallStack,x
                         tay
-                        lda $08                         // FD,FE is the memory address of the command after this one
+                        lda WorkNxtCmdLo,x              // the command after this one, as an offset
                         sta WorkCallStkNxtCmdAdrLo,y
-                        lda $09
+                        lda WorkNxtCmdHi,x
                         sta WorkCallStkNxtCmdAdrHi,y
                         lda WorkVoiceForCallPhrase,x
                         sta WorkCallStkState,y          //  y is Voice 1: 0-4  2:5=9   3:10-14
                         ldy $0a
-                        lda PhraseDefHi,y
+                        lda PhraseDefHi,y               // an undefined phrase has BOTH bytes clear:
+                        ora PhraseDefLo,y               //   offsets are never 0, they start at 8
                         beq NoSuchPhraseError
-                        sta $09
+                        lda PhraseDefHi,y
+                        sta WorkNxtCmdHi,x
                         lda PhraseDefLo,y
-                        sta $08
+                        sta WorkNxtCmdLo,x
                         lda WorkPhraseUnknown,y
                         sta WorkVoiceForCallPhrase,x
-                        rts
+                        rts                             // the loop head derives the new address
 
 
 
@@ -1568,10 +1682,10 @@ ro______110:            lsr
                         // aaaa is pattern number (0-23)
                         // x voice
 ro_aaaa0110_DEF:        tay
-                        lda $08                         // Load hi of next note address
+                        lda WorkNxtCmdLo,x              // the phrase starts at the next command
                         sta PhraseDefLo,y               //   y=phrase index
-                        lda $09                         // Load lo of next note address
-                        sta PhraseDefHi,y               //   y=phrase index
+                        lda WorkNxtCmdHi,x
+                        sta PhraseDefHi,y
                         lda WorkVoiceForCallPhrase,x
                         sta WorkPhraseUnknown,y
                         lda WorkPhraseCallStack,x
@@ -1579,8 +1693,9 @@ ro_aaaa0110_DEF:        tay
                         beq MaxInnerCallsError
                         inc WorkPhraseCallStack,x
                         tay
-                        lda #$00
-                        sta WorkCallStkNxtCmdAdrHi,y
+                        lda #$00                       // tombstones the slot: clear BOTH bytes,
+                        sta WorkCallStkNxtCmdAdrHi,y   //   because a real offset is never 0
+                        sta WorkCallStkNxtCmdAdrLo,y
                         rts
 
 
@@ -1842,10 +1957,11 @@ ro_00001111_TAL:        lda WorkHEDRepeatCnt,x
 prepareRepeat:          lda WorkVoiceForCallPhrase,x
                         cmp WorkVoiceForHEDDef,x
                         bne crossVoiceCallError         // if the voice the hed was defined on is different than this tail
-                        lda WorkCmdAfterHEDLo,x         // Load the lo,hi memory location of the command that is just after HED, these notes will play next
-                        sta $08
+                        lda WorkCmdAfterHEDLo,x         // the command just after HED plays next
+                        sta WorkNxtCmdLo,x
                         lda WorkCmdAfterHEDHi,x
-                        sta $09
+                        sta WorkNxtCmdHi,x
+                        rts                             // the loop head derives the new address
 exitTALRoutine:         rts
 crossVoiceCallError:    lda #%00111000
                         sta SID_STATUS
@@ -1862,13 +1978,16 @@ ro_00101111_end:  {     lda WorkPhraseCallStack,x
                         dec WorkPhraseCallStack,x
                         tay
                         dey
-                        lda WorkCallStkNxtCmdAdrHi,y
+                        lda WorkCallStkNxtCmdAdrHi,y    // an unused slot is clear in BOTH bytes:
+                        ora WorkCallStkNxtCmdAdrLo,y    //   offsets never are, they start at 8
                         beq justReturn
-                        sta $09
+                        lda WorkCallStkNxtCmdAdrHi,y
+                        sta WorkNxtCmdHi,x
                         lda WorkCallStkNxtCmdAdrLo,y
-                        sta $08
+                        sta WorkNxtCmdLo,x
                         lda WorkCallStkState,y
                         sta WorkVoiceForCallPhrase,x
+                        rts                             // the loop head derives the new address
 justReturn:             rts
 stopSong:               lda #%00100000
                         sta SID_STATUS

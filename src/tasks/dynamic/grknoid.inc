@@ -2996,6 +2996,7 @@ gkMtPlay:
     sta kArg+2                  //   shift itself (+1 in this field is one octave DOWN)
     lda #0
     sta kArg+3                  // no semitone offset
+    lda #0                      // mode: the image is in RAM at kPtr
     jsr kSidPlay                // blocks: the tune, a hush, or a refusal
     bcs gkMtBusy                // refused: the buffer still holds this tune, ask again later
     //  ---- it played: a hush, or a one-shot reaching its end

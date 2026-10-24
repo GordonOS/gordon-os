@@ -1405,6 +1405,7 @@ gtMusicThread:
     sta kArg+2                  //   pitch shift itself (+1 here is one octave DOWN)
     lda #0
     sta kArg+3                  // no semitone offset
+    lda #0                      // mode: the image is in RAM at kPtr
     jsr kSidPlay                //   The loop lives HERE, not in the file: tetris.mus
                                 //   is a single pass that ends in HLT (no HED/TAL), so
                                 //   `run sidplay tetris` plays it once and stops while
