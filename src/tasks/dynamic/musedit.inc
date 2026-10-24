@@ -5586,6 +5586,10 @@ muPtMul:
     dey
     bne muPtMul
 muPtRet:
+    lda muPhRowT                // the player's own work takes time on top of the
+    clc                         //   sleep it asks for, so a row is a tick longer
+    adc #1                      //   than the delay -- without this the playhead
+    sta muPhRowT                //   creeps ahead of the music
     rts
 
 // --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
@@ -5821,17 +5825,12 @@ muPfRts:
 //  then draws only that line -- plus the row numbers, which are bar-relative and
 //  so change on every scroll. Nothing else in the band is touched.
 muScrollBand:
+    jsr muCursorHide            // the glyph must not travel with the band
     lda #MU_GRID_TOP
     ldx #MU_GRID_BOT
     jsr kScrollScreen
-    ldy #MU_ROW                 // the cursor glyph went up with the band
-    lda (dataPtr),y
-    sec
-    sbc #1
-    cmp #MU_GRID_TOP            // off the band: the glyph went with it, so the row
-    bcs muSbRow                 //   stays at the band top and nothing is drawn
-    lda #MU_GRID_TOP
-muSbRow:
+    lda #MU_GRID_TOP+MU_FOLLOW_CENTER
+    ldy #MU_ROW                 // the cursor holds the middle row
     sta (dataPtr),y
     jmp muGdLine                // the line that appeared, lanes and number
 
