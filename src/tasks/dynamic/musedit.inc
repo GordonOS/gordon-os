@@ -1842,11 +1842,17 @@ muDrawHead:
     muStr(muSTem2)
     jsr muTextAt
     lda muTempo
-    jsr muHex8
+    ldx #0
+    jsr muNum16
     muStr(muSBar2)
     jsr muTextAt
+    ldy #MU_CURCOL              // where the bar number goes, for the playhead update
+    lda (dataPtr),y
+    sta muHeadBarCol
     jsr muCursorAbs             // A/X = the cursor's absolute row
     jsr muBarOf                 // A/X = that row's bar, 1-based
+    sta muHeadBar
+    stx muHeadBar+1
     jsr muNum16
     muStr(muSRow2)
     jsr muTextAt
@@ -1868,6 +1874,40 @@ muDrawHeadRow:
     ldy #MU_CURCOL
     lda muHeadRowCol
     sta (dataPtr),y
+    jsr muCursorAbs
+    jmp muNum16
+
+// --- muPhHead -- the head's BAR and R fields follow the playhead ---
+//  The row moves every line and the bar once every N lines, so the bar field is
+//  rewritten only when its number really changes. Both fields are rewritten
+//  together when it does: the row field's column follows the bar's width.
+muPhHead:
+    jsr muCursorAbs
+    jsr muBarOf
+    cmp muHeadBar
+    bne muPhBar
+    cpx muHeadBar+1
+    bne muPhBar
+    jmp muDrawHeadRow           // the bar has not moved: only the row number
+muPhBar:
+    sta muHeadBar
+    stx muHeadBar+1
+    ldy #MU_CURROW
+    lda #0
+    sta (dataPtr),y
+    ldy #MU_CURCOL
+    lda muHeadBarCol
+    sta (dataPtr),y
+    muStr(muSBar2)
+    jsr muTextAt
+    jsr muCursorAbs
+    jsr muBarOf
+    jsr muNum16
+    ldy #MU_CURCOL              // the row field moved with the bar's width
+    lda (dataPtr),y
+    sta muHeadRowCol
+    muStr(muSRow2)
+    jsr muTextAt
     jsr muCursorAbs
     jmp muNum16
 
@@ -6059,7 +6099,7 @@ muPhCursor:
     ldy #MU_ROW
     sta (dataPtr),y
     jsr muCursorShow
-    jmp muDrawHeadRow           // only the row number changes with the playhead
+    jmp muPhHead                // the bar and the row both follow the playhead
 muPcGone:
     lda #MU_GRID_TOP            // out of the window: park it inside so the next
     ldy #MU_ROW                 //   hide lands on a real cell
@@ -6459,7 +6499,7 @@ muGdRts:
 // ==========================================
 muSLanes:   .text "ROW VOICE 1     VOICE 2     VOICE 3"
             .byte 0
-muSTem2:    .text " TEM$"
+muSTem2:    .text " TEM "
             .byte 0
 muSBar2:    .text " BAR "
             .byte 0
@@ -6683,6 +6723,8 @@ muTmpL:     .byte 0
 muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
 muHeadRowCol: .byte 0           // the head's row number, for the row-only update
+muHeadBarCol: .byte 0           // the head's bar number, and where it sits
+muHeadBar:  .word 0
 muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
 muPhPtrHi:  .byte 0
 muPhNeed:   .byte 1             // the current row's length in ticks

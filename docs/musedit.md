@@ -44,7 +44,7 @@ first — `S` in `sidplay` stops the tune — and the editor starts normally.
 ## The screen
 
 ```
-commodo.mus TEM$90 BAR3 R048   C-4 16
+commodo.mus TEM 144 BAR3 R048      C-4
 ROW VOICE 1     VOICE 2     VOICE 3   OVR
 >01 C-4 16  *   A-3 8       ... 2
  02                         ... 4
@@ -56,8 +56,9 @@ ROW VOICE 1     VOICE 2     VOICE 3   OVR
 DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q
 ```
 
-**Row 0** — the file name, the tempo in force, the bar and the row under the cursor, and the
-**pitch readout** — the note under the pointer, or the note at the cursor, with its length.
+**Row 0** — the file name, the tempo in force (in decimal), the bar and the row under the cursor,
+and the **pitch readout** — the note under the pointer, or the note at the cursor. The bar and
+the row are what the playhead moves, so during playback they say where the music is.
 
 **Row 1** — the three lane headers, and at the right the note-entry mode: `OVR` or `INS`.
 
