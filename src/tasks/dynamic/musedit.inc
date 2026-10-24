@@ -1844,11 +1844,11 @@ muDrawHead:
     lda muTempo
     ldx #0
     jsr muNum16
+    ldy #MU_CURCOL              // the tail -- BAR, the bar, R, the row -- starts here,
+    lda (dataPtr),y             //   and the playhead rewrites it from here
+    sta muHeadBarCol
     muStr(muSBar2)
     jsr muTextAt
-    ldy #MU_CURCOL              // where the bar number goes, for the playhead update
-    lda (dataPtr),y
-    sta muHeadBarCol
     jsr muCursorAbs             // A/X = the cursor's absolute row
     jsr muBarOf                 // A/X = that row's bar, 1-based
     sta muHeadBar
@@ -6723,7 +6723,7 @@ muTmpL:     .byte 0
 muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
 muHeadRowCol: .byte 0           // the head's row number, for the row-only update
-muHeadBarCol: .byte 0           // the head's bar number, and where it sits
+muHeadBarCol: .byte 0           // where the head's BAR field starts, for the playhead
 muHeadBar:  .word 0
 muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
 muPhPtrHi:  .byte 0
