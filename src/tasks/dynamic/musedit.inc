@@ -2230,6 +2230,9 @@ muGdVNo:
 //  blank, so a scroll has nothing to redraw under a sounding note.
 muGdCells:
     ldx muSv
+    lda muVoiceCol,x            // the lane wears its voice's colour, the same one
+    jsr kSetTextColor           //   the dot for that voice uses
+    ldx muSv
     lda muLaneCol,x
     sta muGdCol
     jsr muGdAtCell
@@ -2281,7 +2284,8 @@ muGdCMarkSet:
     pla
     jsr muPutC
 muGdCDone:
-    rts
+    lda #MU_C_TEXT              // everything else on the row is plain white
+    jmp kSetTextColor
 
 // --- muNumDur -- print A (1..64) without a leading zero ---
 muNumDur:
@@ -6550,8 +6554,15 @@ muDotTabHi: // ...and its ninth bit, which kSpritePos takes in C
     .byte 215, 218, 221, 224, 226, 232, 235, 238, 241, 244, 247, 249
     .byte 255, 258, 261, 264, 266, 272, 275, 278, 281, 284, 287, 289
     .byte 295, 298, 301, 304, 306, 310, 310, 310, 310, 310, 310, 310
-muLaneCol:  .byte 3, 16, 28    // the first lane cell of each voice
-muLaneW:    .byte 12, 11, 11   // ...and how many cells it has
+// The lanes are one width and one column apart, and the first one starts at
+// MU_LANE1_COL -- the cell just under its header. Everything else is derived, so
+// a lane cannot drift off its header.
+.const MU_LANE1_COL = 4
+.const MU_LANE_W    = 11
+.const MU_LANE_STEP = MU_LANE_W+1
+muLaneCol:  .byte MU_LANE1_COL, MU_LANE1_COL+MU_LANE_STEP, MU_LANE1_COL+2*MU_LANE_STEP
+muLaneW:    .byte MU_LANE_W, MU_LANE_W, MU_LANE_W
+muVoiceCol: .byte 2, 7, 3       // red, yellow, cyan -- the dot colours, voice 1..3
 muSBar:     .text "DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q"
 muSBarEnd:  .byte 0
 muSUsage:   .text "? name - run musedit <name>"
@@ -6696,6 +6707,12 @@ muBarMapEnd:
 // other or the build stops.
 .assert "bar map covers the row", (muBarMapEnd - muBarMap) == MU_SCREEN_COLS ? 1 : 0, 1
 .assert "bar text ends at the Q column", (muSBarEnd - muSBar) == 38 ? 1 : 0, 1
+// The three lane headers in row 1 are "ROW VOICE 1     VOICE 2     VOICE 3", so
+// the lanes start at 4, 16 and 28: a note always sits under its own header.
+.assert "voice 1 lane starts under its header", (MU_LANE1_COL == 4) ? 1 : 0, 1
+.assert "voice 2 lane starts under its header", (MU_LANE1_COL+MU_LANE_STEP == 16) ? 1 : 0, 1
+.assert "voice 3 lane starts under its header", (MU_LANE1_COL+2*MU_LANE_STEP == 28) ? 1 : 0, 1
+.assert "the last lane ends inside the row", (MU_LANE1_COL+2*MU_LANE_STEP+MU_LANE_W <= MU_SCREEN_COLS) ? 1 : 0, 1
 muSDot:     .text "dot.spr"
     .byte 0
 muSPointer: .text "pointer.spr"

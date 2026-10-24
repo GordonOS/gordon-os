@@ -355,11 +355,15 @@ DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q
 | 24 | the control bar: duration, dot state, tie, play, commands, undo, save, quit |
 
 - **Columns**: 4 (row number) + 11 + 1 + 11 + 1 + 11 = 39; the spare column 39 is unused headroom
-  marker.
+  marker. The lanes start at 4, 16 and 28 — each one directly under its header in row 1 — and are
+  one width, all of it derived from `MU_LANE1_COL` and `MU_LANE_W` so a lane cannot drift off the
+  header it belongs to.
 - **Lane, 11 cells**: three for the note and the bar as far as it reaches; the last cell is `*`
   when the note carries commands, or `~` when its onset is off-grid (the bar then stops a cell
   short). A rest shows `...` at its onset; a command that fires where no note starts shows its
-  mnemonic (`WAV=4`). A tie draws one continuous bar.
+  mnemonic (`WAV=4`). A tie draws one continuous bar. Each lane is drawn in its voice's colour —
+  red, yellow, cyan, the same three the dots use — and the text colour goes back to white for the
+  row numbers and everything outside the lanes.
 - **Cursor**: the cell at `(row, voice)` is drawn in the highlight colour and the row number is
   prefixed `>`; the control bar names the voice. No reverse-video glyph is needed, so no cell
   has to be restored by a writer that cannot restore it.

@@ -77,6 +77,9 @@ at the playhead, so it always agrees with the note shown in the lane; a voice th
 dot, and the dots go when the tune stops. A natural's dot sits on the white part of its key, below
 the black keys; an accidental's sits up on the black key itself.
 
+A lane is drawn in its own voice's colour — the same red, yellow and cyan — so a note and the dot
+that follows it are one thing seen twice. The row number, the lane headers and the head stay white.
+
 **Row 24** — the control bar: the armed duration with `-`/`+` steppers, the dot state, the tie
 toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, SAVE and Q are clickable; the rest
 answer `? not yet` and are driven from the keys instead (`1`-`9` arm the duration, `.` cycles

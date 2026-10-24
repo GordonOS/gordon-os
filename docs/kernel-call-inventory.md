@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1273 total call sites** found across `src/`.
+- **1275 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -106,7 +106,7 @@ API surface this document is inventorying.
 | [`kPrintString`](#kprintstring) | `$E006` | 118 | 32 | Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator. |
 | [`kPrintChar`](#kprintchar) | `$E003` | 100 | 16 | Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom. |
 | [`kSetCursor`](#ksetcursor) | `$E009` | 53 | 14 | Set the kernel cursor position (X=col, Y=row). The only screen routine that preserves all registers. |
-| [`kSetTextColor`](#ksettextcolor) | `$E063` | 51 | 4 | Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive). |
+| [`kSetTextColor`](#ksettextcolor) | `$E063` | 53 | 4 | Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive). |
 | [`kReuToC64`](#kreutoc64) | `$E069` | 34 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
 | [`kReuFromC64`](#kreufromc64) | `$E06C` | 33 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
 | [`kSwitchView`](#kswitchview) | `$E054` | 31 | 18 | Switch the VIC-II display to another task's screen -- changes only what's shown, not where the caller writes. |
@@ -341,7 +341,7 @@ Set the kernel cursor position (X=col, Y=row). The only screen routine that pres
 
 ### kSetTextColor
 
-``$E063`` — **51 calls** across 4 file(s)
+``$E063`` — **53 calls** across 4 file(s)
 
 Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive).
 
@@ -349,7 +349,7 @@ Set the text colour for the current task's surface; picked up by `kPrintChar` on
 |---|---:|
 | `src/tasks/dynamic/gortris.inc` | 27 |
 | `src/tasks/dynamic/grknoid.inc` | 18 |
-| `src/tasks/dynamic/musedit.inc` | 4 |
+| `src/tasks/dynamic/musedit.inc` | 6 |
 | `src/tasks/dynamic/basic.asm` | 2 |
 
 ### kReuToC64
