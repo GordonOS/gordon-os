@@ -375,6 +375,10 @@ The first release always plays from the start: the format has no seek command, a
 stream can only be entered at its beginning or at a `HED`. Use sections to structure a long
 tune.
 
+A pass is played once. When the tune reaches its last row the music stops by itself and the
+score rewinds to the beginning, cursor and all, ready for the next `SPACE`. Sections still loop
+within a pass (`HED`/`TAL`), and the cursor follows the rewind when they do.
+
 Only one player can own the SID, and `run musedit` is refused up front while another task has
 `sid.lib` loaded — so a busy chip never costs you the editor session. If the chip is taken
 *while* you are editing (a task loaded from the shell), `SPACE` reports `? no player` for a

@@ -93,6 +93,7 @@
 .const MU_ERR_TAL   = 5       // a TAL whose HED belongs to another phrase
 .const MU_UNDO_SIZE = 2048    // the undo stack, in bytes (many small actions)
 .const MU_MUS_DELAY = 1       // one player tick per jiffy
+.const MU_MUS_REPEATS = 1     // one pass through the tune: the end stops it
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
@@ -5637,6 +5638,27 @@ muPlayStop:
     sta muPlayHush
     jmp muSidHushSafe
 
+// --- muPlayRewind -- the tune ended: the playhead goes back to the beginning ---
+//  Reached from muPlayTick when the child reports a natural end. The score is
+//  redrawn from row 0, so the notes come back with the cursor -- the tune does
+//  not start itself again, the player is spawned for a single pass.
+muPlayRewind:
+    lda #0
+    sta muPhCurLo
+    sta muPhCurLo+1
+    sta muPhAcc
+    sta muPhAcc+1
+    sta muTop
+    sta muTop+1
+    sta muHistN
+    sta muHistN+1
+    sta muHistN+2
+    sta muPhPtrLo
+    sta muPhPtrHi
+    lda tickCount
+    sta muPhLast
+    jmp muRedrawAll             // grid, head and cursor, in that order
+
 // --- muPlayTick -- once per idle pass: refusal report, playhead, second hush ---
 muPlayTick:
     inc $54a9
@@ -6203,15 +6225,23 @@ muMusicThread:
     sta kPtr+1
     lda #MU_MUS_DELAY
     sta kArg                    // ticks per jiffy
-    lda #0
-    sta kArg+1                  // 0 = the player repeats the tune when it ends
+    lda #MU_MUS_REPEATS
+    sta kArg+1                  // play it once: the end is the end
     sta kArg+2                  // no transpose
     sta kArg+3
     lda #1                      // a play attempt is made: kSidHush from the parent
     sta muSidOk                 //   is only safe once sid.lib has loaded
     jsr kSidPlay
-    bcc muMusicThread           // returned: hushed, or the tune finished
-    lda #0                      // refused: another task owns the SID
+    bcs muMtRefused             // refused: another task owns the SID
+    lda muPlayOn
+    beq muMusicThread           // we were hushed: the parent asked for the stop
+    lda #0                      // the tune ran to its last row: stop here and let
+    sta muPlayOn                //   the parent rewind the score
+    lda #1
+    sta muPlayEnd
+    jmp muMusicThread
+muMtRefused:
+    lda #0
     sta muPlayOn
     lda #1
     sta muPlayRefd
@@ -6611,7 +6641,8 @@ muCapHi:    .byte 0
 muTmp2:     .byte 0, 0
 
 // --- playback: the parent and its music child share these code bytes ---
-muPlayOn:   .byte 0             // 1 = play, 0 = be silent  (parent -- child)
+muPlayOn:   .byte 0
+muPlayEnd:  .byte 0             // the child reached the tune's last row             // 1 = play, 0 = be silent  (parent -- child)
 muPlayQuit: .byte 0             // 1 = leave for good       (parent -- child)
 muPlaySlot: .byte $ff           // the child's slot, $ff = no child
 muPlayHush: .byte 0             // the stop second-hush guard
