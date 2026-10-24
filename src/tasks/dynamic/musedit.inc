@@ -1903,11 +1903,11 @@ muPhBar:
     jsr muCursorAbs
     jsr muBarOf
     jsr muNum16
+    muStr(muSRow2)              // R and the row, laid out as the head draw does
+    jsr muTextAt
     ldy #MU_CURCOL              // the row field moved with the bar's width
     lda (dataPtr),y
     sta muHeadRowCol
-    muStr(muSRow2)
-    jsr muTextAt
     jsr muCursorAbs
     jmp muNum16
 
