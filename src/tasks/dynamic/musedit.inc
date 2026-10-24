@@ -4992,7 +4992,7 @@ muDcRts:
 .const MU_DOT_SLOT0 = 5           // slots 0 and 1 are the pointer
 .const MU_DOT_Y     = 213         // a sprite's y is a RASTER line: the display
 .const MU_DOT_XO    = 14          //   window starts at 51, and the dot is 10 rows
-.const MU_DOT_XMIN  = 24          //   into the shape. X: the window starts at 24
+.const MU_DOT_XMIN  = 17          //   into the shape. X: the window starts at 24
 .const MU_DOT_XMAX  = 310         //   and the dot is 10 columns in, so +14 centre
 .const MU_DOT_KEYS  = $e3         // slots 5, 6, 7 (and the pointer's two)
 
@@ -6503,14 +6503,14 @@ muLetterSem: .byte 0, 0, 2, 4, 5, 7, 9, 11
     // where the piano drawing puts it (the black keys are offset on purpose).
     muDotBit:   .byte 32, 64, 128 // the dot slots in the $D015 mask
 muDotTab:   // octave x 12 + semitone -> the dot's x, in raster coordinates
-    .byte 24, 24, 24, 24, 25, 31, 34, 37, 40, 43, 45, 48
-    .byte 54, 57, 60, 63, 65, 71, 74, 77, 80, 83, 85, 88
-    .byte 94, 97, 100, 103, 105, 111, 114, 117, 120, 123, 125, 128
-    .byte 134, 137, 140, 143, 145, 151, 154, 157, 160, 163, 165, 168
-    .byte 174, 177, 180, 183, 185, 191, 194, 197, 200, 203, 205, 208
-    .byte 214, 217, 220, 223, 225, 231, 234, 237, 240, 243, 245, 248
-    .byte 254, 257, 260, 263, 265, 271, 274, 277, 280, 283, 285, 288
-    .byte 294, 297, 300, 303, 305, 310, 310, 310, 310, 310, 310, 310
+    .byte 17, 20, 23, 25, 28, 31, 34, 37, 40, 43, 45, 48
+    .byte 57, 60, 63, 65, 68, 71, 74, 77, 80, 83, 85, 88
+    .byte 97, 100, 103, 105, 108, 111, 114, 117, 120, 123, 125, 128
+    .byte 137, 140, 143, 145, 148, 151, 154, 157, 160, 163, 165, 168
+    .byte 177, 180, 183, 185, 188, 191, 194, 197, 200, 203, 205, 208
+    .byte 217, 220, 223, 225, 228, 231, 234, 237, 240, 243, 245, 248
+    .byte 257, 260, 263, 265, 268, 271, 274, 277, 280, 283, 285, 288
+    .byte 297, 300, 303, 305, 308, 310, 310, 310, 310, 310, 310, 310
 muLaneCol:  .byte 3, 16, 28    // the first lane cell of each voice
 muLaneW:    .byte 12, 11, 11   // ...and how many cells it has
 muSBar:     .text "DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q"
