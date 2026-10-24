@@ -515,6 +515,15 @@ muWcBad:
 //  leak the filesystem a tune at a time. The real <base>.mus is untouched until
 //  SAVE, so "quit without saving" stays safe.
 
+// --- muImgChanged -- the block changed, so make the working file agree ---
+//  An edit writes the block; the windows and the walker read <base>.wrk. Until the
+//  write path streams to the file itself, every edit that lands in the block puts
+//  the pages it touched back -- one page per 256 bytes of tune, at a human's
+//  keystroke rate.
+muImgChanged:
+    jsr muWinReset
+    jmp muScrFill
+
 // --- muSFArg -- kArg = the scratch name ---
 muSFArg:
     lda #<muSFName
@@ -4411,6 +4420,7 @@ muUndoKPtr:
 //  multi-voice insert undoes and redoes as one step. An overflow drops the whole
 //  history, but only at an action's start, so a group is never torn.
 muPushEdit:
+    jsr muImgChanged             // the edit landed in the block: the file follows
     lda muRecCont
     bne muPeAppend
     lda #1
