@@ -46,8 +46,9 @@ flowchart LR
 The build scripts run under **Windows PowerShell 5.1** on Windows and under
 **PowerShell 7 (`pwsh`)** on Linux/macOS; they resolve the host's own interpreter,
 Python and Ninja themselves (`tools/host.ps1`, `tools/toolpaths.ps1`). The VICE
-driver helpers (`vice-test.ps1`, `vice-step.ps1`, `drive-string-tests.ps1`) use
-Win32 `P/Invoke` and are Windows only.
+driver (`tools/shots.py`) talks to the emulator's binary monitor over TCP, so it is
+not tied to a window manager -- and it is the ONLY supported way to drive VICE: see
+its header for why a keystroke sent to the window cannot reach GordonOS.
 
 Per-OS install commands for every prerequisite — VS Code + VS64, Java,
 KickAssembler, VICE and PowerShell 7 — are in
@@ -499,9 +500,7 @@ runs at ~60 Hz and misses an instant press.
 
 | Helper | What it does |
 |---|---|
-| `vice-step.ps1` | `launch` / `keys "text"` / `enter` — a stepwise driver with explicit key events and screenshots |
-| `vice-test.ps1` | boots and drives BASIC via SendKeys, taking screenshots |
-| `drive-string-tests.ps1` | runs the string-domain regression suite in BASIC |
+| `shots.py` | drives VICE through its **binary monitor** and captures the README's screenshots |
 | `shots.py` | the README's screenshots, on any host: drives VICE's **binary monitor** (`-binarymonitor`), which halts the machine for every command, so a poke into the kernel's key ring or its `keybHeld` level lands exactly as the keyboard IRQ would write it. `python3 tools/shots.py [name...]` re-takes them into `docs/img/`, `--list` names the shots |
 
 ⚠️ VICE's own `-keybuf`, and the monitor's `KEYBOARD FEED`, put text in the **KERNAL's**

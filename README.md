@@ -734,9 +734,6 @@ gordon-os/
 │   ├── scan-prg.py        Byte-pattern scan of a C64 PRG: address usage + ASCII strings
 │   ├── toolpaths.ps1      Tool paths, read from .vscode/settings.json
 │   ├── launch-vice.ps1    VICE launcher (existing or fresh REU)
-│   ├── vice-step.ps1      VICE automation helper — stepwise driver (launch / send keys / Enter / screenshot / menu / click). Windows only
-│   ├── vice-test.ps1      VICE automation helper — boot + drive BASIC via SendKeys + screenshots. Windows only
-│   ├── drive-string-tests.ps1 VICE automation helper — string-domain regression suite in BASIC. Windows only
 │   ├── publish-binaries.ps1 Publish PRG + REU image to the binaries repo
 │   ├── publish.py         F5 "Publish binaries" debug target (forwards to publish-binaries.ps1)
 │   ├── README.binaries.md Published README for the binaries repo

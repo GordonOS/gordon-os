@@ -9,8 +9,10 @@ GordonOS from a script:
   * VICE's own -keybuf, and the monitor's KEYBOARD FEED, feed the C64 KERNAL's
     keyboard buffer at $0277. GordonOS replaces the KERNAL and scans the matrix
     itself, so both are silently ignored.
-  * tools/vice-step.ps1 and vice-test.ps1 drive the VICE window through Win32
-    SendKeys, so they need Windows.
+  * driving the VICE WINDOW (Win32 SendKeys) loses the first key after every
+    focus change and drops keys outright, because the kernel scans the matrix
+    itself at 60 Hz and an instant press/release falls between scans. Nothing
+    in tools/ does that any more.
 
 Input is therefore injected at the OS level:
   * keys -> the kernel's own ring buffer (keybCount $E216 / keybHead $E217 /
