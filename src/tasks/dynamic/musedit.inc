@@ -5661,7 +5661,12 @@ muPlayRewind:
 
 // --- muPlayTick -- once per idle pass: refusal report, playhead, second hush ---
 muPlayTick:
-    inc $54a9
+    lda muPlayEnd               // the child reached the tune's last row: rewind
+    beq muPtRefd
+    lda #0
+    sta muPlayEnd
+    jmp muPlayRewind
+muPtRefd:
     lda muPlayRefd              // the child met a busy SID: say so once
     beq muPtAlive
     lda #0
@@ -6642,8 +6647,8 @@ muCapHi:    .byte 0
 muTmp2:     .byte 0, 0
 
 // --- playback: the parent and its music child share these code bytes ---
-muPlayOn:   .byte 0
-muPlayEnd:  .byte 0             // the child reached the tune's last row             // 1 = play, 0 = be silent  (parent -- child)
+muPlayOn:   .byte 0             // 1 = play, 0 = be silent  (parent -- child)
+muPlayEnd:  .byte 0             // the child reached the tune's last row
 muPlayQuit: .byte 0             // 1 = leave for good       (parent -- child)
 muPlaySlot: .byte $ff           // the child's slot, $ff = no child
 muPlayHush: .byte 0             // the stop second-hush guard
