@@ -2434,19 +2434,31 @@ muBarPaint:
     jsr muDrawArm
     lda muTid                   // the reverse cells go straight to the framebuffer,
     cmp kbFocus                 //   which belongs to the displayed task
-    bne muBpRts
+    beq muBpGo
+    jmp muBpKeep
+muBpGo:
     lda #0
     sta muBarC
 muBpLp:
     ldy muBarC
     cpy #38
-    bcs muBpRts
+    bcs muBpKeep
     lda muBarMap,y
     beq muBpNx
     cmp muBarHov
     beq muBpRev
     cmp muBarAct
+    beq muBpRev
+    cmp muBarHovP               // reversed by the last paint: put its cell back,
+    beq muBpNorm                //   background nibble included
+    cmp muBarActP
     bne muBpNx
+muBpNorm:
+    lda muSBar,y
+    ldx muBarC
+    ldy #MU_BAR_ROW
+    jsr kBlitChar
+    jmp muBpNx
 muBpRev:
     lda muSBar,y                // the character at this column
     ldx muBarC
@@ -2455,7 +2467,11 @@ muBpRev:
 muBpNx:
     inc muBarC
     jmp muBpLp
-muBpRts:
+muBpKeep:
+    lda muBarHov                // what the next paint has to restore
+    sta muBarHovP
+    lda muBarAct
+    sta muBarActP
     rts
 
 // --- muBarHover -- A = the item under the pointer, 0 = none ---
@@ -6622,6 +6638,8 @@ muBarC:     .byte 0             // the column the bar painter is on
 muTid:      .byte 0             // this task's id, for the display-owner test
 muBarHov:   .byte 0             // the item under the pointer, 0 = none
 muBarAct:   .byte 0             // the item doing something now, 0 = none
+muBarHovP:  .byte 0             // the items the last paint reversed: those cells
+muBarActP:  .byte 0             //   carry a swapped background nibble
 // The control bar's hit map: one code per column of row 24, tested by column.
 // The click route acts on 2, 3 and 4; 5-8 name the items that answer "? not yet"
 // today. Hover and the active highlight read the same map, so a highlight and a

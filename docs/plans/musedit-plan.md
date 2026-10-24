@@ -370,7 +370,9 @@ DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q
   Hover and "doing something now" both read the same per-column hit map the click route uses, so
   a highlight cannot name a different cell than a click would act on. The reversed cells are
   framebuffer writes (`kBlitCharRev`), drawn only while the task holds the display; the plain
-  bar goes through `kPrintCharAt`, so it travels with the surface either way.
+  bar goes through `kPrintCharAt`, so it travels with the surface either way. A cell that was
+  reversed is put back with `kBlitChar`, never by the text writer alone: `kPrintCharAt` keeps a
+  cell's background nibble, and a reversed cell's background is the text colour.
 
 **The scroll region is what keeps the keyboard still.** It is set once after `kSwitchView`, so
 no cursor-carrying writer — ours or the kernel's — can scroll the piano or the control bar

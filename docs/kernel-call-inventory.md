@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1272 total call sites** found across `src/`.
+- **1273 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -142,13 +142,13 @@ API surface this document is inventorying.
 | [`kScanKeyboard`](#kscankeyboard) | `$E01E` | 5 | 5 | Pop one key from the IRQ-filled ring buffer, non-blocking. |
 | [`kSetGfxMode`](#ksetgfxmode) | `$E10D` | 5 | 3 | Switch the current task's surface between hires and multicolour in place, preserving pixels/matrix/colour RAM and per-task colours. |
 | [`kScrollScreen`](#kscrollscreen) | `$E00F` | 4 | 4 | Scroll the current surface's scroll region up by one row, blanking the bottom row. |
+| [`kBlitChar`](#kblitchar) | `$E0ED` | 3 | 3 | Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars. |
 | [`kDynLoad`](#kdynload) | `$E08D` | 3 | 2 | Load a task binary from the REU filesystem and spawn it, applying relocation fixups as the code streams into a pool page. |
 | [`kFillColorRam`](#kfillcolorram) | `$E110` | 3 | 3 | Fill all 1000 colour-RAM slots with a colour (low nibble only -- the MC bitmap pixel-value-3 colour). |
 | [`kPrintGlyph`](#kprintglyph) | `$E0A8` | 3 | 3 | Print a custom 8-byte glyph at the cursor and advance it, identical to `kPrintChar` otherwise. |
 | [`kReadRow`](#kreadrow) | `$E0A2` | 3 | 1 | Read a full 40-char screen row back from the task's char shadow in one DMA (the row variant of `kCharAt`). |
 | [`kReuCmpName`](#kreucmpname) | `$E0B7` | 3 | 1 | Compare one REU-FS directory entry's name against the target filename (internal helper behind `kReuFindFile`). |
 | [`kSetScrollRegion`](#ksetscrollregion) | `$E0E7` | 3 | 3 | Set the current surface's scroll region (the rows that auto-scroll on print/newline overflow); stored per-surface, survives view switches and eviction. |
-| [`kBlitChar`](#kblitchar) | `$E0ED` | 2 | 2 | Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars. |
 | [`kLibHold`](#klibhold) | `$FFE6` | 2 | 2 | Release every library the calling task declared except those in the keep mask -- hands the pool pages back early instead of waiting for task exit. |
 | [`kReadString`](#kreadstring) | `$E060` | 2 | 2 | Read a line of keyboard input into a buffer with echo, cursor-key editing, backspace, and a blinking reverse-video cursor; always null-terminated. |
 | [`kSetCharShadow`](#ksetcharshadow) | `$E09C` | 2 | 1 | Enable/disable the char shadow for the task's surface -- a REU mirror of every printed screen code, so text can be read back exactly (no glyph OCR). |
@@ -978,6 +978,18 @@ Scroll the current surface's scroll region up by one row, blanking the bottom ro
 | `src/tasks/dynamic/edit.inc` | 1 |
 | `src/tasks/dynamic/musedit.inc` | 1 |
 
+### kBlitChar
+
+``$E0ED`` — **3 calls** across 3 file(s)
+
+Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars.
+
+| File | Calls |
+|---|---:|
+| `src/libs/time.asm` | 1 |
+| `src/tasks/dynamic/edit.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
+
 ### kDynLoad
 
 ``$E08D`` — **3 calls** across 2 file(s)
@@ -1044,17 +1056,6 @@ Set the current surface's scroll region (the rows that auto-scroll on print/newl
 | `src/tasks/dynamic/basic.asm` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 | `src/tasks/dynamic/musedit.inc` | 1 |
-
-### kBlitChar
-
-``$E0ED`` — **2 calls** across 2 file(s)
-
-Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars.
-
-| File | Calls |
-|---|---:|
-| `src/libs/time.asm` | 1 |
-| `src/tasks/dynamic/edit.inc` | 1 |
 
 ### kLibHold
 
