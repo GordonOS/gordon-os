@@ -132,8 +132,12 @@
 //  sid.lib (lib 5, lazy) -- two more entries that are NOT $E000 table entries:
 //  the table is full, so their 3-byte stubs sit in the free pocket at $FF7E
 //  (src/kernel/lib.inc, pinned by src/main.asm).
-//      kSidPlay: kPtr/kPtr+1 = .mus image in RAM, kArg = delay (ticks/jiffy),
-//                kArg+1 = repeats (0 = forever, 1 = once, 2-255)
+//      kSidPlay: A = mode -- 0 = kPtr/kPtr+1 is a .mus image in RAM,
+//                1 = kPtr/kPtr+1 is a 9-byte config block naming a file in the
+//                    REU FS (the caller gets the offset from kReuFindFile) plus
+//                    one 256-byte, page-aligned window per voice
+//                kArg = delay (ticks/jiffy), kArg+1 = repeats (0 = forever,
+//                1 = once, 2-255)
 //                -> C=1 refused (another task is already playing)
 //      kSidHush: silence the SID and stop a running player (any task, any time)
 .const kSidPlay         = $FF7E

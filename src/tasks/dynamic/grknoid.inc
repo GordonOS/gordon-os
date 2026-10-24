@@ -364,14 +364,13 @@
 .const GK_MUS_OVER    = 2                   // firstdt: the game-over screen, played ONCE
 .const GK_MUS_N       = 3
 .const GK_MUS_NONE    = $ff                 // no child spawned
-//  ---- THE ONE TUNE BUFFER. Pages of the task's single kMalloc, sized for the LARGEST of
-//  the three tunes and held for the session: the tunes are katmand 4584 B (18 pages),
-//  immig 932 B (4) and firstdt 382 B (2), and cycling those three sizes through the pool
-//  fragments it until the largest request fails (see gkMusInit). WARNING: a tune LONGER than
-//  this is refused by gkMusLoad rather than loaded past the end of the block -- so a new
-//  .mus bigger than the largest one here needs this raised, and otherwise goes quietly
-//  silent instead of corrupting the pool.
-.const GK_MUS_PAGES   = 18
+//  ---- THE TUNE WINDOWS. Three pages of the task's single kMalloc, one 256-byte window per
+//  voice, held for the session: sid.lib pages the tune in from the REU as the music walks
+//  through it, so the RAM cost is these three pages whatever the tune's length (katmand is
+//  4584 B -- 18 pages if it were buffered -- and immig and firstdt are 932 B and 382 B).
+//  Nothing here has to be sized for the largest tune, and a `.mus` of any size up to the
+//  filesystem's 64 KB plays; there is no "too big for the buffer" case left to refuse.
+.const GK_MUS_WIN_PAGES = 3
 .const GK_MUS_DELAY   = 1                   // scheduler ticks slept per jiffy AT 100%:
                                             //   one jiffy of music per jiffy plays the
                                             //   file at its own tempo. sid.lib scales
@@ -2721,27 +2720,28 @@ gkHnStoreIt:
 // ==========================================
 //  The music -- three CGSC tunes on one thread child
 // ==========================================
-//  One child, three tunes, and ONE BUFFER that is allocated once and handed back only at
-//  quit: the child kReuLoads whichever tune the mode asks for into it and plays it. Nothing
-//  is allocated or freed per mode change, and that is the point -- see gkMusInit for the
-//  pool arithmetic that made a per-tune malloc lose the biggest tune first, and
-//  gkMusBufFree for the one place the pages go back.
-//  WARNING: THE BLOCK IS THE TASK'S, THE LOADS ARE THE CHILD'S. The child is the only code
-//  that can know it is outside kSidPlay, and the player reads those bytes on every jiffy it
-//  is running, so nothing may write them while it plays -- which is why the parent owns the
-//  block and the child only ever loads INTO it, never frees it.
-//  WARNING: gkMusCur names the tune IN THE BUFFER, and it is set only after a load
-//  SUCCEEDS. A failed load leaves the previous tune's bytes in place, so a stale gkMusCur
+//  One child, three tunes, and ONE SET OF WINDOW PAGES that is allocated once and handed back
+//  only at quit: the child points the player's config at whichever tune the mode asks for,
+//  and sid.lib pages that file in from the REU as it plays. Nothing is allocated or freed per
+//  mode change, and the RAM cost does not follow the tune's length at all -- see gkMusInit
+//  for the allocation, and gkMusWinFree for the one place the pages go back.
+//  WARNING: THE WINDOWS ARE THE TASK'S, THE CONFIG WRITE IS THE CHILD'S. The child is the only
+//  code that can know it is outside kSidPlay, and the player reads (and refills) those
+//  windows on every jiffy it is running, so nothing may rewrite the config while it plays --
+//  which is why the parent owns the block and the child only ever loads INTO the config,
+//  never frees the pages.
+//  WARNING: gkMusCur names the tune THE CONFIG POINTS AT, and it is set only after a load
+//  SUCCEEDS. A failed load leaves the previous file's offset in place, so a stale gkMusCur
 //  would have the child play the wrong tune; the failure path leaves it alone and the
 //  fallback re-asks.
-//  The child runs THIS task's code pages, so the request and the block pointer are ordinary
+//  The child runs THIS task's code pages, so the request and the window pointer are ordinary
 //  bytes in this image -- there is no IPC and no pointer to pass.
 //  WARNING: every "no music" outcome is SILENT, never an error the player has to read. A
-//  tune missing from the FS, no free TCB slot for the child, no pool room for the buffer,
+//  tune missing from the FS, no free TCB slot for the child, no pool room for the windows,
 //  and another task already owning the SID all leave the game running without music: the
 //  chip is one resource, and sid.lib refuses the second caller rather than sharing it.
 //  ---- AND EACH OF THOSE DEGRADES ON ITS OWN TERMS:
-//  * SID HELD BY ANOTHER TASK. The tune is already in the buffer and is NOT thrown away, and
+//  * SID HELD BY ANOTHER TASK. The config still names the tune and is NOT thrown away, and
 //    the child asks again every GK_MUS_BUSY passes. The retry is one kSidPlay call -- no FS
 //    read and no pool request -- so the music comes back by itself the moment the other
 //    task lets the chip go, even inside a mode that never changes.
@@ -2752,17 +2752,13 @@ gkHnStoreIt:
 //  * NO TCB SLOT for the child at all: the game runs silently for the session, and `ps`
 //    simply shows no child.
 
-//  gkMusInit -- allocate the ONE tune buffer, then start the child.
-//  WARNING: THIS IS THE TASK'S ONLY kMalloc, AND THAT IS THE WHOLE POINT OF THE DESIGN. A
-//  fresh block per tune -- 18, 4 and 2 pages, freed when the player returns -- would cycle
-//  through the pool on every mode change: the sizes differ, the pages come back in pieces,
-//  and the largest tune is the first request the pool can refuse while the smaller ones
-//  still fit. One buffer, allocated once, means the allocator sees exactly one block for
-//  the session.
-//  WARNING: TWO RULES MADE THE BIG ONE FAIL, AND ONE ALLOCATION DEFEATS BOTH. kMalloc
-//  refuses when owned + requested passes MAX_MALLOC_PAGES (64 pages: half the 32 KB
-//  per-slot malloc shadow), and allocFromPool needs CONSECUTIVE free pages -- so a per-tune
-//  cycle can lose the largest tune through either.
+//  gkMusInit -- allocate the three window pages and fill the player's config, then start
+//  the child.
+//  WARNING: THIS IS THE TASK'S ONLY kMalloc, AND IT IS THREE PAGES. One block for the
+//  session, allocated once: a block per tune would cycle three sizes through the pool on
+//  every mode change, and a fragmented pool refuses the largest request first. Streaming
+//  removes the question entirely -- the windows are the same three pages for every tune,
+//  so no tune is ever "too big" for this task.
 //  A failure here is silence with no child at all: the game plays without music and `ps`
 //  shows no child. It is NOT retried, because a kMalloc retry can EVICT another task.
 //  WARNING: NO kLibHold CALL, AND THAT IS THE POINT. filesys.lib is held for the whole
@@ -2772,13 +2768,27 @@ gkHnStoreIt:
 //  patched for the whole system, not per task.
 //  Clobbers A, X, Y and kArg.
 gkMusInit:
-    lda #GK_MUS_PAGES
+    lda #GK_MUS_WIN_PAGES
     jsr kMalloc                 // A = pages -> kPtr = the block
-    bcs gkMuDone                // no room for a tune: no child either, and no music
+    bcs gkMuDone                // no room for the windows: no child either, and no music
     lda kPtr
-    sta gkMusBufLo
+    sta gkMusWinLo
     lda kPtr+1
-    sta gkMusBufHi
+    sta gkMusWinHi
+    ldy #3                      // config +3..+8: the windows, lo/hi interleaved. The
+    ldx #0                      //   block is page-aligned, so all three low bytes are
+gkMuWin:                        //   its own and the high bytes count up from it
+    lda gkMusWinLo
+    sta gkMusCfg,y
+    iny
+    txa
+    clc
+    adc gkMusWinHi
+    sta gkMusCfg,y
+    iny
+    inx
+    cpx #GK_MUS_WIN_PAGES
+    bne gkMuWin
     lda #<gkMusicThread
     sta spawnPtr
     lda #>gkMusicThread
@@ -2789,24 +2799,20 @@ gkMusInit:
     sta kArg+7
     lda #SYS_THREADSPAWN
     jsr syscall
-    bcs gkMuNoChild             // no free slot: hand the buffer straight back
+    bcs gkMuNoChild             // no free slot: hand the window pages back
     stx gkMusSlot               // X = the child's slot
     rts
 gkMuNoChild:
-    jmp gkMusBufFree
+    jmp gkMusWinFree
 gkMuDone:
     rts
 
-//  gkMusLoad -- X = the tune index -> that tune's bytes into the ONE buffer, C=1 on any
-//  failure (not in the FS, unreadable, or longer than the buffer). Nothing is allocated or
-//  freed here: the block is the task's, and gkMusBufFree is the only thing that hands it
-//  back.
-//  WARNING: THE BLOCK IS VALIDATED, NOT RESIZED. A tune longer than GK_MUS_PAGES is REFUSED,
-//  because loading it would run past the end of the block -- so raising the tune sizes means
-//  raising the constant, and this is the guard that turns that mistake into silence.
-//  kReuFindFile and kReuLoad both clobber kPtr and kArg, so the name is re-set in kArg
-//  before each call that wants it. The image is passed to the player AS STORED: kSidPlay
-//  skips the 2-byte load address itself.
+//  gkMusLoad -- X = the tune index -> the player's config names that file, C=1 if it is not
+//  in the FS. Nothing is copied and nothing is allocated: the file stays in the REU and
+//  sid.lib pages it in, so a load is one directory lookup and three bytes.
+//  kReuFindFile clobbers kPtr and kArg, so the name is re-set in kArg first; its answer --
+//  the file's 24-bit FS offset -- goes straight into config +0..+2. The image is passed to
+//  the player AS STORED: kSidPlay skips the 2-byte load address itself.
 //  WARNING: a SUCCESSFUL load does not make the tune playable -- the caller sets gkMusCur,
 //  and a failed load deliberately leaves it alone (see the block header).
 gkMusLoad:
@@ -2817,25 +2823,18 @@ gkMusLoad:
     sta kArg+1
     lda gkMusNLo
     sta kArg
-    jsr kReuFindFile            // C=1: no such file; its size lands in reuFsRemain
+    jsr kReuFindFile            // C=1: no such file; the offset lands in reuFsPtr
     bcs gkMlDone
-    lda reuFsRemain
+    ldy #0                      // config +0..+2: the file's FS offset
+    lda reuFsPtr
+    sta gkMusCfg,y
+    iny
+    lda reuFsPtr+1
+    sta gkMusCfg,y
+    iny
+    lda reuFsPtr+2
+    sta gkMusCfg,y
     clc
-    adc #$ff                    // carry set when the low byte is not zero
-    lda reuFsRemain+1
-    adc #0                      // A = ceil(size / 256)
-    bcs gkMlDone                // an absurd size
-    cmp #GK_MUS_PAGES+1
-    bcs gkMlDone                // longer than the buffer: refuse it, never overflow it
-    lda gkMusNLo                // the FS wants the name in kArg again
-    sta kArg
-    lda gkMusNHi
-    sta kArg+1
-    lda gkMusBufLo              // and the destination in kPtr: the ONE buffer
-    sta kPtr
-    lda gkMusBufHi
-    sta kPtr+1
-    jmp kReuLoad                // C=0: the tune is in the buffer
 gkMlDone:
     rts
 
@@ -2862,18 +2861,19 @@ gkMusStop:
     jmp kSidHush                 // tail call: the player returns, the child goes idle
 
 //  gkMusicBye -- the exit: tell the child to leave for good, hush the chip, make sure it
-//  really is gone, and then hand the tune buffer back. The free is LAST and after the reap,
-//  because the child plays those bytes -- giving the block away while it is inside the player
-//  would be a use-after-free. It must not outlive us either way: it shares this code page.
+//  really is gone, and then hand the window pages back. The free is LAST and after the reap,
+//  because the child is playing out of those windows -- giving the block away while it is
+//  inside the player would be a use-after-free. It must not outlive us either way: it shares
+//  this code page.
 //  WARNING: the free is explicit rather than left to the kernel, which does free a dyn task's
-//  blocks on exit. A task that takes 18 pool pages should say where they go back, and the
+//  blocks on exit. A task that takes pool pages should say where they go back, and the
 //  reap's kill path (a child that would not leave) must not be the thing that decides it.
 gkMusicBye:
     lda #1
     sta gkMusQuit
     jsr gkMusStop
     jsr gkMusReap               // wait for the child, and kill it if it will not go
-    jmp gkMusBufFree            // and give the 18 pages back
+    jmp gkMusWinFree            // and give the three window pages back
 
 //  gkMusReap -- wait for the child to leave, and kill it if it does not.
 //  It shares this code page, so it MUST NOT outlive us: sysExit does not reap thread
@@ -2902,26 +2902,25 @@ gkMrGone:
 gkMrDone:
     rts
 
-//  gkMusBufFree -- hand the ONE buffer back. Called by the PARENT, on the quit path only,
-//  and only after the child has been reaped: nothing may run while the bytes it plays are
-//  being given away.
-//  WARNING: A QUIT MUST REACH THIS. The block is 18 pool pages, and the pool would carry
-//  them for the rest of the session if the free were skipped -- which is the one thing the
-//  buffer-per-tune design got right by accident, and the reason this is explicit rather
-//  than left to the kernel's own free on task exit.
+//  gkMusWinFree -- hand the three window pages back. Called by the PARENT, on the quit path
+//  only, and only after the child has been reaped: nothing may run while the windows the
+//  player reads are being given away.
+//  WARNING: A QUIT MUST REACH THIS. The block is three pool pages, and the pool would carry
+//  them for the rest of the session if the free were skipped -- the reason this is explicit
+//  rather than left to the kernel's own free on task exit.
 //  Clobbers A, X, Y (kFree does).
-gkMusBufFree:
-    lda gkMusBufLo
-    ora gkMusBufHi
+gkMusWinFree:
+    lda gkMusWinLo
+    ora gkMusWinHi
     beq gkMfDone                // nothing held
-    lda gkMusBufLo
+    lda gkMusWinLo
     sta kPtr
-    lda gkMusBufHi
+    lda gkMusWinHi
     sta kPtr+1
     jsr kFree
     lda #0
-    sta gkMusBufLo
-    sta gkMusBufHi
+    sta gkMusWinLo
+    sta gkMusWinHi
     lda #GK_MUS_NONE
     sta gkMusCur                // and no tune is playable
     lda #0
@@ -2931,7 +2930,7 @@ gkMfDone:
     rts
 
 //  gkMusicThread -- the CHILD. It READS the game's bytes (gkMusOn, gkMusQuit, gkMusWant) and
-//  the block gkMusBufLo/Hi point at, and writes gkMusCur; it never touches the game's ZP,
+//  the config and windows gkMusCfg/gkMusWinLo/Hi name, and writes gkMusCur; it never touches
 //  because the two share this code page and only one of them runs at a time.
 //  Reached ONLY through spawnPtr -- the game itself never falls in here.
 //
@@ -2980,12 +2979,14 @@ gkMtLoaded:
     sta gkMusCur
     // fall through -- and play it
 gkMtPlay:
-    //  NO FREE AFTER PLAYING, and that is the change: the next tune is loaded into this same
-    //  buffer. Falling out of kSidPlay is still the only moment the bytes are not being read,
-    //  which is why every LOAD is here and not in the game.
-    lda gkMusBufLo
+    //  NO FREE AFTER PLAYING: the next tune rewrites the same config's file offset, and the
+    //  window pages are reused -- the player forgets every loaded page when it starts
+    //  (StreamPage is re-armed at entry), so nothing stale is ever played. Falling out of
+    //  kSidPlay is still the only moment the windows are not being read, which is why every
+    //  LOAD is here and not in the game.
+    lda #<gkMusCfg
     sta kPtr
-    lda gkMusBufHi
+    lda #>gkMusCfg
     sta kPtr+1
     lda #GK_MUS_DELAY
     sta kArg                    // ticks slept per jiffy AT 100%
@@ -2996,6 +2997,7 @@ gkMtPlay:
     sta kArg+2                  //   shift itself (+1 in this field is one octave DOWN)
     lda #0
     sta kArg+3                  // no semitone offset
+    lda #1                      // mode: the tune is paged from the REU
     jsr kSidPlay                // blocks: the tune, a hush, or a refusal
     bcs gkMtBusy                // refused: the buffer still holds this tune, ask again later
     //  ---- it played: a hush, or a one-shot reaching its end
@@ -3012,7 +3014,7 @@ gkMtPlay:
 gkMtAgain:                      // Rule 4: one shared `jmp` back to the dispatch
     jmp gkMusicThread
 gkMtNoTune:
-    //  ---- no tune in the FS (or none that fits the buffer), not even the attract one
+    //  ---- no tune in the FS, not even the attract one
     //  WARNING: quiet, and NOT on a timer -- see the warning above. Nothing is playable, and
     //  nothing is asked for until a mode change asks again.
     lda #GK_MUS_NONE
@@ -3160,19 +3162,21 @@ gkHiRowBuf:  .fill GK_HI_ENTRYLEN, 0   // one entry, copied out before printing
 
 //  ---- the music, shared with the thread child: it runs THIS code page, so these bytes
 //  are the whole of the interface. The child READS gkMusOn/gkMusQuit/gkMusWant and the
-//  block gkMusBufLo/Hi point at, and writes gkMusCur; the rest is the game's.
+//  config and windows gkMusCfg/gkMusWinLo/Hi name, and writes gkMusCur; the rest is the game's.
 gkMusOn:     .byte 0             // 1 = the game wants music
 gkMusQuit:   .byte 0             // 1 = leave the player loop for good
 gkMusSlot:   .byte GK_MUS_NONE   // the child's slot, $ff = none
 gkMusWant:   .byte GK_MUS_NONE   // the tune the mode wants ($ff = none asked for yet)
-gkMusCur:    .byte GK_MUS_NONE   // the tune IN gkMusBufLo/Hi, $ff = the buffer holds nothing
+gkMusCur:    .byte GK_MUS_NONE   // the tune gkMusCfg names, $ff = it names nothing
 gkMusWait:   .byte 0             // the child's pause before it asks for the SID again
 gkMusDone:   .byte 0             // the child has PLAYED the game-over tune through
 gkMusCnt:    .byte 0             // gkMusReap's countdown (the game's, not the child's)
 gkMusNLo:    .byte 0             // gkMusLoad: the FS name pointer
 gkMusNHi:    .byte 0
-gkMusBufLo:  .byte 0             // gkMusInit out: the task's ONE tune buffer, allocated once
-gkMusBufHi:  .byte 0             //   and freed by gkMusBufFree on the way out
+gkMusWinLo:  .byte 0             // gkMusInit out: the three window pages, allocated once
+gkMusWinHi:  .byte 0             //   and freed by gkMusWinFree on the way out
+gkMusCfg:    .fill 9, 0          // sid.lib's streamed config: the file's FS offset (set by
+                                 //   gkMusLoad) then the three 256-byte window pointers
 
 //  ---- the drawing and collision scratch, same reasoning. gkGLO/gkGHI hold a glyph
 //  pointer between cells; gkBallCellC/R is the ball's own cell, gkSCR2/gkSCR3 its

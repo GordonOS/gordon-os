@@ -276,7 +276,7 @@ Checked against VICE's own source (`vice/src/joyport/mouse_1351.c`,
   `$ff`, so **the buttons read released and do nothing**. Both are needed:
 
   ```
-  x64sc -controlport2device 1351 -mouse -speed 200 -reu -reusize 16384 `
+  x64sc -autostartprgmode 1 -controlport2device 1351 -mouse -speed 200 -reu -reusize 16384 `
         -reuimage reu\REU.bin -reuimagerw build/gordon-os.prg
   ```
 

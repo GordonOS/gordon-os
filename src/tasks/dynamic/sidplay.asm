@@ -5,7 +5,7 @@
 //  Single-instance (NOT re-runnable): re-running gives ? already running.
 //  No screen, no keyboard.
 //
-//  Usage: run sidplay <name> [delay] [repeats] [transpose]
+//  Usage: run sidplay <name> [delay] [repeats] [transpose] [mode]
 //      <name>      base name of the .mus file, <= 7 chars (".mus" appended)
 //      [delay]     scheduler ticks slept per jiffy AT 100% (default 1; 0 is
 //                  forced to 1). sid.lib scales it by the machine's speed, so
@@ -18,27 +18,33 @@
 //                  sysSpeedShift. Use it for the music's own reasons (a tune
 //                  written for another register, a deliberate octave); the
 //                  emulator's pitch shift is not the caller's to answer.
+//      [mode]      0 = decide by size (default), 1 = force streaming,
+//                  2 = force a RAM buffer. Only a test switch.
 //
 //  This task is only a WRAPPER around sid.lib (lib 5): the player body lives
 //  there, behind kSidPlay (call 33) and kSidHush (call 34). The wrapper does
-//  what a library cannot -- it finds the tune in the REU FS, kMallocs a buffer
-//  for it and loads it (a library's libMask is structurally 0, so a library
-//  that loaded a tune would hold no filesys reference), hands sid.lib the
-//  buffer plus the delay and repeat count, then frees the buffer when the lib
-//  returns. The lib owns the SID while it plays, so a second player is refused
-//  (C=1) instead of the two fighting over the chip.
+//  what a library cannot -- it finds the tune in the REU FS (a library's libMask
+//  is structurally 0, so a library that found a file would hold no filesys
+//  reference), hands sid.lib the tune plus the delay and repeat count, then
+//  frees it when the lib returns. The lib owns the SID while it plays, so a
+//  second player is refused (C=1) instead of the two fighting over the chip.
 //
-//  The song buffer is kMalloc'd to fit the file -- ceil(size/256) pages (min
-//  1), capped by the kernel's MAX_MALLOC_PAGES -- and its pointer is stashed in
-//  the instance data at offset 16/17, because kReuFindFile/kReuLoad/kMalloc all
-//  clobber kPtr. The parse scratch (spDelay/spRepeats/spTmp) lives in the code
-//  image instead: the loader copies the code per instance, so those bytes are
-//  per-instance writable RAM.
+//  TWO WAYS TO PLAY, and the size decides which. A tune of up to three pages is
+//  kMalloc'd whole -- ceil(size/256) pages (min 1) -- and kReuLoad'ed, and the
+//  player addresses it directly. A bigger one is STREAMED: the file stays in the
+//  REU and sid.lib pages it in, so the RAM cost is three fixed 256-byte windows
+//  and the tune's length stops being a pool question at all. The buffer or the
+//  window block has one pointer, stashed in the instance data at offset 16/17,
+//  because kReuFindFile/kReuLoad/kMalloc all clobber kPtr. The streamed config
+//  block the player wants lives at offset 18..26 of the same data. The parse
+//  scratch (spDelay/spRepeats/spMode/spTmp) lives in the code image instead: the
+//  loader copies the code per instance, so those bytes are per-instance RAM.
 //
 //  sid.lib drives the Sidplayer out of ZP $02-$0A, so this task declares the
-//  ZP window SID_ZP_BASE/SID_ZP_LEN. libMask: filesys (bit 1) for the load
+//  ZP window SID_ZP_BASE/SID_ZP_LEN. libMask: filesys (bit 1) for the find/load
 //  above and sid (bit 5) for the player. The filesys reference is dropped with
-//  kLibHold as soon as the tune is in RAM, so playing costs sid.lib's pages only.
+//  kLibHold as soon as the tune is found or in RAM, so playing costs sid.lib's
+//  pages only -- the streamed player reads the REU through a kernel entry.
 
 .encoding "screencode_mixed"
 
@@ -55,7 +61,7 @@ sidplayBinStart:
     .byte KF_RELOCATABLE | KF_TAKES_ARGS  // +2:  flags
     .word $5000                  // +3:  origin (page-aligned, nominal)
     .word sidplayEnd - sidplayMain  // +5: code size
-    .byte 18, SID_ZP_BASE, SID_ZP_LEN  // +7: data size, ZP base, ZP len
+    .byte 27, SID_ZP_BASE, SID_ZP_LEN  // +7: data size, ZP base, ZP len
     .word (1 << LIB_FILESYS) | (1 << LIB_SID)  // +10: libMask
     .byte sidplayNameEnd - sidplayName  // +12: name len
 sidplayName:
@@ -96,7 +102,13 @@ spRepSet:
     lda #0                       // absent -> no transpose
 spPitchSet:
     sta spPitch
-    cmp #13                      // the player's own wrap moves ONE octave per field,
+    jsr spNext                   // how to play it
+    bcc spModeSet
+    lda #0                       // absent -> decide by size
+spModeSet:
+    sta spMode
+    lda spPitch                  // the player's own wrap moves ONE octave per field,
+    cmp #13
     bcc spPitchOk                //   so a value outside -12..+12 would land outside
     cmp #$f4                     //   the octave it is meant for ($f4 = -12)
     bcs spPitchOk
@@ -128,7 +140,22 @@ spPitchOk:
     lda dataPtr+1
     sta kArg+1
     jsr kReuFindFile
-    bcs spFailTune               // not found -> say which file, then exit
+    bcc spFound                  // (the failure report is out of branch range)
+    jmp spFailTune               // not found -> say which file, then exit
+spFound:
+
+    //  Which way to play it. Streaming the file costs three fixed pages of
+    //  windows and no buffer at all, so it wins on any tune bigger than the
+    //  windows; the fourth argument forces the choice (1 = stream, 2 = RAM).
+    lda spMode
+    cmp #1
+    beq spStream
+    cmp #2
+    beq spRamPlay
+    lda reuFsRemain+1            // size >= 4 pages -> stream it
+    cmp #4
+    bcs spStream
+spRamPlay:
 
     // Allocate ceil(size/256) pages (min 1). reuFsRemain/reuFsRemain+1
     // hold the 16-bit file size (set by kReuFindFile); kMalloc fails
@@ -166,7 +193,9 @@ spMemOk:                         //   the kLibHold call below pushed it past 127
     lda dataPtr+1
     sta kArg+1
     jsr kReuLoad
-    bcs spFailLoad               // unreadable -> free, say so, exit
+    bcc spLoaded                 // (the failure report is out of branch range)
+    jmp spFailLoad               // unreadable -> free, say so, exit
+spLoaded:
 
     //  The tune is in RAM and filesys.lib has done its job -- but a declared lib
     //  stays resident until the task EXITS, so it would sit in the pool for the
@@ -188,14 +217,100 @@ spMemOk:                         //   the kLibHold call below pushed it past 127
     sta kArg+3                   //   +/-12 into the octave step for us
     lda #0                       // no octave term of our own
     sta kArg+2
+    lda #0                       // mode: the image is in RAM at kPtr
     jsr kSidPlay
-    bcs spFailPlayer             // C=1: refused, or sid.lib would not load
+    bcc spFreeExit               // played, and the SID is hushed
+    jmp spFailPlayer             // C=1: refused, or sid.lib would not load
 
 spFreeExit:
     jsr spFreeBuf
 spExit:
     lda #SYS_EXIT
     jsr syscall                  // exit -- never returns
+
+// ==========================================
+//  spStream -- play the file where it lies, in 256-byte pages
+// ==========================================
+//  sid.lib keeps a page-aligned window per voice and DMA's the page a command
+//  lands in, so the RAM cost is three pages however long the tune is. The file
+//  itself stays in the REU: nothing is copied here, and the player reads it
+//  through `kReuDmaRange`, a KERNEL entry -- which is why filesys.lib can be
+//  dropped before the tune starts.
+spStream:
+    //  The config block, before anything can clobber the filesystem's answer:
+    //  +0..+2 = the file's FS offset, straight from kReuFindFile.
+    ldy #18
+    lda reuFsPtr
+    sta (dataPtr),y
+    iny
+    lda reuFsPtr+1
+    sta (dataPtr),y
+    iny
+    lda reuFsPtr+2
+    sta (dataPtr),y
+
+    lda #3                       // three pages: one window per voice
+    jsr kMalloc
+    bcc spStrMemOk
+    jmp spFailMem
+spStrMemOk:
+    ldy #16                      // the block, for kFree when the tune is over
+    lda kPtr
+    sta (dataPtr),y
+    iny
+    lda kPtr+1
+    sta (dataPtr),y
+    //  +3..+8 = the three window pointers, lo/hi interleaved. The block is
+    //  page-aligned, so the windows are its first three pages and all three
+    //  low bytes are the block's own.
+    ldy #21
+    lda kPtr
+    sta (dataPtr),y
+    iny
+    lda kPtr+1
+    sta (dataPtr),y              // window 0
+    iny
+    lda kPtr
+    sta (dataPtr),y
+    iny
+    lda kPtr+1
+    clc
+    adc #1
+    sta (dataPtr),y              // window 1
+    iny
+    lda kPtr
+    sta (dataPtr),y
+    iny
+    lda kPtr+1
+    clc
+    adc #2
+    sta (dataPtr),y              // window 2
+
+    lda #(1 << LIB_SID)          // sid.lib only: the pager is the kernel's
+    jsr kLibHold
+
+    lda dataPtr                  // kPtr = the config block
+    clc
+    adc #18
+    sta kPtr
+    lda dataPtr+1
+    adc #0
+    sta kPtr+1
+    lda spDelay
+    sta kArg
+    lda spRepeats
+    sta kArg+1
+    lda spPitch
+    sta kArg+3
+    lda #0                       // no octave term of our own
+    sta kArg+2
+    lda #1                       // mode: paged from the REU
+    jsr kSidPlay
+    bcs spStrFail
+    jmp spFreeExit
+spStrFail:
+    jmp spFailPlayer
+
 
 // --- spFreeBuf -- release the tune buffer (pointer stashed at data+16/+17) ---
 spFreeBuf:
@@ -265,7 +380,9 @@ spReport:
     sta kArg+3
     lda #0                       // mode 0 = hires text
     jsr kAllocScreen
-    bcs spExit                   // no free surface: nothing we can do
+    bcc spSurfOk                 // (the exit is out of branch range here)
+    jmp spExit                   // no free surface: nothing we can do
+spSurfOk:
     ldx #0
     ldy #0
     jsr kSetCursor               // (0,0) -- the only X/Y-preserving routine
@@ -397,6 +514,7 @@ spNextNone:
 spDelay:   .byte 1               // ticks slept per jiffy AT 100% (0 -> 1 in sid.lib)
 spRepeats: .byte 1               // 0 = forever, else plays remaining
 spPitch:   .byte 0               // transpose in semitones, -12..+12
+spMode:    .byte 0               // 0 = by size, 1 = force streaming, 2 = force RAM
 spTmp:     .byte 0               // decimal accumulator
 spMsgLo:   .byte 0               // failure report: message pointer
 spMsgHi:   .byte 0

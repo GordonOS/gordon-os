@@ -6334,8 +6334,15 @@ muGdNumLine:
 //  In: X = the voice (muSv), muVRow = its onset row, muPtr = its next command.
 //  The renderer calls this for every event it walks; the playhead reads the
 //  record back instead of walking the tune again.
+//  WARNING: the record is keyed on the command's FILE OFFSET, not its address: the
+//  walker's muPtr is an address, and the player publishes an offset (it may be
+//  reading the tune out of the REU, where it has no address at all). Subtracting
+//  the image base here is what makes the two comparable -- do not "simplify" it
+//  away, or the playhead never matches and the cursor rides the tempo instead.
 muHistAdd:
     ldx muSv
+    jsr muImgToKPtr             // kPtr = the image block, the offset's zero point
+                                //   (clobbers A and Y, so it runs before the slot)
     lda muHistN,x
     and #MU_HIST-1
     sta muTmpL                  // the slot
@@ -6350,8 +6357,11 @@ muHistAdd:
     adc muTmpL
     tay
     lda muPtrLo,x
+    sec
+    sbc kPtr
     sta muHistPLo,y
     lda muPtrHi,x
+    sbc kPtr+1
     sta muHistPHi,y
     lda muVRow,x
     sta muHistRLo,y
