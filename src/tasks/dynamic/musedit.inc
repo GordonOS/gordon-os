@@ -4990,10 +4990,8 @@ muDcRts:
 //  the note currently sounding is simply the byte before it: no history, no
 //  second walk, and it is exact for a whole note and a 64th alike.
 .const MU_DOT_SLOT0 = 5           // slots 0 and 1 are the pointer
-.const MU_DOT_Y     = 213         // a sprite's y is a RASTER line: the display
-.const MU_DOT_XO    = 14          //   window starts at 51, and the dot is 10 rows
-.const MU_DOT_XMIN  = 17          //   into the shape. X: the window starts at 24
-.const MU_DOT_XMAX  = 310         //   and the dot is 10 columns in, so +14 centre
+.const MU_DOT_Y     = 213         // on a black key: the upper three key rows
+.const MU_DOT_YN    = 229         // a natural sits in the white-key row below them
 .const MU_DOT_KEYS  = $e3         // slots 5, 6, 7 (and the pointer's two)
 
 // --- muDotInit -- resolve the dot art, once ---
@@ -5071,6 +5069,9 @@ muDvScanNx:
 muDvFound:
     lda muHistOpt,y
     sta muDotOpt
+    lda #0                      // a natural reads one row lower than an accidental
+    sta muDotNat
+    lda muDotOpt
     and #$07
     beq muDvNext                // a rest: no dot
     tay
@@ -5084,7 +5085,11 @@ muDvFound:
     jmp muDvOct
 muDvNotSharp:
     cmp #$c0
-    bne muDvOct
+    beq muDvFlat
+    lda #1                      // no accidental: a white key
+    sta muDotNat
+    jmp muDvOct
+muDvFlat:
     dec muDotSem
 muDvOct:
     lda muDotOpt
@@ -5112,8 +5117,12 @@ muDvOct:
     clc
     adc #MU_DOT_SLOT0
     tax
+    ldy #MU_DOT_Y               // an accidental: up on the black key
+    lda muDotNat
+    beq muDvY
+    ldy #MU_DOT_YN              // a natural: below the black keys
+muDvY:
     lda muDotX
-    ldy #MU_DOT_Y
     clc
     jsr kSpritePos
 muDvNext:
@@ -6502,15 +6511,27 @@ muLetterSem: .byte 0, 0, 2, 4, 5, 7, 9, 11
     // The piano's geometry: an octave is 40 pixels, and each semitone's key is
     // where the piano drawing puts it (the black keys are offset on purpose).
     muDotBit:   .byte 32, 64, 128 // the dot slots in the $D015 mask
-muDotTab:   // octave x 12 + semitone -> the dot's x, in raster coordinates
-    .byte 17, 20, 23, 25, 28, 31, 34, 37, 40, 43, 45, 48
-    .byte 57, 60, 63, 65, 68, 71, 74, 77, 80, 83, 85, 88
-    .byte 97, 100, 103, 105, 108, 111, 114, 117, 120, 123, 125, 128
-    .byte 137, 140, 143, 145, 148, 151, 154, 157, 160, 163, 165, 168
-    .byte 177, 180, 183, 185, 188, 191, 194, 197, 200, 203, 205, 208
-    .byte 217, 220, 223, 225, 228, 231, 234, 237, 240, 243, 245, 248
-    .byte 257, 260, 263, 265, 268, 271, 274, 277, 280, 283, 285, 288
-    .byte 297, 300, 303, 305, 308, 310, 310, 310, 310, 310, 310, 310
+muDotTab:   // octave x 12 + semitone -> the dot's x, in RASTER coordinates
+            // (the key's centre + 24 for the display window's left edge, less
+            //  the 11 pixels the dot sits inside its 24-wide shape)
+    .byte 17, 19, 22, 25, 27, 33, 36, 39, 42, 45, 48, 50
+    .byte 56, 59, 62, 65, 67, 73, 76, 79, 82, 85, 88, 90
+    .byte 96, 99, 102, 105, 107, 113, 116, 119, 122, 125, 128, 130
+    .byte 136, 139, 142, 145, 147, 153, 156, 159, 162, 165, 168, 170
+    .byte 176, 179, 182, 185, 187, 193, 196, 199, 202, 205, 208, 210
+    .byte 216, 219, 222, 225, 227, 233, 236, 239, 242, 245, 248, 250
+    .byte 256, 259, 262, 265, 267, 273, 276, 279, 282, 285, 288, 290
+    .byte 296, 299, 302, 305, 307, 310, 310, 310, 310, 310, 310, 310
+            // (key centre + 24 for the display window's left edge, less the 12
+            //  pixels the dot sits inside its 24-wide shape)
+    .byte 17, 18, 21, 24, 26, 32, 35, 38, 41, 44, 47, 49
+    .byte 55, 58, 61, 64, 66, 72, 75, 78, 81, 84, 87, 89
+    .byte 95, 98, 101, 104, 106, 112, 115, 118, 121, 124, 127, 129
+    .byte 135, 138, 141, 144, 146, 152, 155, 158, 161, 164, 167, 169
+    .byte 175, 178, 181, 184, 186, 192, 195, 198, 201, 204, 207, 209
+    .byte 215, 218, 221, 224, 226, 232, 235, 238, 241, 244, 247, 249
+    .byte 255, 258, 261, 264, 266, 272, 275, 278, 281, 284, 287, 289
+    .byte 295, 298, 301, 304, 306, 310, 310, 310, 310, 310, 310, 310
 muLaneCol:  .byte 3, 16, 28    // the first lane cell of each voice
 muLaneW:    .byte 12, 11, 11   // ...and how many cells it has
 muSBar:     .text "DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q"
@@ -6686,6 +6707,7 @@ muFreeMid:  .byte 0
 muFreeHi:   .byte 0
 muClrRow:   .byte 0
 muTempo:    .byte 0             // the tempo in force at the first note
+muDotNat:   .byte 0             // 1 = the note is a white key
 muDotTmp:   .byte 0
 muDotS:     .byte 0             // the ring slot being read
 muDotC:     .byte 0             // entries left to scan
