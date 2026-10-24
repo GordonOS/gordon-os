@@ -5683,77 +5683,79 @@ muPtRts:
 //  walks down one row at a time, and the window follows it a line at a time.
 muPlayhead:
     jsr muPhStep
-    jsr muPhSync                // pull the clock onto the player's own row
-    jsr muPhRewind              // the song restarted, or a section looped
+    jsr muPhSync                // anchor where the player starts an event
     jsr muPhFollow
     jmp muPhCursor
 
-// --- muPhSync -- pull the clock onto the row the player is on ---
-//  The walker records (pointer -> row) for every event it draws, so the pointer
-//  the player publishes names the row the music is on. A ring entry from an
-//  earlier pass can name a row far away, so a match is taken only when it lies
-//  within MU_SYNC_WIN rows of the clock -- that is the real row, and snapping to
-//  it clears whatever the tick arithmetic drifts by. Anything further away is a
-//  stale entry and is ignored, leaving the clock to keep the music's tempo.
+// --- muPhSync -- anchor the clock where the player starts an event ---
+//  The pointer the player publishes is the next command it will run, so a change
+//  of it means an event has just begun and the playhead is exactly on that
+//  event's row. The walker recorded (pointer -> row) as it drew the line, so the
+//  row is a lookup, not a second walk. On a pass where the pointer has not
+//  changed the clock keeps its own tempo: anchoring on a standing match would
+//  drag the cursor back onto the event's onset on every frame.
 muPhSync:
     ldy #MU_VOICE
     lda (dataPtr),y
     sta muHistV
     tax
     lda MU_POS_BLOCK,x
+    cmp muPhPtrLo
+    beq muPsHi
+    jmp muPsNew
+muPsHi:
+    lda MU_POS_BLOCK+3,x
+    cmp muPhPtrHi
+    bne muPsNew
+    rts                         // same event: the clock carries on
+muPsNew:
+    lda MU_POS_BLOCK,x
+    sta muPhPtrLo
     sta muPhTgtLo,x
     lda MU_POS_BLOCK+3,x
+    sta muPhPtrHi
     sta muPhTgtHi,x
     jsr muHistFind              // C=1 -> muValLo/muValHi = the row it is on
-    bcc muPsRts
-    lda muValLo                 // delta = matched row - the clock's row
-    sec
-    sbc muPhCurLo
+    bcs muPsFound
+    rts
+muPsFound:
+    ldx muHistV
+    lda muValLo                 // forward: only a row close to the clock is
+    sec                         //   believable -- an entry an earlier pass left
+    sbc muPhCurLo               //   behind can name any row in the tune
     sta muTmpL
     lda muValHi
     sbc muPhCurLo+1
-    beq muPsAhead
-    cmp #$ff
-    bne muPsRts                 // far ahead (or a wrapped high byte): ignore
-    lda muTmpL                  // behind: small only if it is just below zero
-    cmp #256-MU_SYNC_WIN
-    bcc muPsRts
-    jmp muPsTake
-muPsAhead:
+    bmi muPsBack
+    bne muPsStale               // far ahead: a stale entry, keep the tempo
     lda muTmpL
     cmp #MU_SYNC_WIN+1
-    bcs muPsRts
-muPsTake:
-    lda muValLo                  // only the position moves: the tick accumulator
-    sta muPhCurLo                //   keeps what it has already gathered, or a
-    lda muValHi                  //   match on every pass would keep throwing the
-    sta muPhCurLo+1              //   elapsed ticks away and the clock would crawl
-muPsRts:
+    bcc muPsTake
+muPsStale:
     rts
-
-// --- muPhRewind -- the player went backwards: follow it there ---
-//  The player's next-command pointer only ever moves forward while a pass runs,
-//  so a lower value means the song restarted at its first row or a HED/TAL
-//  section looped. The walker has already wrapped to that point, so its row is
-//  the cursor's row, the clock restarts there, and the window is repainted once
-//  onto it -- the only repaint playback performs.
-muPhRewind:
-    ldy #MU_VOICE
-    lda (dataPtr),y
-    tax
-    lda MU_POS_BLOCK,x
+muPsBack:
+    //  A rewind is a section loop or the song starting again. The walker has
+    //  wrapped to the same place, so its own row confirms the match -- a stale
+    //  entry would not agree with it.
+    lda muValLo
+    sec
+    sbc muVRow,x
     sta muTmpL
-    lda MU_POS_BLOCK+3,x
-    sta muTmpH
-    lda muTmpL                  // new - previous, 16-bit
-    cmp muPhPtrLo
-    lda muTmpH
-    sbc muPhPtrHi
-    bcs muPrKeep                // moved forward: remember and go
-    lda muVRow,x                // rewound: the walker's row is where it went
-    sta muPhCurLo
-    lda muVRowHi,x
+    lda muValHi
+    sbc muVRowHi,x
+    bne muPsRts
+    lda muTmpL
+    cmp #3
+    bcs muPsRts
+    lda muValLo                 // the playhead is on the row the walker wrapped
+    sta muPhCurLo               //   to: take it and put the window back on it
+    lda muValHi
     sta muPhCurLo+1
+    lda #0
+    sta muPhAcc
+    sta muPhAcc+1
+    lda tickCount
+    sta muPhLast
     lda muPhCurLo
     sec
     sbc #MU_FOLLOW_CENTER
@@ -5761,27 +5763,24 @@ muPhRewind:
     lda muPhCurLo+1
     sbc #0
     sta muTop+1
-    bcs muPrClamp
+    bcs muPsPaint
     lda #0
     sta muTop
     sta muTop+1
-muPrClamp:
-    lda #0
-    sta muPhAcc
+muPsPaint:
+    jsr muRedrawNoHead          // the one repaint playback performs
+    jmp muPhCursor
+muPsTake:
+    lda muValLo
+    sta muPhCurLo
+    lda muValHi
+    sta muPhCurLo+1
+    lda #0                      // a real anchor: the partial tick count belongs to
+    sta muPhAcc                 //   the event that just ended, so it is dropped
     sta muPhAcc+1
     lda tickCount
     sta muPhLast
-    lda muTmpL
-    sta muPhPtrLo
-    lda muTmpH
-    sta muPhPtrHi
-    jsr muRedrawNoHead          // the band is back at the loop point
-    jmp muPhCursor
-muPrKeep:
-    lda muTmpL
-    sta muPhPtrLo
-    lda muTmpH
-    sta muPhPtrHi
+muPsRts:
     rts
 
 // --- muPhStep -- add the ticks that went by, one row per `unit` of them ---
