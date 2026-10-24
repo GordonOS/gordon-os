@@ -521,8 +521,10 @@ COMMANDS   V1   ROW 048   C-4 16
 Playback is `sid.lib` from a **thread child**, exactly as `gortris.inc`'s `gtMusicThread` does
 it: the child declares the ZP window at spawn (`kArg+6` = `$02`, `kArg+7` = 9 — the child's own
 declaration is what makes the player's state survive a switch), calls `kSidPlay` with
-`kPtr` = the image, `kArg` = 1 (one tick per jiffy), `kArg+1` = 0 (repeat forever),
-`kArg+2/3` = 0/0. Stop is `kSidHush`, sent twice (once directly, once a yield later to cover
+`kPtr` = the image, `kArg` = `MU_MUS_DELAY` (one tick per jiffy), `kArg+1` =
+`MU_MUS_REPEATS` (**1 ? one pass**, because the editor's playhead has no way to follow a
+restart; see step 10), `kArg+2/3` = 0/0 (no transpose of our own ? `kSidPlay` adds the
+machine's pitch shift to `kArg+2` itself, so a stray value there plays the tune an octave off). Stop is `kSidHush`, sent twice (once directly, once a yield later to cover
 the sliver before the child claims the SID). **The player counts as stopped only when the
 child's own `playing` flag is clear**; edits, a new play and a resize all wait for it. Reap the
 child (`quit`, hush, wait for the slot, `SYS_KILL` on timeout) **before** freeing the tune
@@ -554,11 +556,17 @@ behind 18 % per second. So the player publishes:
   `54A8-54AA` = 3. `docs/memory-map.md` publishes its own total (127 B across 22 pockets,
   against the script's 125 — the two conventions differ and each is re-derived, not adjusted
   by 6).
-- **Mapping**: the pointer is the *next* command, so the sounding event is `ptr - 2`; row =
-  the simulator's onset for that event. A pointer outside the voice's own stream means the
-  voice has halted: no playhead for it. Because the simulator is resumed, a forward pointer is
-  a handful of events per frame; a `TAL` rewinds the pointer, and the simulator restarts from
-  the `HED` address, which is also what the player did.
+- **Mapping**: the renderer writes `(pointer -> row)` into a per-voice ring (`muHist*`, 32
+  entries) for every event it walks, so a row is a lookup rather than a second walk of the
+  tune. A *change* of the published pointer means an event has just begun, and only then is the
+  row taken (`muPhSync`); a forward match more than `MU_SYNC_WIN` (4) rows from the clock is a
+  ring entry an earlier pass left behind and is ignored. A backwards match is taken only when
+  the **walker's own row** agrees with it ? that is what makes a `HED`/`TAL` section loop
+  followable while a stale entry is not.
+- **Between anchors the clock interpolates**: a row is `unit x delay` scheduler ticks plus the
+  time the player spends on its own work, which is charged as one extra tick every
+  `MU_PH_SLOW` (4) rows. `tickCount` is the same CIA #1 Timer A clock the player's jiffy uses,
+  so the two agree at any machine speed. This constant is *tuned*, not measured ? see step 10.
 - The block is read **only while our own child is inside `kSidPlay`**; otherwise it may be
   another task's play, or stale.
 
@@ -872,6 +880,49 @@ The published block, the thread child, stop/reap, follow.
 - [ ] **9.3 Doc gates.** `verify-map.ps1`, `verify-jumptable-docs.ps1`, `verify-inventory-docs.ps1`, `check-links.py`, `check-ascii.py`, `scan-history.py` — all exit 0 (the last is advisory but read it).
 - [ ] **9.4 Wiring.** `tools/tasks.json`, `project-config.json` `sources`, `README.md`'s task table, `docs/features.md`, `docs/quick-start.md`, `tools/quickstart.binaries.md` and `publish-binaries.ps1`'s `$guides` all name `musedit` / `docs/musedit.md`.
 - [ ] **9.5 A fresh machine.** Freshly seeded REU, one sitting: open, enter notes, play, save, quit, reopen, play — no leftover state.
+
+### Step 10 ? Parked (deliberately not done)
+
+Each item below is understood, costed and **not** in the tree. They are here so the reasoning is
+not rediscovered from scratch.
+
+- [ ] **10.1 The arriving line costs a `kPrintCharAt` per cell.** A scroll is `kScrollScreen`
+  (one REU move of the band) plus `muGdLine`, and `muGdLine` writes the new line cell by cell ?
+  up to 108 kernel calls across three lanes, ~30 ms. On a dense row that is more than a frame, so
+  the band can dip behind the music even though nothing is repainted. The scroll itself is
+  cheap; the character drawing is the limit.
+  *Fix, in order of preference:* (a) most body rows draw nothing at all now that a note's
+  duration is written on its onset row and the covered rows are blank, so only rows that
+  actually carry an event need drawing ? already true, and the reason the band keeps up as well
+  as it does; (b) blit a *run* of identical cells in one call instead of a call per character
+  (the bar runs and the spaces are the bulk of the cost); (c) a row copy for the remaining case,
+  taking the row above through `REU_BOUNCE` ? 40 shadow bytes plus 320 pixels, ~1 ms. Note (c)
+  needs care: the shadow's row address is `gfxCellRowLutLo/Hi[row] + taskShadowHi[curTask]`
+  (both already task-visible) and the pixels come from `gfxRowLutLo/Hi` (`$1977`/`$1990`), so it
+  needs no kernel change ? an earlier attempt failed only because it drew into a band that the
+  clip had already excluded.
+- [ ] **10.2 The row clock is a tuned constant, not a measurement.** `MU_PH_SLOW` (4) is the
+  player's own per-jiffy overhead expressed as "one extra tick every N rows", tuned by eye at
+  100 % and 200 %. It is right for the tunes and speeds tested and it *is* a pure ratio, so it is
+  the single knob if a future tune drifts (lower = the display slows down, higher = it speeds
+  up). **Verified working at 100 % and 200 %; do not touch without a reason.**
+  *A measurement was tried and abandoned:* dividing the ticks since an anchor by the rows the
+  clock had itself advanced is circular ? those rows are produced by the very value being
+  measured, so the answer can only agree with whatever it started from, and subtracting the
+  leftover biased it low (the display ran fast). If this is ever revisited, the independent
+  observation to use is the **anchor rows from the tune** (`muValLo - muPhAnchorLo`, which is the
+  tune's own spacing), with the leftover *not* subtracted, and only on a window of at least four
+  rows so a one-row event cannot supply a noisy divisor.
+- [ ] **10.3 Repeat-forever is not supported by the editor.** The child is spawned for one pass
+  (`MU_MUS_REPEATS = 1`); when it returns the parent rewinds. With `repeats = 0` the tune really
+  restarts, and **three separate things break**: the ring holds only the pass's last 32 events
+  per voice, so the tune's opening events are gone and there is no row to anchor on; a backwards
+  match is rejected because the rewind test compares it with the *walker's* row, which is at the
+  end of the pass, not the start; and the walker itself never rewinds, so the arriving lines come
+  in blank and the dots stop moving. *Fix:* detect the restart (published pointer below the
+  clock while the walker is at the end) and run `muPlayRewind`'s reset ? zero `muHistN`, `muTop`,
+  the accumulator and the anchor, then repaint ? before continuing. Not wanted today; a tracker
+  that loops in the editor would need it.
 
 ## 15. Open questions
 
