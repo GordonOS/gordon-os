@@ -582,6 +582,14 @@ behind 18 % per second. So the player publishes:
 - The block is read **only while our own child is inside `kSidPlay`**; otherwise it may be
   another task's play, or stale.
 
+**The view rewinds with the music, never on its own.** `muRewindView` is the one place that takes
+the score home: window top 0, the history ring, the anchor, the cursor's row and voice, then a
+full redraw — so the head's `BAR` and `R` and the `>` all follow. It runs from `muPlayRewind` (a
+pass ended) and from `muPtStart` (a new pass begins), because the child always plays from the
+tune's first row. A stop is the exception that proves it: the cursor stays where the music
+stopped, which is where editing resumes, and the next `SPACE` takes it home with the music rather
+than leaving the window on rows the music has not reached yet.
+
 ## 10. Files
 
 `kReuFindFile` → `kMalloc` → `kReuLoad` on open. On save, `kReuOpen` first:
@@ -937,9 +945,9 @@ not rediscovered from scratch.
   match is rejected because the rewind test compares it with the *walker's* row, which is at the
   end of the pass, not the start; and the walker itself never rewinds, so the arriving lines come
   in blank and the dots stop moving. *Fix:* detect the restart (published pointer below the
-  clock while the walker is at the end) and run `muPlayRewind`'s reset ? zero `muHistN`, `muTop`,
-  the accumulator and the anchor, then repaint ? before continuing. Not wanted today; a tracker
-  that loops in the editor would need it.
+  clock while the walker is at the end) and run `muRewindView` ? zero `muHistN`, `muTop`,
+  the accumulator and the anchor, put the cursor back on the first row, then repaint ? before
+  continuing. Not wanted today; a tracker that loops in the editor would need it.
 
 ## 15. Open questions
 

@@ -383,7 +383,9 @@ The **cursor** is the playhead: while the music plays it moves down the grid wit
 scrolls a line at a time to keep it on the middle row, and the head spells out that row's bar and
 row. It follows repeats (`HED`/`TAL`) back to the start of the section, and it shows the **call
 site** when a phrase (`CALL`) is playing rather than the phrase body. When you stop, the cursor
-stays where the music stopped — that is where editing resumes.
+stays where the music stopped — that is where editing resumes. Starting again always plays from
+the tune's first row, so the score goes home with it: the window, the cursor and the head all
+return to the top, and what you see is what you hear from the first note.
 
 The player publishes its position once per **event**, and an event can last a whole note (128 grid
 rows at the default tempo), so the cursor is stepped from the scheduler-tick clock between

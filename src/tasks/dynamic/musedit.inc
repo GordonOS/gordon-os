@@ -5768,16 +5768,11 @@ muPtStart:
     sta muPlayOn
     lda #0
     sta muPlayHush              // arm a fresh stop
-    sta muPhCurLo               // the tune plays from its first row
-    sta muPhCurLo+1
-    sta muPhAcc
-    sta muPhAcc+1
     lda #$ff                    // nothing anchored yet
     sta muPhBaseLo
     sta muPhBaseLo+1
     jsr muPhPer                 // how many ticks a row really takes
-    lda tickCount               // the clock starts here
-    sta muPhLast
+    jsr muPlayRewind            // the tune plays from its first row, and so do we
     lda #MU_BAR_PLAY            // and PLAY shows it is running until it stops
     jmp muBarActive
 muPtNoChild:
@@ -5863,10 +5858,10 @@ muPlayStop:
     jsr muDotsOff
     jmp muSidHushSafe
 
-// --- muPlayRewind -- the tune ended: the playhead goes back to the beginning ---
-//  Reached from muPlayTick when the child reports a natural end. The score is
-//  redrawn from row 0, so the notes come back with the cursor -- the tune does
-//  not start itself again, the player is spawned for a single pass.
+// --- muPlayRewind -- a pass is over: the playhead restarts at the beginning ---
+//  Reached when the child reports a natural end (muPlayTick) and when a new pass
+//  starts (muPtStart): the player is spawned for a single pass and always plays
+//  from the tune's first row, so the clock and the view restart with it.
 muPlayRewind:
     lda #0
     sta muBarAct                // the pass is over: PLAY goes plain in this redraw
@@ -5874,6 +5869,18 @@ muPlayRewind:
     sta muPhCurLo+1
     sta muPhAcc
     sta muPhAcc+1
+    jsr muRewindView
+    lda tickCount               // the clock restarts from here
+    sta muPhLast
+    rts
+
+// --- muRewindView -- the score and the cursor go back to the first row ---
+//  The player always begins a pass at the tune's first row, so the view has to
+//  begin there too: the window, the history ring and the cursor all go home and
+//  the score is redrawn from row 0. Nothing else rewinds, so a stopped cursor is
+//  still where the editing is -- until the next SPACE rewinds it with the music.
+muRewindView:
+    lda #0
     sta muTop
     sta muTop+1
     sta muHistN
@@ -5881,8 +5888,8 @@ muPlayRewind:
     sta muHistN+2
     sta muPhPtrLo
     sta muPhPtrHi
-    lda tickCount
-    sta muPhLast
+    muSet(MU_ROW, MU_GRID_TOP)  // the cursor, and with it the head's BAR and R
+    muSet(MU_VOICE, 0)
     jsr muDotsOff
     jmp muRedrawAll             // grid, head and cursor, in that order
 
