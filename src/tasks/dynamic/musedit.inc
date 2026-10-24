@@ -97,6 +97,7 @@
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_PH_CHAR   = $a0     // the playhead marker in the spare column (reverse space)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
+.const MU_PH_SLOW       = 8   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = 6   // lines the window may walk in one pass to catch up
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 
@@ -5586,10 +5587,10 @@ muPtMul:
     dey
     bne muPtMul
 muPtRet:
-    lda muPhRowT                // the player's own work takes time on top of the
-    clc                         //   sleep it asks for, so a row is a tick longer
-    adc #1                      //   than the delay -- without this the playhead
-    sta muPhRowT                //   creeps ahead of the music
+    lda muPhRowT                // sidTick's own work is spent on top of the sleep
+    sta muPhNeed                //   the player asks for, so every MU_PH_SLOW'th row
+    lda #MU_PH_SLOW             //   is one tick longer than delay x unit
+    sta muPhFrac
     rts
 
 // --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
@@ -5687,16 +5688,24 @@ muPhStLp:
     lda muPhAcc+1
     bne muPhStGo
     lda muPhAcc
-    cmp muPhRowT
+    cmp muPhNeed
     bcc muPhStRts
 muPhStGo:
     lda muPhAcc
     sec
-    sbc muPhRowT
+    sbc muPhNeed
     sta muPhAcc
     lda muPhAcc+1
     sbc #0
     sta muPhAcc+1
+    lda muPhRowT                // the next row's length: longer once every
+    sta muPhNeed                //   MU_PH_SLOW rows
+    dec muPhFrac
+    bne muPhStepRow
+    lda #MU_PH_SLOW
+    sta muPhFrac
+    inc muPhNeed
+muPhStepRow:
     inc muPhCurLo
     bne muPhStLp
     inc muPhCurLo+1
@@ -6330,6 +6339,8 @@ muNumSquash: .byte 0
 muTmpL:     .byte 0
 muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
+muPhNeed:   .byte 1             // the current row's length in ticks
+muPhFrac:   .byte 1             // rows left before that length grows by one
 muPhRowT:   .byte 1             // ticks one row takes, machine speed included
 muPhHeadT:  .byte 0             // rows left before the head is redrawn
 muPhCand:   .fill 2, 0          // the row the last rejected rewind named
