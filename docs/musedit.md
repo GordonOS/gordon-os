@@ -45,13 +45,13 @@ first — `S` in `sidplay` stops the tune — and the editor starts normally.
 
 ```
 commodo.mus TEM$90 BAR3 R048   C-4 16
-ROW VOICE 1    |VOICE 2    |VOICE 3   OVR
->01 C-4 16  *  |A-3 8      |... 2
- 02            |           |... 4
- 03            |E-4 4      |... 4
- 04 A-3 16      |           |... 8
+ROW VOICE 1     VOICE 2     VOICE 3   OVR
+>01 C-4 16  *   A-3 8       ... 2
+ 02                         ... 4
+ 03             E-4 4       ... 4
+ 04 A-3 16                  ... 8
 ...
- 19 ...        |...        |...
+ 19 ...         ...         ...
 [rows 21-23: piano, all 8 octaves over 40 cells, black keys as two-row bars]
 DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q
 ```

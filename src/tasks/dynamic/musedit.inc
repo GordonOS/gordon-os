@@ -47,12 +47,9 @@
 .const MU_PIANO_TOP = 21
 .const MU_PIANO_BOT = 23
 .const MU_BAR_ROW   = 24
-.const MU_SEP1      = 15
-.const MU_SEP2      = 27
 .const MU_PIANO_COLS = 40
 
 // --- screen codes and colours ---
-.const MU_SEP_CHAR  = $5d     // '|' in every bundled font
 .const MU_SPACE     = $20
 .const MU_C_TEXT    = 1       // white
 
@@ -2432,8 +2429,6 @@ muGdNums:
     lda #0                      // the numbers are renumbered for the whole band,
     sta muGdClip                //   so no row clip applies to them
     sta muGdIdx
-    lda #1
-    sta muGdSep                 // a full draw re-lays the separators too
     lda muTop                   // the top row's number: one divide for the band
     sta kArg
     lda muTop+1
@@ -2467,7 +2462,7 @@ muGdNum1:
     clc
     adc #MU_GRID_TOP
     sta muClrRow                // the screen row
-    lda muClrRow                // the screen row, and the two separators
+    lda muClrRow                // the screen row, then the number
     ldy #MU_CURROW
     sta (dataPtr),y
     lda #1
@@ -2475,24 +2470,6 @@ muGdNum1:
     sta (dataPtr),y
     lda muGdNum
     jsr muNum2
-    lda muGdSep                 // the separators are the same on every row, so a
-    beq muGdNumWrap             //   scroll (which moved them) leaves them right
-    lda muClrRow
-    ldy #MU_CURROW
-    sta (dataPtr),y
-    lda #MU_SEP1
-    ldy #MU_CURCOL
-    sta (dataPtr),y
-    lda #MU_SEP_CHAR
-    jsr muPutC
-    lda muClrRow
-    ldy #MU_CURROW
-    sta (dataPtr),y
-    lda #MU_SEP2
-    ldy #MU_CURCOL
-    sta (dataPtr),y
-    lda #MU_SEP_CHAR
-    jsr muPutC
 muGdNumWrap:
     inc muGdNum                 // the next row's number, wrapped at the bar
     lda muGdNum
@@ -6502,7 +6479,7 @@ muGdRts:
 // ==========================================
 //  Strings and code-image state
 // ==========================================
-muSLanes:   .text "ROW VOICE 1    |VOICE 2    |VOICE 3"
+muSLanes:   .text "ROW VOICE 1     VOICE 2     VOICE 3"
             .byte 0
 muSTem2:    .text " TEM$"
             .byte 0
@@ -6762,7 +6739,6 @@ muStatF:    .byte 0             // frameCount at the last counted frame
 muGdClip:   .byte 0             // 1 while only MU_GDFROM..MU_GDTO is drawn
 muLastStart:  .fill 3, 0        // the row each voice's sounding event began on
 muLastStartHi: .fill 3, 0
-muGdSep:    .byte 0             // 1 = draw the row-number separators too
 muGdStepN:  .byte 0             // catch-up steps left on the line being drawn
 muGdFrom:   .byte 0             // the band, in screen rows (the end exclusive)
 muGdTo:     .byte 0
