@@ -6227,8 +6227,9 @@ muMusicThread:
     sta kArg                    // ticks per jiffy
     lda #MU_MUS_REPEATS
     sta kArg+1                  // play it once: the end is the end
-    sta kArg+2                  // no transpose
-    sta kArg+3
+    lda #0
+    sta kArg+2                  // no transpose of our own: kSidPlay adds the
+    sta kArg+3                  //   machine's pitch shift to this itself
     lda #1                      // a play attempt is made: kSidHush from the parent
     sta muSidOk                 //   is only safe once sid.lib has loaded
     jsr kSidPlay
