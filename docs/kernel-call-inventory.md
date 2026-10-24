@@ -11,7 +11,7 @@
 > `jsr kSyscall` finds 1 call: `tools/assemble-tasks.asm` defines
 > `.const syscall = kSyscall`, and essentially every task calls it as
 > `jsr syscall`, not `jsr kSyscall`. Folding those in puts `kSyscall` in
-> **first place (201 calls)**. See the aliasing note in Methodology.
+> **first place (202 calls)**. See the aliasing note in Methodology.
 
 ## Methodology
 
@@ -95,13 +95,13 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1270 total call sites** found across `src/`.
+- **1272 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
 | Kernel call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kSyscall`](#ksyscall) | `$E090` | 201 | 47 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
+| [`kSyscall`](#ksyscall) | `$E090` | 202 | 47 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
 | [`kNewline`](#knewline) | `$E00C` | 161 | 25 | Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row. |
 | [`kPrintString`](#kprintstring) | `$E006` | 118 | 32 | Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator. |
 | [`kPrintChar`](#kprintchar) | `$E003` | 100 | 16 | Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom. |
@@ -131,10 +131,10 @@ API surface this document is inventorying.
 | [`kReuFindFile`](#kreufindfile) | `$E0BA` | 12 | 8 | Locate a named file in the REU filesystem and return its offset + size, without transferring any data. |
 | [`kByteToDec`](#kbytetodec) | `$E02A` | 11 | 9 | Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y. |
 | [`kFreeScreen`](#kfreescreen) | `$E051` | 11 | 10 | Release the current task's surface back to the free pool; falls back to the shared `$2000` framebuffer if it was the last one. |
+| [`kBlitCharRev`](#kblitcharrev) | `$E0F0` | 10 | 2 | Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0. |
 | [`kDiv16`](#kdiv16) | `$E030` | 10 | 6 | 16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder. |
 | [`kGetTaskName`](#kgettaskname) | `$E04B` | 10 | 8 | Look up a task's name by index; returns a pointer directly into the kernel's name table (no copy). |
 | [`kMul16`](#kmul16) | `$E02D` | 10 | 3 | 16-bit x 16-bit unsigned multiply, producing a 32-bit result. |
-| [`kBlitCharRev`](#kblitcharrev) | `$E0F0` | 9 | 1 | Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0. |
 | [`kCsrBoth`](#kcsrboth) | `$E096` | 8 | 3 | Set cursor visibility and sync the surface matrix tail in one call -- the low-level primitive behind `kEnableCursor`/`kDisableCursor`. |
 | [`kReuLoad`](#kreuload) | `$E087` | 8 | 6 | Load a named block from the REU filesystem into C64 memory. |
 | [`kWaitKey`](#kwaitkey) | `$E01B` | 7 | 6 | Block until a key is pressed, spinning on `kScanKeyboard`. |
@@ -162,15 +162,15 @@ many calls come from that file.
 
 ### kSyscall
 
-``$E090`` — **201 calls** across 47 file(s)
+``$E090`` — **202 calls** across 47 file(s)
 
 Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address.
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/gortris.inc` | 15 |
+| `src/tasks/dynamic/musedit.inc` | 12 |
 | `src/tasks/dynamic/grknoid.inc` | 11 |
-| `src/tasks/dynamic/musedit.inc` | 11 |
 | `src/tasks/cmd/ipctest.inc` | 10 |
 | `src/tasks/dynamic/godzi.inc` | 9 |
 | `src/tasks/dynamic/edit.inc` | 8 |
@@ -828,6 +828,17 @@ Release the current task's surface back to the free pool; falls back to the shar
 | `src/tasks/dynamic/shell.inc` | 1 |
 | `src/tasks/dynamic/sidplay.asm` | 1 |
 
+### kBlitCharRev
+
+``$E0F0`` — **10 calls** across 2 file(s)
+
+Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 9 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
+
 ### kDiv16
 
 ``$E030`` — **10 calls** across 6 file(s)
@@ -871,16 +882,6 @@ Look up a task's name by index; returns a pointer directly into the kernel's nam
 | `src/libs/gfx.asm` | 8 |
 | `src/kernel/screen-mgmt.inc` | 1 |
 | `src/tasks/dynamic/gfxdemo.inc` | 1 |
-
-### kBlitCharRev
-
-``$E0F0`` — **9 calls** across 1 file(s)
-
-Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 9 |
 
 ### kCsrBoth
 

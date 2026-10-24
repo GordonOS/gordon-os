@@ -81,6 +81,10 @@ toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, SAVE and Q are clicka
 answer `? not yet` and are driven from the keys instead (`1`-`9` arm the duration, `.` cycles
 the dots, `Z`/`X` undo and redo).
 
+The bar answers the mouse: the item under the pointer shows in reverse video and goes back to
+plain when the pointer leaves it, and `PLAY` stays reversed for as long as the tune plays, so the
+bar always says where the pointer is and what is running.
+
 Inside a lane:
 
 | mark | meaning |

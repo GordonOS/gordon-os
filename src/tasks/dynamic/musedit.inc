@@ -104,8 +104,7 @@
 .const MU_STAT_FRAMES = 50    // about a second of displayed frames
 .const MU_DUR_COLS = 7        // the duration columns the timing line prints
 .const MU_UNIT_N   = 7        // the row unit's candidates, shortest first
-.const MU_BAR_TODO  = 1       // hit-map code: nothing is behind that cell yet
-.const MU_BAR_Q     = 2       // ...and this one quits
+.const MU_BAR_Q     = 2       // hit-map code: this one quits
 .const MU_BAR_SAVE  = 3       // ...and this one writes the image back
 .const MU_BAR_PLAY  = 4       // ...and this one plays or stops
 
@@ -1830,8 +1829,7 @@ muDrawAll:
     jsr muDrawMode
     jsr muDrawGrid
     jsr muDrawPiano
-    jsr muDrawBar
-    jsr muDrawArm
+    jsr muBarPaint
     jsr muCursorShow
     rts
 
@@ -2424,6 +2422,60 @@ muPNoWrap:
     lda muPRow
     cmp #MU_PIANO_ROWS
     bcc muPRowLp
+    rts
+
+// --- muBarPaint -- the bar, with the hovered and the active item in reverse ---
+//  Called when either state changes, never per frame: the text goes down normally
+//  and then the cells of the highlighted items are redrawn reversed. The item
+//  comes from the hit map, so a highlight can never disagree with what a click
+//  there would do.
+muBarPaint:
+    jsr muDrawBar
+    jsr muDrawArm
+    lda muTid                   // the reverse cells go straight to the framebuffer,
+    cmp kbFocus                 //   which belongs to the displayed task
+    bne muBpRts
+    lda #0
+    sta muBarC
+muBpLp:
+    ldy muBarC
+    cpy #38
+    bcs muBpRts
+    lda muBarMap,y
+    beq muBpNx
+    cmp muBarHov
+    beq muBpRev
+    cmp muBarAct
+    bne muBpNx
+muBpRev:
+    lda muSBar,y                // the character at this column
+    ldx muBarC
+    ldy #MU_BAR_ROW
+    jsr kBlitCharRev
+muBpNx:
+    inc muBarC
+    jmp muBpLp
+muBpRts:
+    rts
+
+// --- muBarHover -- A = the item under the pointer, 0 = none ---
+//  Repaints only when the answer changes, so moving the mouse across the bar
+//  costs one redraw per item boundary.
+muBarHover:
+    cmp muBarHov
+    beq muBhRts
+    sta muBarHov
+    jmp muBarPaint
+muBhRts:
+    rts
+
+// --- muBarActive -- A = the item doing something now (PLAY while it runs) ---
+muBarActive:
+    cmp muBarAct
+    beq muBaRts
+    sta muBarAct
+    jmp muBarPaint
+muBaRts:
     rts
 
 muDrawBar:
@@ -5057,6 +5109,9 @@ muPtrGo:
     jsr kSpriteFrame
     bcs muNoArt
     sprOn(%00000011)            // both slots, now that their art is in place
+    lda #SYS_GETTID
+    jsr syscall
+    sta muTid                   // who we are, for the display-owner test
     lda #MOUSE_ENABLE
     jsr kMouseCall              // the first read reports a zero delta
     muSet(MU_POS, 160)          // start centred: 160,100
@@ -5335,10 +5390,18 @@ muHover:
     lsr
     lsr
     lsr
+    sta muHRow
+    cmp #MU_BAR_ROW
+    bne muHovNotBar
+    jmp muHovBar
+muHovNotBar:
+    lda #0                      // off the bar: any highlight there ends
+    jsr muBarHover
+    lda muHRow
     cmp #MU_PIANO_TOP
-    bcc muHovNone
+    bcc muHovOff
     cmp #MU_PIANO_TOP+MU_PIANO_ROWS
-    bcs muHovNone
+    bcs muHovOff
     sec
     sbc #MU_PIANO_TOP
     sta muHRow
@@ -5391,6 +5454,41 @@ muHovTable:
     clc
     adc muSem
     jmp muHovSet
+muHovOff:
+    jmp muHovNone
+// The control bar: the pointer's column picks the item out of the hit map, so a
+// highlight can never disagree with what a click there would do.
+muHovBar:
+    jsr muHovNone               // off the keyboard: its hover and readout end
+    ldy #MU_POS+1
+    lda (dataPtr),y             // x hi
+    beq muHovBarLo
+    cmp #1                      // x >= 256 is the bar's right-hand end
+    bne muHovBarOff
+    ldy #MU_POS
+    lda (dataPtr),y
+    lsr
+    lsr
+    lsr
+    clc
+    adc #32
+    cmp #40
+    bcs muHovBarOff
+    tay
+    lda muBarMap,y
+    jmp muBarHover
+muHovBarLo:
+    ldy #MU_POS
+    lda (dataPtr),y
+    lsr
+    lsr
+    lsr
+    tay
+    lda muBarMap,y
+    jmp muBarHover
+muHovBarOff:
+    lda #0
+    jmp muBarHover
 muHovNone:
     lda #$ff
 muHovSet:
@@ -5614,7 +5712,8 @@ muPtStart:
     jsr muPhPer                 // how many ticks a row really takes
     lda tickCount               // the clock starts here
     sta muPhLast
-    rts
+    lda #MU_BAR_PLAY            // and PLAY shows it is running until it stops
+    jmp muBarActive
 muPtNoChild:
     muStr(muSNoPlayer)
     jmp muStatus
@@ -5704,6 +5803,7 @@ muPlayStop:
 //  not start itself again, the player is spawned for a single pass.
 muPlayRewind:
     lda #0
+    sta muBarAct                // the pass is over: PLAY goes plain in this redraw
     sta muPhCurLo
     sta muPhCurLo+1
     sta muPhAcc
@@ -5746,6 +5846,8 @@ muPtAlive:
     sta muPlaySlot              // the player is gone for this session: report it
     sta muPlayOn
 muPtNoPlayer:
+    lda #0                      // nothing is playing: the redraw below drops it
+    sta muBarAct
     muStr(muSNoPlayer)
     jsr muStatus
     jmp muRedrawAll             // the kernel's load-failure text landed in our grid
@@ -5757,6 +5859,8 @@ muPtPlaying:
     jsr muDots
     jmp muPlayhead
 muPtStopped:
+    lda #0                      // the child clears muPlayOn itself when the tune
+    jsr muBarActive             //   ends, so the highlight is dropped here
     lda muPlayHush               // the cursor stays where the music stopped
     bne muPtRts                 // the second hush already landed
     inc muPlayHush
@@ -6514,12 +6618,19 @@ muSVc:      .text " v"
             .byte 0
 muSOff:     .text " o=$"
             .byte 0
+muBarC:     .byte 0             // the column the bar painter is on
+muTid:      .byte 0             // this task's id, for the display-owner test
+muBarHov:   .byte 0             // the item under the pointer, 0 = none
+muBarAct:   .byte 0             // the item doing something now, 0 = none
 // The control bar's hit map: one code per column of row 24, tested by column.
-// A blank cell between two labels is deliberately 0, so nothing answers there.
+// The click route acts on 2, 3 and 4; 5-8 name the items that answer "? not yet"
+// today. Hover and the active highlight read the same map, so a highlight and a
+// click can never disagree. A blank cell between two labels is deliberately 0,
+// so nothing answers there.
 muBarMap:
-    .byte 1,1,1, 0, 1,1,1, 0            // 0-7    DUR, the value, the dot
-    .byte 1,1,1,1, 0,0, 4,4,4,4, 0,0    // 8-19   TIE-, PLAY
-    .byte 1,1,1, 0,0, 1,1,1,1, 0,0      // 20-30  CMD, UNDO
+    .byte 5,5,5, 0, 0,0,0, 0            // 0-7    DUR (the value is a readout)
+    .byte 6,6,6,6, 0,0, 4,4,4,4, 0,0    // 8-19   TIE-, PLAY
+    .byte 7,7,7, 0,0, 8,8,8,8, 0,0      // 20-30  CMD, UNDO
     .byte 3,3,3,3, 0,0, 2, 0,0          // 31-39  SAVE, Q
 muBarMapEnd:
 // A code per column, all 40 of them, and the text ends one column before the
