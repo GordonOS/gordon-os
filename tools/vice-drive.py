@@ -30,17 +30,25 @@ Two rules about the emulator itself:
 
 Usage
     python tools/vice-drive.py launch                 # start it, visible, and stop
+    python tools/vice-drive.py text                   # WHAT IS ON SCREEN + is it running
     python tools/vice-drive.py type "run musedit tetris"
     python tools/vice-drive.py key a
     python tools/vice-drive.py fb temp/fb-a.bin       # dump the framebuffer
     python tools/vice-drive.py cmp temp/fb-a.bin temp/fb-b.bin
+
+LOOK BEFORE YOU PRESS. `text` decodes the screen and reports whether frameCount
+is moving. Two mistakes it exists to stop, both made for real: a 'q' intended for
+the editor arrived at the shell prompt ("qrun musedit tetris"), and an unchanged
+frame was read as "the edit was undone" when the machine had hung.
 
 `launch` and everything else are separate commands ON PURPOSE: launching is a
 step the user can see and can refuse.
 """
 
 import argparse
+import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -57,9 +65,35 @@ FB_LEN = 8000
 BOOT_SETTLE = 9.0    # enough for the banner and the shell prompt
 
 
+def resolve_vice():
+    """The emulator, resolved the way tools/toolpaths.ps1 resolves it.
+
+    Not "x64sc" and hope: VICE is not on PATH on a Windows install, so a bare name
+    fails with a FileNotFoundError that reads like the ROMs are missing. Order:
+    $VICE_EXE, then vs64.viceExecutable from .vscode/settings.json, then PATH.
+    """
+    if os.environ.get("VICE_EXE"):
+        return os.environ["VICE_EXE"]
+    settings = ROOT / ".vscode" / "settings.json"
+    if settings.exists():
+        raw = re.sub(r"(?m)//[^\r\n]*", "", settings.read_text(encoding="utf-8"))
+        try:
+            found = json.loads(raw).get("vs64.viceExecutable")
+        except ValueError:
+            found = None
+        if found:
+            return found
+    return "x64sc"
+
+
 # --- launch: VISIBLE, its own step -------------------------------------------
 def cmd_launch(args):
-    cmd = [os.environ.get("VICE_EXE", "x64sc"),
+    exe = resolve_vice()
+    if os.sep in exe or "/" in exe:
+        if not Path(exe).exists():
+            raise SystemExit("vice-drive: no emulator at %s -- set VICE_EXE or "
+                             "vs64.viceExecutable in .vscode/settings.json" % exe)
+    cmd = [exe,
            "-speed", "200",          # the project speed: the SID player compensates tempo and pitch for it
            "-reu", "-reusize", "16384",
            "-reuimage", str(ROOT / "reu" / "REU.bin"),
@@ -72,10 +106,15 @@ def cmd_launch(args):
                                                 #   cannot place kernel data
            str(ROOT / "build" / "gordon-os.prg")]
     print("launching: %s" % " ".join(cmd[1:]))
-    #  No DEVNULL: a visible window, and any complaint reaches the console.
-    proc = subprocess.Popen(cmd)
+    #  No DEVNULL: a visible window, and any complaint reaches the console. And it is
+    #  DETACHED, because the caller is usually a one-shot tool session -- an attached
+    #  child dies with it, which reads as "VICE never started".
+    flags = 0
+    if os.name == "nt":
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    proc = subprocess.Popen(cmd, creationflags=flags)
     print("VICE pid %d -- monitor on %d" % (proc.pid, args.port))
-    print("now: python tools/vice-drive.py type \"run musedit tetris\"")
+    print("now: python tools/vice-drive.py text      # look before you press")
     return 0
 
 
@@ -131,6 +170,53 @@ def cmd_fb(args):
     return 0
 
 
+# --- text / alive: LOOK before you press anything ---------------------------
+#  A press sent to the wrong screen is not an error the machine reports back: a 'q'
+#  meant for the editor lands on the shell's command line ("qrun musedit tetris")
+#  and a screen that never changes may just mean the machine is hung. Both were
+#  read as success once. So decode the screen and check the clock FIRST.
+def screen_text(frame):
+    font = (ROOT / "charsets" / "gordon.fnt").read_bytes()
+    glyphs = {}
+    for g in range(256):
+        if g == 0:
+            ch = "@"
+        elif 1 <= g <= 26:
+            ch = chr(ord("a") + g - 1)
+        elif 32 <= g <= 95:
+            ch = chr(g)
+        else:
+            ch = "?"
+        glyphs.setdefault(font[g * 8:g * 8 + 8], ch)
+    rows = []
+    for r in range(25):
+        base = r * 320
+        rows.append("".join(glyphs.get(frame[base + c * 8:base + c * 8 + 8], " ")
+                             for c in range(40)).rstrip())
+    return rows
+
+
+def cmd_text(args):
+    m = attach(args.port)
+    try:
+        m.resume()
+        time.sleep(args.settle)
+        _, frame = m.mem_get(FB, FB_LEN)
+        m.resume()
+        time.sleep(0.25)
+        a = m.mem_get(0xCFFF, 1)[1][0]       # frameCount: published by rasterCommit
+        m.resume()
+        time.sleep(0.25)
+        b = m.mem_get(0xCFFF, 1)[1][0]
+    finally:
+        m.resume()
+    for i, line in enumerate(screen_text(bytes(frame))):
+        if line:
+            print("%2d|%s" % (i, line))
+    print("alive: %s" % ("yes" if a != b else "NO -- the machine is not running"))
+    return 0
+
+
 def cmd_cmp(args):
     a = Path(args.a).read_bytes()
     b = Path(args.b).read_bytes()
@@ -165,6 +251,10 @@ def main():
     p.add_argument("path")
     p.add_argument("--settle", type=float, default=1.5)
     p.set_defaults(func=cmd_fb)
+
+    p = sub.add_parser("text", help="decode the screen to text and report whether the machine is running")
+    p.add_argument("--settle", type=float, default=1.5)
+    p.set_defaults(func=cmd_text)
 
     p = sub.add_parser("cmp", help="compare two framebuffer dumps")
     p.add_argument("a")
