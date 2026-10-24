@@ -5764,16 +5764,21 @@ muPtStart:
     lda muPlaySlot
     cmp #$ff
     beq muPtNoChild             // the player is gone (see muPlayTick): nothing can play
-    jsr muPlayRewind            // the view goes home BEFORE the music starts: the
-                                //   rewind redraws the score, and a clock stamped
-                                //   after that would begin behind a tune that is
-                                //   already playing -- too far behind for the first
-                                //   pointer match to be accepted
     lda #0
     sta muPlayHush              // arm a fresh stop
-    lda #$ff                    // nothing anchored yet
+    sta muPhCurLo               // the tune plays from its first row
+    sta muPhCurLo+1
+    sta muPhAcc
+    sta muPhAcc+1
+    sta muPhPtrLo               // nothing anchored yet
+    sta muPhPtrHi
+    lda #$ff
     sta muPhBaseLo
     sta muPhBaseLo+1
+    jsr muPlayHome              // the view goes home BEFORE the music starts: a
+                                //   redraw must not run while the tune does, or the
+                                //   clock begins rows behind and the first pointer
+                                //   match is refused as stale
     jsr muPhPer                 // how many ticks a row really takes
     lda #MU_BAR_PLAY
     jsr muBarActive             // the bar shows PLAY before the clock is stamped
@@ -5880,6 +5885,28 @@ muPlayRewind:
     lda tickCount               // the clock restarts from here
     sta muPhLast
     rts
+
+// --- muPlayHome -- take the view home for a pass, unless it is already there ---
+//  A window at row 0 with the cursor on the first row is already showing the row 0
+//  score -- a fresh editor, or a pass that has just ended -- so PLAY only has to
+//  start the music. Anything else (a stop mid-tune, a scrolled window) has to be
+//  repainted, which is what makes the notes on screen the notes being played.
+muPlayHome:
+    lda muTop
+    ora muTop+1
+    bne muPHomeRedraw           // the window is below the first row: it has to move
+    ldy #MU_ROW
+    lda (dataPtr),y
+    cmp #MU_GRID_TOP
+    beq muPHomeRts              // the cursor is home too: nothing to draw at all
+    jsr muCursorHide            // only the marker: the window already holds row 0
+    muSet(MU_ROW, MU_GRID_TOP)
+    jsr muCursorShow
+    jmp muDrawHead              // its BAR and R follow the cursor
+muPHomeRts:
+    rts
+muPHomeRedraw:
+    jmp muRewindView
 
 // --- muRewindView -- the score and the cursor go back to the first row ---
 //  The player always begins a pass at the tune's first row, so the view has to

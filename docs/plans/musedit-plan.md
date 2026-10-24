@@ -585,12 +585,18 @@ behind 18 % per second. So the player publishes:
 **The view rewinds with the music, never on its own.** `muRewindView` is the one place that takes
 the score home: window top 0, the history ring, the anchor and the cursor's row, then a full
 redraw — so the head's `BAR` and `R` and the `>` all follow. It runs from `muPlayRewind` (a pass
-ended) and from `muPtStart` (a new pass begins), because the child always plays from the tune's
+ended), and from `muPtStart` through `muPlayHome`, because the child always plays from the tune's
 first row. A stop is the exception that proves it: the cursor stays where the music stopped, which
 is where editing resumes, and the next `SPACE` takes it home with the music rather than leaving the
 window on rows the music has not reached yet.
 
-**The rewind must run BEFORE the pass is armed** (`muPtStart` rewinds, then sets `muPlayOn`, then
+**PLAY only repaints what is not already home.** `muPlayHome` asks three questions: window top 0?
+cursor on the first row? If both are true — a fresh editor, or a pass that has just rewound — the
+score on screen *is* the row 0 score and nothing is drawn at all. With the window at row 0 but the
+cursor elsewhere it moves the marker and redraws the head and nothing more, because the rows below
+are already right. Only a scrolled window has to be walked and repainted.
+
+**The rewind must run BEFORE the pass is armed** (`muPtStart` goes home, then sets `muPlayOn`, then
 stamps `muPhLast`). The redraw is the slow part; if the child is already playing while it runs,
 the clock is stamped several rows behind the music — and a first match more than `MU_SYNC_WIN` (4)
 rows ahead is refused as a stale ring entry, so the playhead never catches up and the whole pass
