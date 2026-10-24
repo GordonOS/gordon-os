@@ -5724,15 +5724,10 @@ muPsAhead:
     cmp #MU_SYNC_WIN+1
     bcs muPsRts
 muPsTake:
-    lda muValLo
-    sta muPhCurLo
-    lda muValHi
-    sta muPhCurLo+1
-    lda #0                      // restart the tick base: the correction is not
-    sta muPhAcc                 //   drift, so it must not be paid back later
-    sta muPhAcc+1
-    lda tickCount
-    sta muPhLast
+    lda muValLo                  // only the position moves: the tick accumulator
+    sta muPhCurLo                //   keeps what it has already gathered, or a
+    lda muValHi                  //   match on every pass would keep throwing the
+    sta muPhCurLo+1              //   elapsed ticks away and the clock would crawl
 muPsRts:
     rts
 
