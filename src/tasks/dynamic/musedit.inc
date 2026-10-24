@@ -4990,8 +4990,8 @@ muDcRts:
 //  the note currently sounding is simply the byte before it: no history, no
 //  second walk, and it is exact for a whole note and a 64th alike.
 .const MU_DOT_SLOT0 = 5           // slots 0 and 1 are the pointer
-.const MU_DOT_Y     = 213         // on a black key: the upper three key rows
-.const MU_DOT_YN    = 229         // a natural sits in the white-key row below them
+.const MU_DOT_Y     = 217         // on a black key: the upper three key rows
+.const MU_DOT_YN    = 225         // a natural sits in the white-key row below them
 .const MU_DOT_KEYS  = $e3         // slots 5, 6, 7 (and the pointer's two)
 
 // --- muDotInit -- resolve the dot art, once ---
@@ -5107,6 +5107,8 @@ muDvOct:
     clc
     adc muDotSem
     tay
+    lda muDotTabHi,y            // the ninth bit: a dot above x 255 is real
+    sta muDotXHi
     lda muDotTab,y
     sta muDotX
     ldx muDotV                  // this voice's slot bit in the enable mask
@@ -5122,8 +5124,9 @@ muDvOct:
     beq muDvY
     ldy #MU_DOT_YN              // a natural: below the black keys
 muDvY:
-    lda muDotX
-    clc
+    lda muDotXHi                // C = the ninth bit of x (kSpritePos takes it in C)
+    lsr
+    lda muDotX                  // ...and A = the low byte. lda/ldx/ldy leave C alone
     jsr kSpritePos
 muDvNext:
     inc muDotV
@@ -6511,7 +6514,26 @@ muLetterSem: .byte 0, 0, 2, 4, 5, 7, 9, 11
     // The piano's geometry: an octave is 40 pixels, and each semitone's key is
     // where the piano drawing puts it (the black keys are offset on purpose).
     muDotBit:   .byte 32, 64, 128 // the dot slots in the $D015 mask
-muDotTab:   // octave x 12 + semitone -> the dot's x, in RASTER coordinates
+muDotTab:   // octave x 12 + semitone -> the dot's x LOW byte, in raster
+            // coordinates (key centre + 24 for the window's left edge, less the
+            // 11 pixels the dot sits inside its shape)
+    .byte 17, 19, 22, 25, 27, 33, 36, 39, 42, 45, 48, 50
+    .byte 56, 59, 62, 65, 67, 73, 76, 79, 82, 85, 88, 90
+    .byte 96, 99, 102, 105, 107, 113, 116, 119, 122, 125, 128, 130
+    .byte 136, 139, 142, 145, 147, 153, 156, 159, 162, 165, 168, 170
+    .byte 176, 179, 182, 185, 187, 193, 196, 199, 202, 205, 208, 210
+    .byte 216, 219, 222, 225, 227, 233, 236, 239, 242, 245, 248, 250
+    .byte 0, 3, 6, 9, 11, 17, 20, 23, 26, 29, 32, 34
+    .byte 40, 43, 46, 49, 51, 54, 54, 54, 54, 54, 54, 54
+muDotTabHi: // ...and its ninth bit, which kSpritePos takes in C
+    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    .byte 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+    .byte 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
             // (the key's centre + 24 for the display window's left edge, less
             //  the 11 pixels the dot sits inside its 24-wide shape)
     .byte 17, 19, 22, 25, 27, 33, 36, 39, 42, 45, 48, 50
@@ -6716,6 +6738,7 @@ muDotMask:  .byte 0             // the enable mask the dots last asked for
 muDotV:     .byte 0
 muDotOpt:   .byte 0
 muDotSem:   .byte 0
+muDotXHi:   .byte 0             // 1 = the dot's x is 256 or more
 muDotX:     .byte 0
 muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
 muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a utility, then whole..32nd
