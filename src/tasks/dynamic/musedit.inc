@@ -1839,19 +1839,16 @@ muCmCall:
     bne muCmCallGo
     lda #MU_ERR_STK             // the call stack is full: the PLAYER flags it
     sta muErr                   //   (MaxInnerCallsError) and drops the call, so the
-    jmp muStepRun               //   voice simply carries on -- stopping the walk
-                                //   here erases every row after this point
+    jmp muStepRun               //   voice simply carries on
 muCmCallGo:
-    ldy muSph
-    lda muDfHi,y
-    bne muCmCallGo2
-    lda #MU_ERR_PHR             // a phrase that was never defined: the PLAYER only
-    sta muErr                   //   records it (NoSuchPhraseError -> SID_STATUS) and
-    jmp muStepRun               //   carries on. Tunes that lean on it play, so the
-                                //   walk must not stop on it either -- commodo's
-                                //   voice 2 is nothing but calls to a phrase that
-                                //   voice 1 defines, and immig hits one mid-tune.
-muCmCallGo2:
+    //  --- the return frame is pushed BEFORE the phrase is looked at, which is what
+    //      the player does: it stores the return address, and only then finds out
+    //      the phrase was never defined. So an undefined call leaves the frame
+    //      behind, and this voice's next END pops it and jumps back to just after
+    //      the call. Skipping the push here puts the walk one frame out of step
+    //      with the player for the rest of the tune -- the voice is then walked
+    //      down the wrong branch: its notes land on rows that are not shown, the
+    //      playhead stalls on one of them, and after that it drifts.
     lda muDep,x
     tay
     lda muPtrLo,x
@@ -1862,6 +1859,12 @@ muCmCallGo2:
     sta muPhSt,y
     inc muDep,x
     ldy muSph
+    lda muDfHi,y
+    bne muCmCallGo2
+    lda #MU_ERR_PHR             // a phrase that was never defined: the PLAYER only
+    sta muErr                   //   records it (NoSuchPhraseError -> SID_STATUS) and
+    jmp muStepRun               //   carries on, leaving the frame it just pushed
+muCmCallGo2:
     lda muDfLo,y
     sta muPtrLo,x
     lda muDfHi,y
