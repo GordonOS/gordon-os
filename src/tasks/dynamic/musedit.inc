@@ -5764,17 +5764,24 @@ muPtStart:
     lda muPlaySlot
     cmp #$ff
     beq muPtNoChild             // the player is gone (see muPlayTick): nothing can play
-    lda #1
-    sta muPlayOn
+    jsr muPlayRewind            // the view goes home BEFORE the music starts: the
+                                //   rewind redraws the score, and a clock stamped
+                                //   after that would begin behind a tune that is
+                                //   already playing -- too far behind for the first
+                                //   pointer match to be accepted
     lda #0
     sta muPlayHush              // arm a fresh stop
     lda #$ff                    // nothing anchored yet
     sta muPhBaseLo
     sta muPhBaseLo+1
     jsr muPhPer                 // how many ticks a row really takes
-    jsr muPlayRewind            // the tune plays from its first row, and so do we
-    lda #MU_BAR_PLAY            // and PLAY shows it is running until it stops
-    jmp muBarActive
+    lda #MU_BAR_PLAY
+    jsr muBarActive             // the bar shows PLAY before the clock is stamped
+    lda #1
+    sta muPlayOn                // the music starts here, clock and view ready
+    lda tickCount
+    sta muPhLast
+    rts
 muPtNoChild:
     muStr(muSNoPlayer)
     jmp muStatus
@@ -5889,7 +5896,6 @@ muRewindView:
     sta muPhPtrLo
     sta muPhPtrHi
     muSet(MU_ROW, MU_GRID_TOP)  // the cursor, and with it the head's BAR and R
-    muSet(MU_VOICE, 0)
     jsr muDotsOff
     jmp muRedrawAll             // grid, head and cursor, in that order
 

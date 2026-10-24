@@ -583,12 +583,18 @@ behind 18 % per second. So the player publishes:
   another task's play, or stale.
 
 **The view rewinds with the music, never on its own.** `muRewindView` is the one place that takes
-the score home: window top 0, the history ring, the anchor, the cursor's row and voice, then a
-full redraw — so the head's `BAR` and `R` and the `>` all follow. It runs from `muPlayRewind` (a
-pass ended) and from `muPtStart` (a new pass begins), because the child always plays from the
-tune's first row. A stop is the exception that proves it: the cursor stays where the music
-stopped, which is where editing resumes, and the next `SPACE` takes it home with the music rather
-than leaving the window on rows the music has not reached yet.
+the score home: window top 0, the history ring, the anchor and the cursor's row, then a full
+redraw — so the head's `BAR` and `R` and the `>` all follow. It runs from `muPlayRewind` (a pass
+ended) and from `muPtStart` (a new pass begins), because the child always plays from the tune's
+first row. A stop is the exception that proves it: the cursor stays where the music stopped, which
+is where editing resumes, and the next `SPACE` takes it home with the music rather than leaving the
+window on rows the music has not reached yet.
+
+**The rewind must run BEFORE the pass is armed** (`muPtStart` rewinds, then sets `muPlayOn`, then
+stamps `muPhLast`). The redraw is the slow part; if the child is already playing while it runs,
+the clock is stamped several rows behind the music — and a first match more than `MU_SYNC_WIN` (4)
+rows ahead is refused as a stale ring entry, so the playhead never catches up and the whole pass
+runs out of step.
 
 ## 10. Files
 
