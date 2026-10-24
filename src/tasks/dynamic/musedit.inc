@@ -2066,8 +2066,8 @@ muTrGo:
     adc #MU_GRID_TOP
     sta muClrRow
     jsr muClearRow
-    //  The event's own address goes in muAccLo/Hi, which only muSimInit uses,
-    //  because muNum16 borrows muTmpL while it divides down the digits.
+    //  The pair is read out of the voice's window and copied to muTmp2, because
+    //  muNum16 borrows muTmpL while it divides down the digits.
     ldx muSv
     lda muPtrLo,x               // the event is the pair behind the pointer, and an
     sec                         //   offset minus 2 is still an offset
@@ -2083,16 +2083,7 @@ muTrGo:
     ldy #1
     lda (kPtr),y
     sta muTmp2+1
-    //  ...and as an offset into the image, which is how tools/mus-sim.py names it
-    ldy #MU_IMG
-    lda muAccLo
-    sec
-    sbc (dataPtr),y
-    sta muAccLo
-    iny
-    lda muAccHi
-    sbc (dataPtr),y
-    sta muAccHi
+    //  ...and MU_ACC is already an image offset, which is how tools/mus-sim.py names it
     muStr(muSTrk)
     jsr muTextAt
     lda muClkLo
