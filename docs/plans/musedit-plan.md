@@ -886,21 +886,26 @@ The published block, the thread child, stop/reap, follow.
 Each item below is understood, costed and **not** in the tree. They are here so the reasoning is
 not rediscovered from scratch.
 
-- [ ] **10.1 The arriving line costs a `kPrintCharAt` per cell.** A scroll is `kScrollScreen`
+- [x] **10.1a Rows that draw nothing are no longer walked.** *Done: with a note's duration written on its onset row, the rows an event covers are blank, so `muGdEvent` draws its onset and nothing else ? a whole note used to cost 128 iterations of the continuation loop, and the scroll path's continuation scan (which painted a blank row) is gone with it. `muLastEnd`/`muLastRest`/`muLastStart`, `muGdPastRow`, `muGdLeft` and the `muGdFirst`/`muGdRest` flags went with the code that read them; the task dropped a pool page (91 -> 90). What is left on an arriving line is the per-event walk (`muStep`) plus six or so `kPrintCharAt` calls per event that actually starts on it.*
+- [ ] **10.1b The scroll itself is the remaining cost.** A scroll is `kScrollScreen`
   (one REU move of the band) plus `muGdLine`, and `muGdLine` writes the new line cell by cell ?
   up to 108 kernel calls across three lanes, ~30 ms. On a dense row that is more than a frame, so
   the band can dip behind the music even though nothing is repainted. The scroll itself is
   cheap; the character drawing is the limit.
-  *Fix, in order of preference:* (a) most body rows draw nothing at all now that a note's
-  duration is written on its onset row and the covered rows are blank, so only rows that
-  actually carry an event need drawing ? already true, and the reason the band keeps up as well
-  as it does; (b) blit a *run* of identical cells in one call instead of a call per character
-  (the bar runs and the spaces are the bulk of the cost); (c) a row copy for the remaining case,
-  taking the row above through `REU_BOUNCE` ? 40 shadow bytes plus 320 pixels, ~1 ms. Note (c)
-  needs care: the shadow's row address is `gfxCellRowLutLo/Hi[row] + taskShadowHi[curTask]`
-  (both already task-visible) and the pixels come from `gfxRowLutLo/Hi` (`$1977`/`$1990`), so it
-  needs no kernel change ? an earlier attempt failed only because it drew into a band that the
-  clip had already excluded.
+  `kScrollScreen` moves the band's pixels ? 18 rows x 320 bytes at the time of writing, 19 now ?
+  through `REU_BOUNCE` in two passes, which is ~11.5k cycles (~11.5 ms at 1 MHz PAL) against a
+  row period of ~17 ms at 58 rows/s. That is the floor this design has, and it is why a dense
+  tune can still dip. Run-blitting was considered and has nothing to bite on: the duration
+  readout removed the `=` runs, so the only repeated characters left are the pitch/duration
+  cells, which are 3-6 calls per event.
+  *Options if it ever needs to be faster:* (a) skip the matrix half of the scroll when the band's
+  colours are uniform (they are ? the kernel does it for a general surface, not for us);
+  (b) a **row ring** instead of a scroll ? draw the arriving row in place of the row that left,
+  no movement at all, at the cost of the row numbers no longer reading top-to-bottom;
+  (c) a row copy through `REU_BOUNCE` for rows that repeat the one above ? pointless now that
+  covered rows are blank. Note that a row copy needs no kernel change if it is ever wanted: the
+  shadow's row address is `gfxCellRowLutLo/Hi[row] + taskShadowHi[curTask]` (both task-visible)
+  and the pixels come from `gfxRowLutLo/Hi` (`$1977`/`$1990`).
 - [ ] **10.2 The row clock is a tuned constant, not a measurement.** `MU_PH_SLOW` (4) is the
   player's own per-jiffy overhead expressed as "one extra tick every N rows", tuned by eye at
   100 % and 200 %. It is right for the tunes and speeds tested and it *is* a pure ratio, so it is

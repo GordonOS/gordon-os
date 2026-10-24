@@ -2143,116 +2143,19 @@ muGdPOut:
     rts
 
 // --- muGdEvent -- the cells of the event that just played ---
-//  The onset row carries the pitch (or a rest) and the cells to the lane's end;
-//  the rows the length covers carry a bar. A '*' in the lane's last cell says
-//  the event arrived with commands, a '?' that its onset fell between rows.
+//  Only the onset row carries anything: a note is its pitch and its duration, and
+//  the rows it covers are blank. A '*' in the lane's last cell says the event
+//  arrived with commands, a '?' that its onset fell between rows.
 muGdEvent:
-    ldx muSv
-    lda muSopt
-    and #$07
-    bne muGdEvNote
-    lda #1
-    sta muGdRest
-    bne muGdEvGo
-muGdEvNote:
-    lda #0
-    sta muGdRest
-muGdEvGo:
     ldx muSv
     lda muVRow,x
     sta muGdRowLo
     lda muVRowHi,x
     sta muGdRowHi
-        //  how far this event reaches: the line that scrolls in later is painted
-        //  from this record instead of from a walk of the tune
-        ldy muSv
-        lda muGdRest
-        sta muLastRest,y
-        lda muGdRowLo
-        sta muLastEndLo,y
-        lda muGdRowHi
-        sta muLastEndHi,y           // its onset is its last row until the span says more
-        lda muSpan
-        ora muSpan+1
-        beq muGdEvEndOk
-        lda muGdRowLo
-        clc
-        adc muSpan
-        sta muLastEndLo,y
-        lda muGdRowHi
-        adc muSpan+1
-        sta muLastEndHi,y
-        lda muLastEndLo,y           // onset + span - 1
-        sec
-        sbc #1
-        sta muLastEndLo,y
-        lda muLastEndHi,y
-        sbc #0
-        sta muLastEndHi,y
-muGdEvEndOk:
-        lda #1
-        sta muGdFirst
     jsr muGdVisible
-    bcs muGdEvSpan
-    jsr muGdCells
-muGdEvSpan:
-    inc muGdRowLo               // the rows under the onset
-    bne muGdEvS2
-    inc muGdRowHi
-muGdEvS2:
-    lda #0
-    sta muGdFirst
-    lda muSpan
-    ora muSpan+1
-    beq muGdEvDone              // shorter than a row: the onset is all there is
-    lda muSpan
-    sec
-    sbc #1
-    sta muGdLeft
-    lda muSpan+1
-    sbc #0
-    sta muGdLeft+1
-    lda muGdLeft
-    ora muGdLeft+1
-    beq muGdEvDone
-muGdEvLp:
-    jsr muGdVisible
-    bcs muGdEvNext
-    jsr muGdCells
-muGdEvNext:
-    inc muGdRowLo
-    bne muGdEvN2
-    inc muGdRowHi
-muGdEvN2:
-    lda muGdLeft
-    sec
-    sbc #1
-    sta muGdLeft
-    lda muGdLeft+1
-    sbc #0
-    sta muGdLeft+1
-    lda muGdLeft
-    ora muGdLeft+1
-    beq muGdEvDone
-    jsr muGdPastRow
-    bcc muGdEvLp
-muGdEvDone:
-    rts
-
-// --- muGdPastRow -- C=1 when MU_GDROW is at or past the window's end ---
-muGdPastRow:
-    lda muGdRowHi
-    cmp muLimHi
-    bcc muGdPrNo
-    bne muGdPrYes
-    lda muGdRowLo
-    cmp muLimLo
-    bcc muGdPrNo
-muGdPrYes:
-    sec
-    rts
-muGdPrNo:
-    clc
+    bcs muGdEvRts
+    jmp muGdCells
+muGdEvRts:
     rts
 
 // --- muGdVisible -- C=0 and MU_GDSROW set when MU_GDROW is in the window ---
@@ -2271,7 +2174,7 @@ muGdVIn:
     sta muTmpL
     lda muGdRowHi
     sbc muTop+1
-    bne muGdVNo                 // a window is 18 rows: any carry means past it
+    bne muGdVNo                 // a window is MU_GRID_ROWS rows: a carry is past it
     lda muTmpL
     cmp #MU_GRID_ROWS
     bcs muGdVNo
@@ -2290,8 +2193,6 @@ muGdVNo:
 //  same number. Only the onset row is written: the rows the event covers stay
 //  blank, so a scroll has nothing to redraw under a sounding note.
 muGdCells:
-    lda muGdFirst
-    beq muGdCDone
     ldx muSv
     lda muLaneCol,x
     sta muGdCol
@@ -2299,8 +2200,6 @@ muGdCells:
     lda muSopt
     and #$07
     bne muGdCPitch
-    lda #1
-    sta muGdRest
     lda #MU_REST_CH
     jsr muPutC
     lda #MU_REST_CH
@@ -2309,8 +2208,6 @@ muGdCells:
     jsr muPutC
     jmp muGdCDur
 muGdCPitch:
-    lda #0
-    sta muGdRest
     jsr muGdPitch
 muGdCDur:
     lda #MU_SPACE
@@ -6144,11 +6041,11 @@ muScrollBand:
     jmp muGdLine                // the line that appeared, lanes and number
 
 // --- muGdLine -- paint one line: the row that just scrolled in ---
-//  The walker is not restarted. It stands at the row past the window's bottom,
-//  so this line is painted from what is already known: per voice either the
-//  event that starts on it (the walker's next step) or the place the sounding
-//  event still covers (muLastEnd/muLastRest). Cells outside MU_GRID_BOT are
-//  clipped, so the span draw of that event writes this line and nothing else.
+//  The walker is not restarted: it stands at the row past the window's bottom, so
+//  the line is painted by stepping every voice that is behind it (a window that
+//  moved several lines catches up here) and drawing each event's onset -- the
+//  only row of an event that carries anything. The clip means the walk cannot
+//  write above MU_GRID_BOT, and the row's number goes on last, over the lanes.
 muGdLine:
     lda muTop
     clc
@@ -6186,10 +6083,6 @@ muLnStep:
     stx muSv
     dec muGdStepN
     beq muLnRts
-    lda muVRow                 // where this event starts, for the continuation
-    sta muLastStart,x
-    lda muVRowHi
-    sta muLastStartHi,x
     jsr muStep                 // the walker's next row
     bcs muLnRts
     jsr muGdSpan
@@ -6199,39 +6092,6 @@ muLnStep:
     bcs muLnRts
     ldx muSv
     jmp muLnEvLp
-    ldx #0
-muLnContLp:
-    lda muOn,x
-    beq muLnContNx
-    lda muLastStartHi,x        // the line the event that still sounds began on --
-    cmp muLnRow+1              //   that line itself is the walker's, below this one
-    bcc muLnSpan
-    bne muLnContNx
-    lda muLastStart,x
-    cmp muLnRow
-    bcs muLnContNx
-muLnSpan:
-    lda muLastEndHi,x          // past the event that still covers this row
-    cmp muLnRow+1
-    bcc muLnContNx
-    bne muLnPaint
-    lda muLastEndLo,x
-    cmp muLnRow
-    bcc muLnContNx
-muLnPaint:
-    stx muSv
-    lda #MU_GRID_BOT
-    ldy #MU_CURROW
-    sta (dataPtr),y
-    lda muLastRest,x
-    sta muGdRest
-    lda #0
-    sta muGdFirst
-    jsr muGdCells              // bars across the lane, or nothing under a rest
-muLnContNx:
-    inx
-    cpx #3
-    bcc muLnContLp
 muLnRts:
     lda #0                      // the clip belongs to this line only
     sta muGdClip
@@ -6737,8 +6597,6 @@ muDrain:    .byte 0
 muStatT:    .byte 0             // displayed frames left before the head returns
 muStatF:    .byte 0             // frameCount at the last counted frame
 muGdClip:   .byte 0             // 1 while only MU_GDFROM..MU_GDTO is drawn
-muLastStart:  .fill 3, 0        // the row each voice's sounding event began on
-muLastStartHi: .fill 3, 0
 muGdStepN:  .byte 0             // catch-up steps left on the line being drawn
 muGdFrom:   .byte 0             // the band, in screen rows (the end exclusive)
 muGdTo:     .byte 0
@@ -6763,12 +6621,10 @@ muSpan:     .word 0            // rows the current event covers
 muJifOut:   .word 0            // the length muStep just consumed
 muGdRowLo:  .byte 0
 muGdRowHi:  .byte 0
-muGdLeft:   .word 0
 muGdSRow:   .byte 0
 muGdCol:    .byte 0
 muGdEnd:    .byte 0
 muGdFirst:  .byte 0
-muGdRest:   .byte 0
 muGdIdx:    .byte 0
 muGdSteps:  .word 0
 
@@ -6897,9 +6753,6 @@ muHistN:    .fill 3, 0          // next slot per voice
 muHistV:    .byte 0             // the voice a lookup is for
 muHistS:    .byte 0             // its slot cursor
 muHistC:    .byte 0             // its scan countdown
-muLastEndLo: .fill 3,0          // the last row each voice's last event covers
-muLastEndHi: .fill 3,0
-muLastRest: .fill 3,0           // ...and whether that event was a rest
 muLnRow:    .word 0             // the timeline row the bottom line shows
 //  pointer -> row, per voice, as the renderer walks: the playhead asks this
 //  table instead of re-walking the tune every frame. MU_HIST slots a voice,
