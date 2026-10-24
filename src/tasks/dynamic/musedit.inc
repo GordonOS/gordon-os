@@ -106,6 +106,10 @@
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 .const MU_WIN_PAGES  = 3       // the window service: one 256-byte, page-aligned
                                //   window per voice (see muWinSeat)
+.const MU_SCR_PAGES  = 255     // <base>.wrk holds this many 256-byte pages: 65280
+                               //   bytes is the whole of a 16-bit file size, and the
+                               //   scratch is created once and then reused, because
+                               //   kReuDelete is a tombstone that frees nothing
 
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
@@ -259,10 +263,10 @@ muPnBad:
     sec
     rts
 
-// --- muNameSetup -- the FS name: the base name with .mus on the end ---
+// --- muNameSetup -- the FS names: the base name with .mus and .wrk on the end ---
 //  FS names are SCREEN CODES, so the letters come from character literals under
 //  the file's encoding, not from a PETSCII string. A 7-character base reaches
-//  exactly the 11 the filesystem allows.
+//  exactly the 11 the filesystem allows, so both names fit.
 muNameSetup:
     ldx #0
 muNsLp:
@@ -270,19 +274,28 @@ muNsLp:
     beq muNsExt
     lda muName,x
     sta muFsName,x
+    sta muSFName,x
     inx
     bne muNsLp                  // a 7-character name ends the loop, never wraps
 muNsExt:
     lda #'.'
     sta muFsName,x
+    sta muSFName,x
     lda #'m'
     sta muFsName+1,x
+    lda #'w'
+    sta muSFName+1,x
     lda #'u'
     sta muFsName+2,x
+    lda #'r'
+    sta muSFName+2,x
     lda #'s'
     sta muFsName+3,x
+    lda #'k'
+    sta muSFName+3,x
     lda #0
     sta muFsName+4,x
+    sta muSFName+4,x
     rts
 
 // ==========================================
@@ -346,9 +359,9 @@ muImgToKPtr:
 //  command and its option byte can never straddle the end of a window: a voice that
 //  crosses a page refills its window before its next command is read.
 //
-//  A window holds a COPY. A write therefore has to reach the page it came from as
-//  well, which is why the write entry is not here yet: it lands with the storage it
-//  writes to. Until then this is the READ path, and it is proved by muWinCheck.
+//  A window holds a COPY of a page of <base>.wrk. The READ path is here; the
+//  write entry lands with the edit path, because a write must also reach the page
+//  it came from.
 //
 //  In:  X = the voice (0-2), muWinOfs/muWinOfs+1 = the offset wanted.
 //  Out: C=0 and kPtr = the address of that offset inside voice X's window.
@@ -380,19 +393,22 @@ muWsHave:
     clc
     rts
 
-// --- muWinFill -- voice X's window := the image's page muWinPage ---
-//  The image block is page-aligned too, so the page number is added to its HIGH
-//  byte and the source's low byte is 0. kPtr and srcPtr are this task's own (the
-//  scheduler saves and restores them per task), and nothing here may call the
-//  kernel: a kernel routine would take srcPtr for its own use.
+// --- muWinFill -- voice X's window := the scratch file's page muWinPage ---
+//  The working image is <base>.wrk, so a page is one kReuReadAt of 256 bytes and
+//  the window is page-aligned, which makes the position `page x 256` -- a high
+//  byte and a zero.
 muWinFill:
-    jsr muImgToKPtr             // kPtr = the image block
-    lda kPtr+1
-    clc
-    adc muWinPage
-    sta srcPtr+1
+    stx muScrV                  // kReuReadAt clobbers X
+    jsr muSFrecArg
     lda #0
-    sta srcPtr
+    sta kArg+2
+    lda muWinPage
+    sta kArg+3                  // pos = page x 256
+    lda #0
+    sta kArg+6
+    lda #1
+    sta kArg+7                  // len = 256
+    ldx muScrV
     txa
     asl
     tay
@@ -400,12 +416,8 @@ muWinFill:
     sta kPtr
     lda muWin+1,y
     sta kPtr+1
-    ldy #0
-muWfLp:
-    lda (srcPtr),y
-    sta (kPtr),y
-    iny
-    bne muWfLp                  // 256 bytes: the low byte wraps and ends it
+    jsr kReuReadAt
+    ldx muScrV                  // the seat still needs the voice
     rts
 
 // --- muWinInit -- take the three windows, once, at startup ---
@@ -490,6 +502,123 @@ muWcCmp:
     clc
     rts
 muWcBad:
+    sec
+    rts
+
+// ==========================================
+//  The scratch file
+// ==========================================
+//  The working image is <base>.wrk in the REU filesystem: MU_LEN bytes of tune
+//  plus the zeroes that pad it to a whole page. It is created ONCE at its full
+//  MU_SCR_PAGES and then reused for ever, because a delete is a tombstone that
+//  frees neither the directory slot nor the data -- a create/delete cycle would
+//  leak the filesystem a tune at a time. The real <base>.mus is untouched until
+//  SAVE, so "quit without saving" stays safe.
+
+// --- muSFArg -- kArg = the scratch name ---
+muSFArg:
+    lda #<muSFName
+    sta kArg
+    lda #>muSFName
+    sta kArg+1
+    rts
+
+// --- muSFrecArg -- kArg = the scratch's five-byte record ---
+muSFrecArg:
+    lda #<muSFrec
+    sta kArg
+    lda #>muSFrec
+    sta kArg+1
+    rts
+
+// --- muScrMake -- the working image := the tune in the block ---
+//  Out: C=0 the scratch holds the image; C=1 it could not be made, or it is
+//  smaller than this tune.
+muScrMake:
+    jsr muScrOpen
+    bcs muSmRts
+    jmp muScrFill               // tail call: its carry is the answer
+muSmRts:
+    rts
+
+// --- muScrOpen -- kReuOpen <base>.wrk, creating it the first time ---
+//  Out: C=0 muSFrec holds its record; C=1 it is not there and could not be made.
+muScrOpen:
+    jsr muSFArg
+    lda #<muSFrec
+    sta kPtr
+    lda #>muSFrec
+    sta kPtr+1
+    jsr kReuOpen
+    bcc muSoRts                 // it is there: reuse it, at whatever size it has
+    jsr muSFArg
+    lda #0
+    sta kArg+2
+    lda #MU_SCR_PAGES
+    sta kArg+3                  // size = pages x 256
+    jsr kReuCreate
+    bcs muSoRts                 // no room, or the FS refused it
+    jsr muSFArg                 // kReuCreate hands back no record, so open it again
+    lda #<muSFrec
+    sta kPtr
+    lda #>muSFrec
+    sta kPtr+1
+    jsr kReuOpen
+muSoRts:
+    rts
+
+// --- muScrPt -- kPtr = the block's page muScrPg ---
+//  The block is page-aligned, so the page is added to its high byte and the low
+//  byte is already 0.
+muScrPt:
+    jsr muImgToKPtr             // kPtr = the image block
+    lda kPtr+1
+    clc
+    adc muScrPg
+    sta kPtr+1
+    rts
+
+// --- muScrFill -- copy the image's whole pages into the scratch ---
+//  Out: C=0 done; C=1 the tune needs more pages than the scratch has, or a write
+//  was refused. The pad behind MU_LEN goes out as zeroes, which is what a save
+//  writes back, so an untouched file still round-trips byte for byte.
+muScrFill:
+    ldy #MU_LEN
+    lda (dataPtr),y
+    clc
+    adc #$ff
+    ldy #MU_LEN+1
+    lda (dataPtr),y
+    adc #0
+    bne muSfCnt                 // a non-zero high byte: at least 256 pages
+    lda #1
+muSfCnt:
+    cmp muSFrec+1               // the record's size hi IS the page count
+    beq muSfFit
+    bcs muSfBad                 // more pages than the scratch has
+muSfFit:
+    sta muScrCnt
+    lda #0
+    sta muScrPg
+muSfLp:
+    jsr muScrPt                 // kPtr = the block's page
+    jsr muSFrecArg
+    lda #0
+    sta kArg+2
+    lda muScrPg
+    sta kArg+3                  // pos = page x 256
+    lda #0
+    sta kArg+6
+    lda #1
+    sta kArg+7                  // len = 256
+    jsr kReuWriteAt
+    bcs muSfBad
+    inc muScrPg
+    dec muScrCnt
+    bne muSfLp
+    clc
+    rts
+muSfBad:
     sec
     rts
 
@@ -638,7 +767,8 @@ muLdNewLp:
     iny
     cpy #(muNewTuneEnd - muNewTune)
     bne muLdNewLp
-    jmp muBlockPad
+    jsr muBlockPad
+    jmp muLdCheck
 
 // --- muLdCheck -- a file too short to hold even the header is not a tune ---
 muLdCheck:
@@ -653,6 +783,12 @@ muLdCheck:
     sec
     rts
 muLdGood:
+    jsr muScrMake               // the image reaches the working file
+    bcc muLdFine
+    muStr(muSNoScr)
+    sec
+    rts
+muLdFine:
     clc
     rts
 
@@ -6817,6 +6953,8 @@ muSNoWrite: .text "? write failed"
             .byte 0
 muSNoTune:  .text "? not a tune"
             .byte 0
+muSNoScr:   .text "? no scratch"
+            .byte 0
 muSDirFull: .text "? dir full"
             .byte 0
 
@@ -6833,6 +6971,11 @@ muNewTuneEnd:
 .assert "the new-tune image", (muNewTuneEnd - muNewTune) == 15 ? 1 : 0, 1
 
 muFsName:   .fill 12, 0         // <base>.mus in screen codes + NUL
+muSFName:   .fill 12, 0         // <base>.wrk, the working image
+muSFrec:    .fill 5, 0          // its record: size lo/hi, base lo/mid/hi
+muScrPg:    .byte 0             // muScrFill: the page being copied
+muScrCnt:   .byte 0             // ...and how many are left
+muScrV:     .byte 0             // muWinFill: the voice, across kReuReadAt
 muDirName:  .fill 12, 0         // kReuDirEntry's name buffer (slot 0 only)
 // The powers muNum16 subtracts: five cover every 16-bit value.
 muPowLo:    .byte <10000, <1000, <100, <10, <1
