@@ -4990,15 +4990,15 @@ muDcRts:
 //  the note currently sounding is simply the byte before it: no history, no
 //  second walk, and it is exact for a whole note and a 64th alike.
 .const MU_DOT_SLOT0 = 5           // slots 0 and 1 are the pointer
-.const MU_DOT_Y     = 217         // on a black key: the upper three key rows
-.const MU_DOT_YN    = 225         // a natural sits in the white-key row below them
+.const MU_DOT_Y     = 216         // on a black key: the upper three key rows
+.const MU_DOT_YN    = 226         // a natural sits in the white-key row below them
 .const MU_DOT_KEYS  = $e3         // slots 5, 6, 7 (and the pointer's two)
 
 // --- muDotInit -- resolve the dot art, once ---
 muDotInit:
-    sprColour(MU_DOT_SLOT0+0, 2)  // red
-    sprColour(MU_DOT_SLOT0+1, 2)
-    sprColour(MU_DOT_SLOT0+2, 2)
+    sprColour(MU_DOT_SLOT0+0, 2)  // voice 1: red
+    sprColour(MU_DOT_SLOT0+1, 7)  // voice 2: yellow
+    sprColour(MU_DOT_SLOT0+2, 3)  // voice 3: cyan
     sprPriority(0)                // in front: a dot on a black key still shows
     lda #<muSDot
     sta kPtr
