@@ -1,36 +1,39 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
-> **Status: STEP 6 done; STEP 8 (playback) done.** `musedit.asm`, `musedit.inc` and the generated
-> `musedit-glyphs.inc` / `musedit-tables.inc` exist and build: 58 code pages, 25 pages of
-> margin (84 of 109 with `sprite`/`mouse`/`filesys`/`sid`). Verified working: the screen, the layout, the eight-octave
-> piano, the key loop, the pointer, the pitch hover, the load/save path, the timing module,
-> the resumable three-voice walk, the tracker grid, the editing seek, the length writer, the
-> gap opener, **replace (6.1)**, **split (6.2)**, **fill (6.3)**, **append (6.4)** — on an
-> empty voice too — **rest (6.5)**, **delete (6.6)**, **duration arming and its legality
-> refusals (6.7)**, **the tempo flag (6.8)**, **undo/redo with the dirty guard
-> (6.9-6.11)** — a range-diff stack, each action one or more `(offset, voice, oldN, newN,
-> old, new)` records grouped by a bit-7 "group start" flag and replayed as single range
-> replaces — **insert row / bar (6.15-6.17, 6.20)** via `muInsertTime` (`I` / `SHIFT+I`)
-> and **insert mode (6.19)** (`M`, `ovr`/`ins`), which splice rows of silence into all three
-> voices at the cursor as one grouped action -- the cursor voice taking the note in insert
-> mode -- plus a clipped redraw so an edit repaints only its own rows, a status line
-> counted in displayed frames, and **playback (Step 8)**: a music thread child plays the tune
-> through `kSidPlay`, `SPACE` toggles it, `sidplay.inc` publishes each voice's position at
-> `$54A2`, the cursor tracks the sounding row each frame, the window follows it, every
-> edit path reports `? stop first` while it runs (6.12), `? no player` when there is no child,
-> and the child is reaped before the surface goes.
+> **Status: the editor is built, wired and shipped.** `musedit.asm`, `musedit.inc` and the
+> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **92 code pages of 109** (17 of
+> margin, with `sprite`/`mouse`/`filesys`/`sid` counted by `tools/check-pool-budget.ps1`).
+> Everything in steps 1-6 is verified, as is playback (step 8.1-8.9): a music thread child plays
+> the tune through `kSidPlay`, `SPACE` toggles it, `sidplay.inc` publishes each voice's position
+> at `$54A2`, the cursor is the playhead and is stepped by the tick clock between events, the
+> window follows it a line at a time, every edit path reports `? stop first` while it runs,
+> `? no player` when the child is gone, and the child is reaped before the surface goes. Release
+> wiring (9.1-9.4) is done: `README.md`, `docs/features.md`, `docs/quick-start.md`,
+> `tools/quickstart.binaries.md` and `publish-binaries.ps1`'s `$guides` all name it, and the
+> guides ship.
 >
-> **Where the next session starts.** 6.18 (`? in a phrase` needs CALL-block detection) and
-> 6.13/6.14 (mouse-only and keyboard note sessions) remain, plus the Step 8 checks not yet
-> filmed (8.4 loops, 8.7 rapid stop/play, 8.10-8.12).
-> The `,` tie key and the bar's `DUR`/`TIE` click cells are still unwired. Step 7 (the command
-> panel) is untouched.
-> **Two harness lessons:** the kernel's
+> **A polish pass after the first sitting is done and in use** (see step 11): the note is written
+> as its duration number instead of a bar, the keyboard is three rows, the lanes have no
+> separators and each is drawn in its voice's colour, the control bar answers the mouse and shows
+> which item is running, the head prints the tempo in decimal and its `BAR`/`R` follow the
+> playhead, and PLAY/end-of-pass now take the view home so the notes on screen are the notes
+> being played.
+>
+> **Where the next session starts.** Open: **8.10** (F-key away and back during playback),
+> **8.11/8.12** (the audition — a piano click writes the note and plays nothing, so there is
+> nothing to verify yet), **9.5** (a fresh-machine sitting), and the parked **10.1b/10.2/10.3**
+> (scroll REU cost, the tuned row clock, repeat-forever). 6.18 (`? in a phrase` needs CALL-block
+> detection) and 6.13/6.14 (mouse-only and keyboard note sessions) are still unbuilt. The `,` tie
+> key and the bar's `DUR`/`TIE` click cells are still unwired; step 7 (the command panel) is
+> untouched.
+>
+> **Three harness lessons:** the kernel's
 > 16-entry key ring drops keys pressed faster than a full-grid redraw finishes, so
 > `temp/probe.py` spaces keys with `KEY_GAP` (1.2-1.5s is safe); fast-pressed edits read as
-> swallowed, which is dropped input, not a logic fault. And the VICE binary monitor stops the
-> CPU on a read, so a probe must `resume()` between samples or the player sits paused and its
-> published pointer looks frozen.
+> swallowed, which is dropped input, not a logic fault. The VICE binary monitor stops the
+> CPU on every command, so a probe must `resume()` between samples or the player sits paused and
+> its published pointer looks frozen — and a sampled screen can look "frozen" simply because the
+> whole probe loop never resumed it.
 > **Two testing rules learned the hard way.** (1) **Reseed the REU and commit it** -- run
 > `tools/build-reu.ps1` immediately before a test run, and NEVER `git checkout` the image
 > afterwards: the task is loaded from the REU filesystem, so a reverted image silently runs the
@@ -350,8 +353,8 @@ DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q
 |---|---|
 | 0 | name, tempo, bar, cursor row, and the **pitch readout** for the pointer or cursor |
 | 1 | lane headers |
-| 2-19 | the grid — 18 rows; **this is the scroll region** (`kSetScrollRegion(2, 19)`) |
-| 20-23 | the piano — all eight octaves, 40 cells, five cells per octave |
+| 2-20 | the grid — 19 rows; **this is the scroll region** (`kSetScrollRegion(2, 20)`) |
+| 21-23 | the piano — all eight octaves, 40 cells, five cells per octave, three rows |
 | 24 | the control bar: duration, dot state, tie, play, commands, undo, save, quit |
 
 - **Columns**: 4 (row number) + 11 + 1 + 11 + 1 + 11 = 39; the spare column 39 is unused headroom
@@ -635,7 +638,7 @@ saves again.
 | ZP | **none in the header** — the thread child declares `$02`, len 9 at spawn |
 | libMask | `(1 << LIB_FILESYS) \| (1 << LIB_SID) \| (1 << LIB_SPRITE) \| (1 << LIB_MOUSE)` = `$01A2`: sprite and mouse **eager** (3 pages), filesys and sid lazy |
 | data size | ≤ 255; the name is copied out of the argument area (offsets 0-11) into the code image, then the instance is zeroed from 12 |
-| screens | `kAllocScreen` mode 0, border `$0b`, then `kBlinkReset` inside an `SEI` window immediately before `kSwitchView` (the out-going surface's live blink block must be un-drawn before `surfSave` copies it), then `kDisableCursor` and `kSetScrollRegion(2,19)` — the grid only, so nothing can scroll the keyboard — and `kClearScreen` once after the switch, because a recycled surface keeps the previous occupant's bitmap |
+| screens | `kAllocScreen` mode 0, border `$0b`, then `kBlinkReset` inside an `SEI` window immediately before `kSwitchView` (the out-going surface's live blink block must be un-drawn before `surfSave` copies it), then `kDisableCursor` and `kSetScrollRegion(2,20)` — the grid only, so nothing can scroll the keyboard — and `kClearScreen` once after the switch, because a recycled surface keeps the previous occupant's bitmap |
 | pointer | `mouse.lib` + `sprite.lib` + the existing `pointer.spr` (already seeded by `build-reu.ps1`); `mouseKind` required — 0 is the `? no mouse` refusal; two sprites resolved once, **before** anything is drawn; `sprOn(0)` and `MOUSE_DISABLE` before exit |
 | exit | `kSwitchView` to the parent **before** `kFreeScreen`, then `SYS_EXIT`; drain the key queue by capacity (16 reads) first |
 
@@ -692,7 +695,7 @@ path.
 - [x] **1.1 Build.** `tools/build-tasks.ps1` — exit 0, relocation verification OK, `musedit N pages` in the budget table.
 - [x] **1.2 Seed.** Close VICE, `tools/build-reu.ps1`, then `check-reu-fs.ps1` and `check-reu-current.ps1` — both exit 0 and list `musedit.tsk` (no REU change: the pointer art is the existing `pointer.spr`).
 - [x] **1.3 Open.** `run musedit commodo` — our screen, dark-grey border, row 0 with `commodo`, the lane headers on row 1, 18 empty grid rows, the piano across rows 20-23 and the control bar on 24; nothing else on the screen.
-- [x] **1.4 The keyboard is still.** Move the grid window down and up with the cursor keys past the region's ends — the piano and the control bar never move and are never overdrawn (*inspection only*: the region is `kSetScrollRegion(2,19)` and every draw is fixed-cell).
+- [x] **1.4 The keyboard is still.** Move the grid window down and up with the cursor keys past the region's ends — the piano and the control bar never move and are never overdrawn (*inspection only*: the region is `kSetScrollRegion(2,20)` and every draw is fixed-cell).
 - [x] **1.5 Refusals.** `run musedit` and `run musedit toolongnm` — each takes a screen of its own with only the usage line; a key exits; the shell's screen is untouched.
 - [x] **1.6 No key leakage.** With the editor open, type letters and RETURN, then `Q` — nothing appears on the editor or on the shell's next line.
 - [x] **1.7 F-key away and back.** F-key to the shell and back — the editor redraws, no cursor block is left on the shell's screen, and another task's screen is untouched.
@@ -907,7 +910,7 @@ The published block, the thread child, stop/reap, follow.
 
 ### Step 9 — Gates and release
 
-- [x] **9.1 Budget.** *Verified: 90 pages with 19 to spare.* `check-pool-budget.ps1` — exit 0, `musedit` at its measured footprint, with filesys, sid, mouse and sprite counted and the tune pages counted.
+- [x] **9.1 Budget.** *Verified: 92 pages of 109, 17 to spare* (the polish pass in step 11 spent two of them). `check-pool-budget.ps1` — exit 0, `musedit` at its measured footprint, with filesys, sid, mouse and sprite counted and the tune pages counted.
 - [x] **9.2 Builds.** *Verified: kernel 233 asserts 0 failed, tasks and REU exit 0, and `check-reu-current.ps1` reports the image current — no source changed since the build and all 49 binaries byte-identical.* Kernel, tasks and REU all exit 0; `check-reu-current.ps1` reports the image holds the binaries just built.
 - [x] **9.3 Doc gates.** *Verified: `verify-map.ps1` all checks passed, `verify-jumptable-docs.ps1` clean, `verify-inventory-docs.ps1` current (198 addresses agree with the jump table; the call inventories were regenerated — 1270 kernel and 237 library call sites), `check-links.py` 0 unresolved, `check-ascii.py` OK, `scan-history.py` 0 flagged lines.* `verify-map.ps1`, `verify-jumptable-docs.ps1`, `verify-inventory-docs.ps1`, `check-links.py`, `check-ascii.py`, `scan-history.py` — all exit 0 (the last is advisory but read it).
 - [x] **9.4 Wiring.** *Done: `tools/tasks.json` and `project-config.json` `sources` already named it; added to `README.md` (feature bullet + guide link), `docs/features.md` (Sound), `docs/quick-start.md` (the `run <filename>` task list), `tools/quickstart.binaries.md` (the binaries task table) and `publish-binaries.ps1`'s `$guides` — without that last one the guide would never ship. The task binary needs no publish wiring: it travels inside `reu/REU.bin`.* `tools/tasks.json`, `project-config.json` `sources`, `README.md`'s task table, `docs/features.md`, `docs/quick-start.md`, `tools/quickstart.binaries.md` and `publish-binaries.ps1`'s `$guides` all name `musedit` / `docs/musedit.md`.
@@ -924,7 +927,7 @@ not rediscovered from scratch.
   up to 108 kernel calls across three lanes, ~30 ms. On a dense row that is more than a frame, so
   the band can dip behind the music even though nothing is repainted. The scroll itself is
   cheap; the character drawing is the limit.
-  `kScrollScreen` moves the band's pixels ? 18 rows x 320 bytes at the time of writing, 19 now ?
+  `kScrollScreen` moves the band's pixels ? 19 rows x 320 bytes ?
   through `REU_BOUNCE` in two passes, which is ~11.5k cycles (~11.5 ms at 1 MHz PAL) against a
   row period of ~17 ms at 58 rows/s. That is the floor this design has, and it is why a dense
   tune can still dip. Run-blitting was considered and has nothing to bite on: the duration
@@ -960,6 +963,52 @@ not rediscovered from scratch.
   clock while the walker is at the end) and run `muRewindView` ? zero `muHistN`, `muTop`,
   the accumulator and the anchor, put the cursor back on the first row, then repaint ? before
   continuing. Not wanted today; a tracker that loops in the editor would need it.
+
+### Step 11 — The polish pass after the first sitting (done)
+
+Everything here came out of using the editor with real tunes. Each item states what the editor
+does now; the observations behind them live in the git log, not here.
+
+- [x] **11.1 The note reads as its duration.** A grid cell shows the pitch and then the length in
+  the format's own numbers (`C#2 16`, `G-4 4`), not a run of `=` bars: `muDurNum` maps the length
+  class (whole..64th) to 1, 2, 4, 8, 16, 32, 64 and a utility length prints nothing. Only the
+  onset row carries anything — the rows an event covers are blank — which is also what made the
+  scroll cheap (10.1a) and left no runs for a run blitter (10.1b).
+- [x] **11.2 A dot per voice on the keyboard.** `muDots` pins one sprite on the key each voice is
+  sounding, placed from the pitch the **walker's** ring recorded for the event at the playhead
+  (never the player's pointer-1), red / yellow / cyan for voices 1-3, naturals one row lower than
+  accidentals, and the ninth x bit carried in `C` for `kSpritePos`. `kSpriteCollide` is not used:
+  the dots are output, not input.
+- [x] **11.3 The keyboard is three rows.** Four rows left the score too short, so
+  `tools/gen-musedit-glyphs.py` emits `ROWS=3`, `BLACK_ROWS=2` and `muKeyBlackRows`, and the grid
+  grew to rows 2-19.
+- [x] **11.4 No lane separators.** The columns between lanes (15, 27) are spaces: a separator drawn
+  only on a full redraw is a line that breaks as soon as a row scrolls in, so the lanes are told
+  apart by their colours and their headers instead.
+- [x] **11.5 Each lane wears its voice's colour.** `muGdCells` sets the text colour from
+  `muVoiceCol` (2, 7, 3 — the same three the dots use) for the event it draws and restores white
+  afterwards, so the row numbers and the head stay plain. The colour rides the matrix nibble, so
+  it travels with a row when the band scrolls.
+- [x] **11.6 The lanes sit under their headers.** `MU_LANE1_COL` (4), `MU_LANE_W` (11) and
+  `MU_LANE_STEP` (12) generate `muLaneCol`/`muLaneW` *and* the click hit test, with asserts
+  pinning 4/16/28 against "ROW VOICE 1     VOICE 2     VOICE 3". Voice 1's lane used to start a
+  cell to the left of its own header.
+- [x] **11.7 The control bar answers the mouse.** The item under the pointer is redrawn in reverse
+  video and returns to plain when the pointer leaves; `PLAY` stays reversed for the whole pass.
+  Hover and "running now" both read the same per-column hit map the click route uses, so they
+  cannot disagree. Reversed cells are framebuffer writes (`kBlitCharRev`, drawn only while the
+  task holds the display) and are put back with `kBlitChar`, because `kPrintCharAt` keeps a cell's
+  background nibble and a reversed cell's background is the text colour.
+- [x] **11.8 The head reads in decimal and follows the playhead.** `TEM` prints through `muNum16`,
+  and `muPhHead` rewrites the `BAR`/`R` tail when the bar changes (the row alone otherwise). The
+  row column is taken *after* ` R` is printed, which is the only order that puts the row in its
+  own cells.
+- [x] **11.9 The view rewinds with the music.** A pass that ends puts the cursor back on the first
+  row as well as rewinding the score; a `SPACE` start goes home too (the child always plays from
+  the tune's first row), and `muPlayHome` draws **only what is not already home**: nothing when
+  the window is at row 0 with the cursor on the first row, the marker and the head when just the
+  cursor is elsewhere, a full repaint only for a scrolled window. The rewind runs *before*
+  `muPlayOn` is set — see §9 for why the order matters.
 
 ## 15. Open questions
 
@@ -998,12 +1047,11 @@ not rediscovered from scratch.
     machine without a 1351 has nothing to enter with. The computer-keyboard note map stays as a
     second input path.
 
-## 16. Documentation to update when it lands
+## 16. Documentation
 
-`docs/musedit.md` (rewrite from "first release" to shipped), `README.md` (task table),
-`docs/features.md`, `docs/quick-start.md`, `tools/quickstart.binaries.md`,
-the gate list in `docs/development.md` if a new gate is added,
-`docs/lib-sid.md` (the published position block), `docs/memory-map.md` (the pinned pocket and
-the totals), `reference/sidplayer-mus-file-format.md` (the bit-7 correction), and
-`publish-binaries.ps1`'s `$guides` (add `docs/musedit.md` — a new guide does not ship
-otherwise).
+All of it is written and current: `docs/musedit.md` (the guide, and it is in
+`publish-binaries.ps1`'s `$guides`, so it ships), `README.md` (the task table and a link),
+`docs/features.md`, `docs/quick-start.md`, `tools/quickstart.binaries.md`, `docs/lib-sid.md` (the
+published position block), `docs/memory-map.md` (the pinned pocket and the totals) and
+`reference/sidplayer-mus-file-format.md` (the bit-7 correction). A new gate would also need a row
+in `docs/development.md`; none was added.

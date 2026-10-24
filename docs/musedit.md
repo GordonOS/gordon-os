@@ -62,13 +62,13 @@ the row are what the playhead moves, so during playback they say where the music
 
 **Row 1** — the three lane headers, and at the right the note-entry mode: `OVR` or `INS`.
 
-**Rows 2-19** — the grid, 18 rows. Each row is one **step** of the current tempo — the shortest
+**Rows 2-20** — the grid, 19 rows. Each row is one **step** of the current tempo — the shortest
 ordinary note the tempo allows — so a whole note (one 4/4 bar) is 8, 16, 32 or 64 rows
 depending on the tempo. **This is the only part of the screen that scrolls.**
 
-**Rows 20-23** — the piano: **all eight octaves**, C0 to B7, on one screen. The 56 white keys
+**Rows 21-23** — the piano: **all eight octaves**, C0 to B7, on one screen. The 56 white keys
 share the 320-pixel width, so a key is about 5.7 pixels wide; the black keys are short bars on
-the boundaries, three rows tall. The key under the pointer is highlighted.
+the boundaries, two rows tall. The key under the pointer is highlighted.
 
 While the music plays a **dot per voice** sits on the key that voice is sounding — **red** for
 voice 1, **yellow** for voice 2 and **cyan** for voice 3, so a chord reads at a glance and you can
@@ -80,7 +80,7 @@ the black keys; an accidental's sits up on the black key itself.
 A lane is drawn in its own voice's colour — the same red, yellow and cyan — so a note and the dot
 that follows it are one thing seen twice. The row number, the lane headers and the head stay white.
 
-**Row 24** — the control bar: the armed duration with `-`/`+` steppers, the dot state, the tie
+**Row 24** — the control bar: `DUR` with the armed duration and the dot cell, `TIE-` the tie
 toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, SAVE and Q are clickable; the rest
 answer `? not yet` and are driven from the keys instead (`1`-`9` arm the duration, `.` cycles
 the dots, `Z`/`X` undo and redo).
