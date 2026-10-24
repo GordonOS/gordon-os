@@ -501,6 +501,7 @@ runs at ~60 Hz and misses an instant press.
 | Helper | What it does |
 |---|---|
 | `shots.py` | drives VICE through its **binary monitor** and captures the README's screenshots |
+| `vice-drive.py` | the **worked example** of driving VICE: `launch` (visible) / `type` / `key` / `fb` / `cmp`. Read its header before writing any VICE code -- it records the three dead ends (KERNAL keybuf, window keystrokes, modifiers) so they are not rediscovered |
 | `shots.py` | the README's screenshots, on any host: drives VICE's **binary monitor** (`-binarymonitor`), which halts the machine for every command, so a poke into the kernel's key ring or its `keybHeld` level lands exactly as the keyboard IRQ would write it. `python3 tools/shots.py [name...]` re-takes them into `docs/img/`, `--list` names the shots |
 
 ⚠️ VICE's own `-keybuf`, and the monitor's `KEYBOARD FEED`, put text in the **KERNAL's**

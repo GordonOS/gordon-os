@@ -14,6 +14,9 @@ GordonOS from a script:
     itself at 60 Hz and an instant press/release falls between scans. Nothing
     in tools/ does that any more.
 
+For a small, copyable example of this loop -- launch visibly, attach, type,
+read the framebuffer, compare -- see tools/vice-drive.py.
+
 Input is therefore injected at the OS level:
   * keys -> the kernel's own ring buffer (keybCount $E216 / keybHead $E217 /
             keybTail $E218 / keybBuffer $E219, 16 entries, IRQ-owned)

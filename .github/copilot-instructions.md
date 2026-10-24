@@ -286,6 +286,21 @@ Strings with `.text` use `.encoding "screencode_mixed"`. Character literals like
 - Data files are exempt and stay byte-exact: `src/corpus/*.bas` (tokenized BASIC), `charsets/*`, `src/banners/*`, `music/*`, `reference/**/*.md`, and the REU image.
 - A comment edit must never change emitted bytes: after such a sweep, rebuild the tasks and the kernel and confirm the `.bin`/`.prg` hashes are unchanged.
 
+## Rule 20: Driving VICE
+
+**The emulator is a shared resource and the user's screen. Never start it unasked, never drive it any way but the binary monitor, and never hide what it is doing.**
+
+- **Do not start VICE unless the user asked for it in this session, or asked a question and accepted your offer to run it.** If a task would be easier with a test run, ASK first and wait. "I could check this in VICE" is a question, not a plan.
+- **Always start it so the user can SEE it:** a real window, launched with `Start-Process` (or `tools/launch-vice.ps1`), never hidden, never with its output discarded. Launch it as its own step and let the user watch it boot. `subprocess.Popen(..., stdout=DEVNULL)` produces an invisible, silent failure and is forbidden for the emulator.
+- **Drive it ONLY through the binary monitor** -- `tools/shots.py`'s driver (`-binarymonitor -binarymonitoraddress ip4://127.0.0.1:<port>`). Keys are poked into the kernel's own ring (`keybCount $E216` / `keybHead $E217` / `keybTail $E218` / `keybBuffer $E219`), and every monitor command halts the machine, which is what makes the poke atomic. **`tools/vice-drive.py` is the worked example** -- read it before writing any VICE code: `launch` / `type` / `key` / `fb` / `cmp`, each subcommand a separate step, and `launch` deliberately visible.
+- **NEVER drive the VICE window** (Win32 `SendKeys`, `keybd_event`, `SetForegroundWindow`, "click at x,y", auto-typing helpers). All three such helpers were deleted; do not recreate one. Two independent dead ends, both documented in `tools/shots.py`'s header:
+  - `-keybuf` and the monitor's **KEYBOARD FEED** write the C64 KERNAL's buffer at `$0277`. GordonOS replaces the KERNAL and scans the CIA matrix itself, so both are silently ignored.
+  - A window keystroke loses the FIRST key after every focus change (``run musedit` arrives as `un musedit``) and drops keys mid-word (`tetrs`), because an instant press/release falls between two 60 Hz hardware scans. Timing, re-focusing and clicking first do not fix it -- it is the wrong channel.
+- **Modifiers cannot be injected at all.** `kbPoll` reads shift off the CIA matrix, so a poked `s` is an unshifted `s` (in `musedit`, `S` is a *note key*), and `keybShift` (`$E229`) is a copy re-derived from the matrix, so poking it does nothing. To exercise something behind `SHIFT`, use the unmodified key or a control-bar click; if neither exists, say the path is UNVERIFIED rather than pretending.
+- **`MON_CMD_QUIT` CLOSES THE EMULATOR.** A driver that calls `m.quit()` ends every run by closing the user's window -- which also writes `-exitscreenshot`. Finish with `m.resume()` and leave VICE running; quit it only when the user says so.
+- **Report what you saw, not what you expected.** Read the framebuffer over the monitor (`mem_get(0x2000, 8000)` -- note it returns `(length, bytes)`) and compare it across steps, so "the note came back" is byte evidence. A screenshot is evidence too, but a driver that reports success without reading anything is not.
+- **Clean up after a run:** no `vice-snapshot-*.vsf` left behind, and `git checkout -- reu/*.bin` if a running emulator rewrote the tracked image (`-reuimagerw` maps it read-write).
+
 # GordonOS Dynamic Loader and Task-Build Rules
 
 ## Task binary ABI
