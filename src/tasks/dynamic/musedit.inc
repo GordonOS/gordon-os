@@ -1837,16 +1837,20 @@ muCmCall:
     adc #MU_FRAMES
     cmp muDep,x
     bne muCmCallGo
-    lda #MU_ERR_STK             // the call stack is full
-    sta muErr
-    jmp muSimStop
+    lda #MU_ERR_STK             // the call stack is full: the PLAYER flags it
+    sta muErr                   //   (MaxInnerCallsError) and drops the call, so the
+    jmp muStepRun               //   voice simply carries on -- stopping the walk
+                                //   here erases every row after this point
 muCmCallGo:
     ldy muSph
     lda muDfHi,y
     bne muCmCallGo2
-    lda #MU_ERR_PHR             // a phrase that was never defined
-    sta muErr
-    jmp muSimStop
+    lda #MU_ERR_PHR             // a phrase that was never defined: the PLAYER only
+    sta muErr                   //   records it (NoSuchPhraseError -> SID_STATUS) and
+    jmp muStepRun               //   carries on. Tunes that lean on it play, so the
+                                //   walk must not stop on it either -- commodo's
+                                //   voice 2 is nothing but calls to a phrase that
+                                //   voice 1 defines, and immig hits one mid-tune.
 muCmCallGo2:
     lda muDep,x
     tay
@@ -1893,9 +1897,11 @@ muCmDefGo:
     inc muDep,x
     jmp muStepRun
 
-// --- muSimStop -- silence every voice: an error, or the song's own end ---
-//  A player error stops all three voices, which is what SID_STATUS does, and
-//  MU_ERR says which one it was (0 = the walk simply ran out of events).
+// --- muSimStop -- silence every voice: the song's end, or an error the player
+//     treats as fatal ---
+//  MU_ERR says which one it was (0 = the walk simply ran out of events). The
+//  player's phrase errors are NOT among them: it records those in SID_STATUS and
+//  keeps playing, so the walk flags them and carries on instead (see muCmCall).
 //  C=1: the stopping event never played, so the caller must not measure it.
 muSimStop:
     lda #0

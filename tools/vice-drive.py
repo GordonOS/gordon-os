@@ -106,13 +106,11 @@ def cmd_launch(args):
                                                 #   cannot place kernel data
            str(ROOT / "build" / "gordon-os.prg")]
     print("launching: %s" % " ".join(cmd[1:]))
-    #  No DEVNULL: a visible window, and any complaint reaches the console. And it is
-    #  DETACHED, because the caller is usually a one-shot tool session -- an attached
-    #  child dies with it, which reads as "VICE never started".
-    flags = 0
-    if os.name == "nt":
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    proc = subprocess.Popen(cmd, creationflags=flags)
+    #  No DEVNULL: a visible window, and any complaint reaches the console. NOT
+    #  DETACHED_PROCESS either -- that starts the emulator without its window, which
+    #  reads as "VICE is not visible". A one-shot caller that needs it to outlive the
+    #  session uses `Start-Process` (or tools/launch-vice.ps1) instead.
+    proc = subprocess.Popen(cmd)
     print("VICE pid %d -- monitor on %d" % (proc.pid, args.port))
     print("now: python tools/vice-drive.py text      # look before you press")
     return 0
