@@ -6101,14 +6101,18 @@ muPtRefd:
 muPtAlive:
     lda muPlayOn
     beq muPtStopped
-    ldx muPlaySlot              // a failed lazy load exits the child, so the
-    lda taskState,x             //   parent must notice or PLAY looks inert
-    bne muPtPlaying
+    lda muPlaySlot              // $FF is "no player at all": it must not reach
+    cmp #$ff                    //   taskState,x, which is a 24-slot table
+    beq muPtLost
+    tax
+    lda taskState,x             // a failed lazy load exits the child, so the
+    bne muPtPlaying             //   parent must notice or PLAY looks inert
+muPtLost:
     lda #0
     sta muSidOk
-    lda #$ff
-    sta muPlaySlot              // the player is gone for this session: report it
-    sta muPlayOn
+    sta muPlayOn                // STOPPED, not $FF: a reported player is not a
+    lda #$ff                    //   playing one, and $FF here left the playhead
+    sta muPlaySlot              //   walking silently for ever
 muPtNoPlayer:
     lda #0                      // nothing is playing: the redraw below drops it
     sta muBarAct
