@@ -1073,10 +1073,20 @@ hands those bytes to `sid.lib`, an edit changes them, a save writes them back. T
 
 **The work.** In order, each a checkpoint that builds and passes the gates on its own:
 
-- [ ] **12.1 Window service.** A `muWin*` pair (`seat the window for voice X at offset`, `read
-      byte`, `write byte`) over a scratch-file record, built on `kReuDmaRange` / `kReuWriteAt`.
-      Dirty-page tracking + write-back. Two test tunes already exist for the read side
-      (`filltst`, `instmv`) and the host model (`tools/mus-sim.py`) covers the walk.
+- [x] **12.1 Window service.** `muWinSeat` (X = voice, `muWinOfs` = the offset -> `kPtr` =
+      the address of that offset in the window), `muWinInit` (three pages, taken once),
+      `muWinReset`, and `muWinCheck`. The page source is **the image block** for now, so the
+      editor behaves exactly as it did and the refactor of the 60 accessors can be proved
+      against a source we know is correct before the storage moves; `muWinFill` is the only
+      routine that changes for the file. The **write** entry is deliberately NOT here: a window
+      holds a copy, so a write must also reach the page it came from, and there is no such page
+      yet -- it lands with 12.5 and the file behind it.
+      `muWinCheck` runs at startup and compares each page against an independent pointer walk
+      (`muWcPt`), because a lost carry between the block's high byte and the page number hands
+      back another page's bytes and the tune still looks plausible.
+      **Not `kReuDmaRange`:** the editor HOLDS `filesys.lib`, so it can use `kReuReadAt` /
+      `kReuWriteAt` with a caller-owned record and never touch the kernel-global `reuFsPtr`
+      (the player cannot, which is why it takes the other route).
 - [ ] **12.2 Load.** `muLoad` copies the file into a scratch file (create + page loop) instead of
       `kMalloc`; `MU_IMG`/`MU_PAGES` become the record + size; the no-room refusal goes away
       (only "no scratch room" and "file bigger than 64 KB" remain).
