@@ -1090,11 +1090,13 @@ hands those bytes to `sid.lib`, an edit changes them, a save writes them back. T
 - [ ] **12.2 Load.** `muLoad` copies the file into a scratch file (create + page loop) instead of
       `kMalloc`; `MU_IMG`/`MU_PAGES` become the record + size; the no-room refusal goes away
       (only "no scratch room" and "file bigger than 64 KB" remain).
-- [ ] **12.3 The walker.** `muSimInit`/`muPtrToK`/`muPtrBump` on offsets through the windows.
-      **Half done by the merge:** `$54A2` now publishes offsets and `muHistAdd` stores
-      `muPtr - imageBase`, so the ring and `muPhSync` already compare in the player's own unit.
-      What remains is the walker itself -- its `muPtrLo/Hi` become offsets and every read goes
-      through the window service, at which point the base subtraction in `muHistAdd` goes away.
+- [x] **12.3 The walker.** DONE. `muPtrLo/Hi` hold a file offset per voice; `muPtrToK` seats
+      that voice's window on the offset and returns the address; `muSimInit` seeds the three
+      streams at 8 then each length word; `muPtrBump` was already offset-shaped. Three
+      conversions disappeared with it -- the base subtraction in `muHistAdd` and in
+      `muSkRecord`, and `muStep`'s rebuild of an address in `muAcc`. Code 17005 -> 16969 bytes.
+      `muPtrToK` documented as clobbering A, Y, `kPtr`, `srcPtr` and returning C=0.
+
 - [ ] **12.4 Drawing.** `muGdCells`/`muGdPitch`/`muNumDur`/`muCmdN` and the header readers
       (`muFindTempo`, `muUnitNow`, `muNameAt`, the description) through the window service.
 - [ ] **12.5 Editing.** The 23 write sites (`muNcReplace`, `muInMoved`, `muDgMoved`, the length
