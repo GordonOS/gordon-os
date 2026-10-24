@@ -759,8 +759,8 @@ gzMusicStop:
 //  Switching is: remember it, hush (which is what unblocks the child -- see
 //  gzMusicStop), write that tune's filesystem offset into the player's config, and
 //  ask for music again. gzTuneOk says which tunes are actually in the FS, so a
-//  missing one falls back to tune 0; with neither there gzTuneLo/Hi are 0 and
-//  gzMusicStart quietly does nothing.
+//  missing one falls back to tune 0; with neither there -- or with no window pages,
+//  because their kMalloc failed -- gzTuneLo/Hi are 0 and nothing plays.
 //  WARNING: the config is rewritten while the child is still inside the previous
 //  kSidPlay -- that is safe because the player COPIES the nine bytes at entry, so
 //  the running tune is unaffected; only the next call reads the new offset.
@@ -775,14 +775,11 @@ gzMusicTune:
     bne gzMtuSel                 // this tune is in the FS
     ldx #0                       // it is not: fall back to tune 0 (commodo)
     lda gzTuneOk
-    bne gzMtuSel
-    lda #0                       // neither is: nothing to play
-    sta gzTuneLo
-    sta gzTuneHi
-    lda #GZ_NO_TUNE              // ...and a later request must re-run this test
-    sta gzMusTune
-    rts
+    beq gzMtuNone
 gzMtuSel:
+    lda gzTuneBufLo              // no window pages (their kMalloc failed): there is
+    ora gzTuneBufHi              //   nowhere for the player to page a tune into
+    beq gzMtuNone
     lda gzFsLo,x                 // config +0..+2: this tune's FS offset
     sta gzTuneCfg
     lda gzFsMid,x
@@ -793,9 +790,15 @@ gzMtuSel:
     sta gzTuneLo
     lda #>gzTuneCfg
     sta gzTuneHi
-gzMtuGo:
     jsr gzMusicStart
 gzMtuDone:
+    rts
+gzMtuNone:
+    lda #0                       // nothing playable
+    sta gzTuneLo
+    sta gzTuneHi
+    lda #GZ_NO_TUNE              // ...and a later request must re-run this test
+    sta gzMusTune
     rts
 
 //  gzMusicBye -- the exit path: leave the player loop for good, make sure the

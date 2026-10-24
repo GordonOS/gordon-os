@@ -132,18 +132,42 @@ sidCode:
 //          C = 1 refused -- another task is already playing
 //  Clobbers: A, X, Y, kArg+0/+1 (the loop sleeps through kArg+1)
 //  Returns with the SID silent and `sidOwner` released.
+//  WARNING: NOTHING may touch the player's state until the SID is OURS. The mode byte and the
+//  config copy below are library data that a RUNNING player dereferences on every command, so
+//  a caller that is about to be refused must not have written them -- the owner test comes
+//  first, and the mode rides on the stack across it. (The refusal path is ordinary: `gortris`,
+//  `godzi` and `grknoid` all retry a busy SID, `grknoid` every ~1 s.)
 sidPlay:
-    and #1                       // A = mode: 0 = image in RAM, 1 = paged from the REU
+    pha                          // the mode, across the ownership test
+    php
+    sei
+    lda sidOwner
+    cmp #$FF
+    beq sidClaim
+    tax
+    lda taskState,x              // the recorded owner: is it still ALIVE?
+    beq sidClaim                 // no -- it died without husking: take over
+    plp
+    pla                          // refused: drop the parked mode and say so
+    sec
+    rts                          // C=1: somebody else owns the SID
+sidClaim:
+    lda curTask
+    sta sidOwner
+    lda #0
+    sta sidStop                  // a fresh player has nothing to stop for
+    plp
+    pla                          // A = the mode, now that it may be acted on
+    and #1                       //   0 = image in RAM, 1 = paged from the REU
     sta sidplay.StreamMode
     beq sidPlayRam
 sidPlayStream:
-    lda #0                       // a paged image has no RAM address
-    sta sidplay.SidBaseLo
-    sta sidplay.SidBaseHi
-    lda #$FF                     // no page loaded in any window yet
-    sta sidplay.StreamPage
-    sta sidplay.StreamPage+1
-    sta sidplay.StreamPage+2
+    lda #0                       // a paged image has no RAM address, and no window
+    sta sidplay.SidBaseLo        //   has been filled yet (the page tag alone cannot
+    sta sidplay.SidBaseHi        //   say that: every value 0-255 is a real page)
+    sta sidplay.StreamValid
+    sta sidplay.StreamValid+1
+    sta sidplay.StreamValid+2
     ldy #8
 spsCopy:
     lda (kPtr),y                 // +0..+8: the file offset, then the three windows
@@ -159,23 +183,6 @@ sidPlayRam:
     sta sidTuneHi
     sta sidplay.SidBaseHi
 sidPlayGo:
-    php
-    sei
-    lda sidOwner
-    cmp #$FF
-    beq sidClaim
-    tax
-    lda taskState,x              // the recorded owner: is it still ALIVE?
-    beq sidClaim                 // no -- it died without husking: take over
-    plp
-    sec
-    rts                          // C=1: somebody else owns the SID
-sidClaim:
-    lda curTask
-    sta sidOwner
-    lda #0
-    sta sidStop                  // a fresh player has nothing to stop for
-    plp
     //  Latch the arguments into library data: kArg+1 is the sleep's own
     //  argument, so it cannot double as the repeat counter.
     lda kArg

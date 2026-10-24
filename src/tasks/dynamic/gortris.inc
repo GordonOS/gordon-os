@@ -121,11 +121,10 @@
 //      declares no ZP region and keeps every byte of state in this image.
 //    * the tune is STREAMED, not buffered: gtLoadTune asks the REU FS where the
 //      file is and kMallocs three 256-byte windows for the player to page it
-//      into (gtTuneCfg + gtTuneBufLo/Hi), so the RAM cost is three pages
-//      whatever the tune's length. Its
-//      library hold is NOT given back the way
-//      sidplay gives filesys.lib back -- the hi-score table has to be written, so
-//      both declared libraries stay held for the session (see HI SCORES).
+//      into (gtTuneCfg + gtTuneBufLo/Hi), so the RAM cost is three pages however
+//      long the tune is. Its library hold is NOT given back the way sidplay
+//      gives filesys.lib back -- the hi-score table has to be written, so both
+//      declared libraries stay held for the session (see HI SCORES).
 //    * stopping is kSidHush, not just gtMusOn = 0: the child is parked inside
 //      kSidPlay's sleep loop and the hush is what breaks it out. Losing the
 //      display does exactly that, and regaining it sets gtMusOn = 1 again (the
@@ -1197,12 +1196,12 @@ gtMusicInit:
 //  `music/` has only one more tune to offer (`fsonata`), so this port plays one
 //  tune throughout. To switch them on: give GT_MUSIC_TUNES its value, add the
 //  two names below, and put the body back in gtMusicTune (it is written out
-//  there). The loader is already generic -- it takes a name and fills gtTuneCfg
-//  -- so each extra tune is exactly this, once per name:
+//  there). gtLoadTune fills gtTuneCfg, so a second tune needs its own config, its
+//  own window pages and its own load tail (the same shape, one label set):
 //
 //      lda #<gtTune2Name           ; the title tune
 //      ldx #>gtTune2Name
-//      jsr gtLoadTune              ;   (a second config block and window set)
+//      jsr gtLoadTune2             ;   -> a second config block and window set
 //      bcs gtMiHold                ; a missing extra tune is not a failure: the
 //                                  ;   game falls back to the one it has
 //

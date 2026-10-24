@@ -246,7 +246,8 @@ StreamPtrMid:           .byte 0
 StreamPtrHi:            .byte 0
 StreamWin:              .fill 6, 0                       // one 256-byte, page-aligned window per
                                                         //   voice, interleaved: lo, hi
-StreamPage:             .byte $FF,$FF,$FF                // the file page each window holds ($FF = none)
+StreamPage:             .byte 0,0,0                      // the file page each window holds
+StreamValid:            .byte 0,0,0                      // 1 = that window has been filled
 StreamVoice:            .byte 0                          // scratch: the voice during a fetch
 .assert "sidlib: sidInitSong's two clear loops stop short of the video flag",
          (((SID_STATUS + $bc) < DataVideoStd) && ((WorkPhraseCallStack + 2 + $72) < DataVideoStd)) ? 1 : 0, 1
@@ -474,10 +475,14 @@ sidWinFetch: {
 }
 
 sidWinSeat: {
-                        lda WorkNxtCmdHi,x
+                        lda WorkNxtCmdHi,x           // A = the page this command is on
+                        ldy StreamValid,x            // a page number cannot say "never
+                        beq sWsFetch                 //   filled": 0-255 are all real pages
                         cmp StreamPage,x             // same page as the window holds?
                         beq sWsSeated
-                        sta StreamPage,x
+sWsFetch:               sta StreamPage,x
+                        lda #1
+                        sta StreamValid,x
                         jsr sidWinFetch
 sWsSeated:              txa
                         asl
@@ -497,6 +502,8 @@ sidStreamBegin: {
                         ldx #0
                         lda #$00
                         sta StreamPage
+                        lda #1
+                        sta StreamValid
                         jsr sidWinFetch
                         lda StreamWin                // the size words are at file offset 2,
                         clc                          //   which page 0 puts at win0 + 2

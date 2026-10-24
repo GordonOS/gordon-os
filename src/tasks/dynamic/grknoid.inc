@@ -2799,7 +2799,7 @@ gkMuWin:                        //   its own and the high bytes count up from it
     sta kArg+7
     lda #SYS_THREADSPAWN
     jsr syscall
-    bcs gkMuNoChild             // no free slot: hand the buffer straight back
+    bcs gkMuNoChild             // no free slot: hand the window pages back
     stx gkMusSlot               // X = the child's slot
     rts
 gkMuNoChild:
