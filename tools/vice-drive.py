@@ -143,14 +143,25 @@ def cmd_type(args):
 
 
 def cmd_key(args):
+    #  A screen code can name a key the character table cannot, because a SHIFTed
+    #  letter is a distinct code ($4c = SHIFT+L) and feeding the buffer bypasses the
+    #  matrix. --code is how the shifted diagnostic keys are pressed.
+    if args.code is None:
+        if not args.chars:
+            raise SystemExit("vice-drive: key needs a character or --code")
+        code = shots.screen_code(args.chars)
+        label = args.chars
+    else:
+        code = args.code
+        label = "code $%02x" % code
     m = attach(args.port)
     try:
         m.resume()
         time.sleep(args.settle)
-        m.key(shots.screen_code(args.chars))
+        m.key(code)
     finally:
         m.resume()
-    print("key: %s" % args.chars)
+    print("key: %s" % label)
     return 0
 
 
@@ -240,8 +251,10 @@ def main():
     p.add_argument("--wait", type=float, default=2.0, help="after each Enter")
     p.set_defaults(func=cmd_type)
 
-    p = sub.add_parser("key", help="press one key (unshifted)")
-    p.add_argument("chars")
+    p = sub.add_parser("key", help="press one key (unshifted), or --code N")
+    p.add_argument("chars", nargs="?")
+    p.add_argument("--code", type=lambda t: int(t, 0),
+                   help="a screen code to feed directly, e.g. 0x4c for SHIFT+L")
     p.add_argument("--settle", type=float, default=1.5)
     p.set_defaults(func=cmd_key)
 

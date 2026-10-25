@@ -1474,8 +1474,10 @@ muSiDfLp:
     bpl muSiDfLp
     ldx #14
 muSiFrLp:
+    lda #$ff
+    sta muPhSt,x                // every frame reads as the DEF sentinel
     lda #0
-    sta muPhHi,x                // every frame reads as the DEF sentinel
+    sta muPhHi,x
     dex
     bpl muSiFrLp
     ldx #2
@@ -1819,16 +1821,18 @@ muCmEndGo2:
     dec muDep,x
     lda muDep,x
     tay
+    lda muPhSt,y                // WARNING: $ff, not a zero high byte -- a return
+    cmp #$ff                    //   address is a file OFFSET, so a return into the
+    beq muCmEndSent             //   first 256 bytes has a zero muPhHi
     lda muPhHi,y
-    bne muCmEndGo
-    jmp muStepRun               // the DEF sentinel: carry on after the END
-muCmEndGo:
     sta muPtrHi,x
     lda muPhLo,y
     sta muPtrLo,x
     lda muPhSt,y
     sta muId,x
     jmp muStepRun
+muCmEndSent:
+    jmp muStepRun               // the DEF sentinel: carry on after the END
 
 muCmCall:
     ldx muSv
@@ -1859,7 +1863,9 @@ muCmCallGo:
     sta muPhSt,y
     inc muDep,x
     ldy muSph
-    lda muDfHi,y
+    lda muDfId,y                // WARNING: $ff, never a zero high byte -- these are
+    cmp #$ff                    //   file OFFSETS, so every body below offset 256
+                                //   has a zero muDfHi and would read as undefined
     bne muCmCallGo2
     lda #MU_ERR_PHR             // a phrase that was never defined: the PLAYER only
     sta muErr                   //   records it (NoSuchPhraseError -> SID_STATUS) and
@@ -1887,16 +1893,16 @@ muCmDef:
     adc #MU_FRAMES
     cmp muDep,x
     bne muCmDefGo
-    lda #MU_ERR_STK
-    sta muErr
-    jmp muSimStop
+    lda #MU_ERR_STK             // the call stack is full: the PLAYER flags it
+    sta muErr                   //   (MaxInnerCallsError) and goes on without the
+    jmp muStepRun               //   frame, so the body is still played inline
 muCmDefGo:
     lda muDep,x
     tay
     lda #0
-    sta muPhHi,y                // the sentinel: this frame returns to nothing
-    lda muId,x
-    sta muPhSt,y
+    sta muPhHi,y
+    lda #$ff                    // the sentinel: this frame returns to nothing, and
+    sta muPhSt,y                //   $ff is the only value a real frame cannot hold
     inc muDep,x
     jmp muStepRun
 
@@ -2023,6 +2029,50 @@ muSimCounts:
 //  One row each, in the shape tools/mus-sim.py's --trace prints.
 muSimTrace:
     jsr muSimInit
+    jsr muUnit                  // the row unit, so the pre-roll's spans match the grid
+    sta muUnitVal
+    ldx #2
+muTrZero:
+    lda #0
+    sta muVRow,x
+    sta muVRowHi,x
+    sta muVRem,x
+    dex
+    bpl muTrZero
+    //  Pre-roll to the row the view starts at: the lines then describe the stretch
+    //  on screen instead of the tune's first events. The step cap is the grid's,
+    //  so a voice that stops early cannot hold the key for ever.
+    lda #<MU_GRID_STEPS
+    sta muGdSteps
+    lda #>MU_GRID_STEPS
+    sta muGdSteps+1
+muTrPre:
+    jsr muStep
+    bcs muTrPreEnd
+    jsr muGdSpan
+    jsr muGdAdv
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    tax
+    lda muVRowHi,x
+    cmp muTop+1
+    bcc muTrPreNext
+    bne muTrPreEnd
+    lda muVRow,x
+    cmp muTop
+    bcs muTrPreEnd
+muTrPreNext:
+    lda muGdSteps
+    sec
+    sbc #1
+    sta muGdSteps
+    lda muGdSteps+1
+    sbc #0
+    sta muGdSteps+1
+    lda muGdSteps
+    ora muGdSteps+1
+    bne muTrPre
+muTrPreEnd:
     lda #0
     sta muSidx
 muTrLp:
@@ -2042,9 +2092,11 @@ muTrGo:
     sec                         //   offset minus 2 is still an offset
     sbc #2
     sta muWinOfs
+    sta muAccLo                 // the printed offset, kept because muWinSeat owns muWinOfs
     lda muPtrHi,x
     sbc #0
     sta muWinOfs+1
+    sta muAccHi
     jsr muWinSeat               // kPtr = the event's own bytes
     ldy #0
     lda (kPtr),y
@@ -2086,6 +2138,76 @@ muTrGo:
 muTrDone:
     jsr muStatArm
     rts
+
+// --- muHistShow -- the events the grid walk recorded, for the cursor's voice ---
+//  SHIFT+L. One line per recorded event, newest first, as `RRRR OOOO OO`: the
+//  row the walk gave the event, its image offset and its option byte. Rows that
+//  step by the length the file gives mean the walk read the bytes correctly; a
+//  row that jumps far further means a length was decoded wrong, and the offset
+//  on that line is the byte to look at; no lines at all means the walk stopped
+//  for that voice.
+muHistShow:
+    jsr muGridClear
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    sta muTmpH
+    asl
+    asl
+    asl
+    asl
+    asl
+    sta muHsBase
+    ldx muTmpH
+    lda muHistN,x
+    beq muHsNone
+    sec
+    sbc #1
+    and #MU_HIST-1
+    sta muHsSlot
+    lda #MU_TRACE_N
+    sta muHsN
+    lda #MU_GRID_TOP
+    sta muClrRow
+muHsLp:
+    jsr muClearRow
+    lda muHsSlot
+    clc
+    adc muHsBase
+    tay
+    lda muHistRLo,y
+    sta muHsRow
+    lda muHistRHi,y
+    sta muHsRow+1
+    lda muHistPLo,y
+    sta muHsOfs
+    lda muHistPHi,y
+    sta muHsOfs+1
+    lda muHistOpt,y
+    sta muHsOpt
+    lda muHsRow+1
+    jsr muHex8
+    lda muHsRow
+    jsr muHex8
+    lda #MU_SPACE
+    jsr muPutC
+    lda muHsOfs+1
+    jsr muHex8
+    lda muHsOfs
+    jsr muHex8
+    lda #MU_SPACE
+    jsr muPutC
+    lda muHsOpt
+    jsr muHex8
+    inc muClrRow
+    lda muHsSlot
+    sec
+    sbc #1
+    and #MU_HIST-1
+    sta muHsSlot
+    dec muHsN
+    bne muHsLp
+muHsNone:
+    jmp muStatArm
 
 // ==========================================
 //  Drawing
@@ -3163,6 +3285,11 @@ muKeyNotV:
     jsr muSimTrace
     jmp muKeyIdle
 muKeyNotX:
+    cmp #$4c                    // SHIFT+L: what the walk recorded for this voice
+    bne muKeyNotL
+    jsr muHistShow
+    jmp muKeyIdle
+muKeyNotL:
     cmp #$55                    // SHIFT+U: a finer row unit
     bne muKeyNotU
     jsr muUnitCycle
@@ -6512,14 +6639,17 @@ muGdNumLine:
     jmp muNum2
 
 // --- muHistAdd -- remember the event the walk just took: pointer -> row ---
-//  In: X = the voice (muSv), muVRow = its onset row, muPtr = its next command.
-//  The renderer calls this for every event it walks; the playhead reads the
-//  record back instead of walking the tune again.
-//  WARNING: the record is keyed on the command's FILE OFFSET, not its address: the
-//  walker's muPtr is an address, and the player publishes an offset (it may be
-//  reading the tune out of the REU, where it has no address at all). Subtracting
-//  the image base here is what makes the two comparable -- do not "simplify" it
-//  away, or the playhead never matches and the cursor rides the tempo instead.
+//  In: X = the voice (muSv), muVRow = the onset row of the event just stepped,
+//  muPtr = the pointer past it. The renderer calls this for every event it walks;
+//  the playhead reads the record back instead of walking the tune again.
+//  WARNING: one entry describes ONE event -- its offset, the row it sounds on and
+//  its pitch. muPtr has already moved to the next event by the time the renderer
+//  calls this, so the offset is muPtr - 2, the same conversion muSkRecord makes;
+//  pairing the next event's offset with this event's row puts every anchor one
+//  event early, which a tune of short notes hides and a whole note exposes.
+//  The offset is a FILE OFFSET, not an address: the player publishes an offset (it
+//  may be reading the tune out of the REU, where it has no address at all), so the
+//  two are comparable as they stand.
 muHistAdd:
     ldx muSv
     lda muHistN,x
@@ -6535,9 +6665,12 @@ muHistAdd:
     clc
     adc muTmpL
     tay
-    lda muPtrLo,x               // already a file offset, which is the unit the
-    sta muHistPLo,y             //   player publishes -- no conversion needed
+    lda muPtrLo,x               // the event is the pair behind the pointer
+    sec
+    sbc #2
+    sta muHistPLo,y
     lda muPtrHi,x
+    sbc #0
     sta muHistPHi,y
     lda muVRow,x
     sta muHistRLo,y
@@ -7213,7 +7346,8 @@ muPhHi:     .fill 15, 0
 muPhSt:     .fill 15, 0
 muDfLo:     .fill 24, 0         // phrase definitions, as PhraseDef
 muDfHi:     .fill 24, 0
-muDfId:     .fill 24, 0
+muDfId:     .fill 24, $ff       // $ff = no DEF has named this phrase: the defined
+                                //   test, because an offset's high byte can be 0
 muEvLo:     .fill 3, 0          // events each voice has played
 muEvHi:     .fill 3, 0
 muClkLo:    .byte 0             // the tick of the latest event
@@ -7266,6 +7400,12 @@ muHistS:    .byte 0             // its slot cursor
 muHistC:    .byte 0             // its scan countdown
 muHistF:    .byte 0             // muHistFind: a match at or after the playhead
 muHistLow:  .byte 0             // ...and one behind it
+muHsBase:   .byte 0             // muHistShow: voice x MU_HIST
+muHsSlot:   .byte 0             // its slot cursor
+muHsN:      .byte 0             // its line countdown
+muHsRow:    .fill 2, 0          // the row of the line being printed
+muHsOfs:    .fill 2, 0          // ...and its image offset
+muHsOpt:    .byte 0             // ...and its option byte
 muLnRow:    .word 0             // the timeline row the bottom line shows
 //  pointer -> row, per voice, as the renderer walks: the playhead asks this
 //  table instead of re-walking the tune every frame. MU_HIST slots a voice,

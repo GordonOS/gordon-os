@@ -1156,7 +1156,79 @@ their own pass); a page that an edit straddles must be written back exactly once
     machine without a 1351 has nothing to enter with. The computer-keyboard note map stays as a
     second input path.
 
-## 16. Documentation
+## 16. Step 13 -- finish the walk, then make the editor phrase-native
+
+The streaming storage (steps 12.2-12.7) is in and `musedit` holds 100 of 109 pool pages. What
+is left is not storage: it is the **walk** (the editor's copy of the player, which draws the
+lanes) and the **playhead** that follows it. Two rules govern this step.
+
+**No fix ships on a hypothesis.** Four candidate causes for `immig` drifting have been tried
+and measured away (phrase errors fatal, phrase resolution newest-match, three-voice anchoring,
+the undefined-call frame). Every one cost a build and a listening test. So each step below
+starts with a measurement that can fail, and the measurement is kept as a gate rather than
+thrown away.
+
+**The walk and the player are two implementations of one specification**, and the host model
+(`tools/mus-sim.py`) is the reference. Any disagreement is the C64's, and the way to find it is
+a byte-level dump of what the walk read, compared with the file -- not an argument about the
+format.
+
+### 13.1 The walk's ring is the evidence (done first)
+
+`muHistAdd` already records, for every event the grid walk visits, its image offset, the row
+it was drawn on and its option byte -- that ring is *exactly* what the lanes were drawn from.
+`SHIFT+L` prints it for the cursor's voice, newest first, as `RRRR OOOO OO`
+(`muHistShow`). Read at bar 6 on `immig`, three outcomes are distinguishable with one keypress:
+
+- **rows step by the length the file gives** -- the walk read the bytes correctly, and the
+  fault is in the playhead's anchor, so 13.2 is the fix;
+- **a row jumps much further than the file's length** -- a length was read or decoded wrong,
+  and the offset on that line is the byte to look at;
+- **nothing at all** -- the walk stopped for that voice, and `V`'s `ERRn` names why.
+
+### 13.2 The playhead anchors structurally
+
+The playhead takes the row `muHistFind` returns for the offset the player publishes, and
+free-runs (deliberately a quarter row slow) when it finds none. A quarter row slow is a
+systematic error, so a *missing* anchor is a drift, not a safety net. The fix: an event that
+the walk has no record of must **hold the playhead**, not advance it slowly, and re-anchor on
+the next event it does know. Acceptance: `immig` in step past bar 6 to the end, and the
+regression set (`tetris`, `commodo`, `katmand`, `fsonata`) unchanged.
+
+### 13.3 A gate that keeps them equal
+
+`tools/mus-sim.py` gains `--walk`, which prints `row offset` for every event of a voice; the
+editor's ring dump for the same window is compared with it by
+`tools/check-musedit-walk.py`. Plan §15.1's equivalence risk is then closed by a test that can
+be re-run, not by a one-off listening session.
+
+### 13.4 Phrase-native editing
+
+The format's structure commands are what make it a language rather than a list of notes, and
+the editor currently treats every one of them as an opaque "this event has commands" mark
+(`*`). In order:
+
+- **a. Show it.** A `DEF n`, `CALL n`, `END`, `HLT`, `TAL`, `HED n`, `TEM`, `UTL` or `UTV`
+  event draws its mnemonic in the pitch cells, keeping the length column, so a lane reads as
+  music *and* structure.
+- **b. Move through it.** `D` on a call row moves the cursor to that phrase's `DEF` (the walk
+  already holds the address); `D` on a definition lists its call sites, nearest first.
+- **c. Author it.** The `CMD` key (printed on the bar, not yet wired) opens the mnemonic menu
+  for every command the player implements -- `TEM`, `UTL`, `UTV`, `HED`, `TAL`, `HLT`, `END`,
+  `DEF`, `CALL`, the 2- and 3-type groups (envelope, waveform/pulse, frequency, filter,
+  modulation, volume) and the 16-23 phrase form. Adding or removing a command pair is a
+  two-byte gap move under the existing undo record.
+- **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
+  the status line names the phrase and its call count; inside a *replay* region there are no
+  bytes, so insert and delete stay refused and the cursor snaps to the body event.
+- **e. Keep the accounting.** Budget: musedit's margin is 9 pages; a-c are ~2-3 pages
+  (mnemonic table, menu, the `D` key). `check-pool-budget.ps1` is the gate, and `basic`-style
+  exact fits are refused rather than warned about.
+
+Order matters: 13.1-13.3 before 13.4, because a phrase editor built on a walk that is not
+proven will hide the next defect behind a new feature.
+
+## 17. Documentation
 
 All of it is written and current: `docs/musedit.md` (the guide, and it is in
 `publish-binaries.ps1`'s `$guides`, so it ships), `README.md` (the task table and a link),
