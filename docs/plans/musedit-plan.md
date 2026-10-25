@@ -1188,12 +1188,32 @@ it was drawn on and its option byte -- that ring is *exactly* what the lanes wer
 
 ### 13.2 The playhead anchors structurally
 
-The playhead takes the row `muHistFind` returns for the offset the player publishes, and
-free-runs (deliberately a quarter row slow) when it finds none. A quarter row slow is a
-systematic error, so a *missing* anchor is a drift, not a safety net. The fix: an event that
-the walk has no record of must **hold the playhead**, not advance it slowly, and re-anchor on
-the next event it does know. Acceptance: `immig` in step past bar 6 to the end, and the
-regression set (`tetris`, `commodo`, `katmand`, `fsonata`) unchanged.
+**What the evidence says (immig, after 13.1's fixes).** The walk now reproduces `tools/mus-sim.py`
+exactly — `v` reports `t=7632 e=231,215,663` for all three voices — and the playhead still
+stalls around bar 6, jumps to the right place, stalls again and finally drifts. That rules out
+the walk. What remains is the anchor.
+
+`muPhSync` re-anchors only when the player's published pointer *changes* **and** `muHistFind`
+finds that exact offset in the ring. Two things keep that from happening often:
+
+- the ring is rebuilt only by a **grid redraw**, so between scrolls it is frozen while the
+  music moves through the window;
+- the ring holds only *stepped events*, so a published pointer that names a **command pair**
+  (the player publishes the next command, which may be a `UTL`, a filter write, anything)
+  matches nothing at all.
+
+With no anchor the playhead free-runs on `muPhStep`, which is deliberately a quarter slow, so
+it falls behind; when the view eventually scrolls, the redraw repopulates the ring, the anchor
+lands and the marker jumps forward to where the music actually is. That is exactly the
+"stops, picks up in the right place, stops again, then drifts" report.
+
+**The fix is to stop requiring an exact offset match.** The playhead is *between* events; what
+it needs is the row of the event sounding at it, which is the newest ring entry at or below
+the playhead's row — the same rule `muDvLp` already uses for the keyboard dots. That anchor is
+always available while the window holds the playhead, survives the ring going stale between
+redraws, and cannot be defeated by a pointer that names a command. Acceptance: `immig` in step
+from the first bar to the last, and the regression set (`tetris`, `commodo`, `katmand`,
+`fsonata`) unchanged.
 
 ### 13.3 A gate that keeps them equal
 
