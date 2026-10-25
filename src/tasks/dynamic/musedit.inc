@@ -6356,26 +6356,35 @@ muPsHi:
     bne muPsNew
     rts                         // same event: the clock carries on
 muPsNew:
+    //  The player publishes the pointer to its NEXT command, so the pair it is
+    //  sounding is the one two bytes behind it -- the same convention the dots use
+    //  when they read a note's option byte. The ring is keyed on the event's own
+    //  offset, so the lookup is against the published pointer minus 2.
     lda MU_POS_BLOCK,x
     sta muPhPtrLo
+    sec
+    sbc #2
     sta muPhTgtLo,x
     lda MU_POS_BLOCK+3,x
     sta muPhPtrHi
+    sbc #0
     sta muPhTgtHi,x
     jsr muHistFind              // C=1 -> muValLo/muValHi = the row it is on
     bcs muPsFound
     rts
 muPsFound:
-    //  The POINTER is authoritative: it is the event the player is starting, and
-    //  the renderer recorded the row it drew that event on. Taking it every time
-    //  is what keeps the clock from running away -- with a window test (this row
-    //  must be within N of the clock) a stretch that cannot anchor, such as a
-    //  voice resting, lets the free-running clock drift ahead; after that every
-    //  anchor reads as "behind" and is refused, so the drift never comes back and
-    //  the view scrolls off the end of the tune into blank rows while the player
-    //  reads the file correctly and keeps playing. A row that is wrong self-
-    //  corrects on the next event, because muHistFind scans newest first and every
-    //  pointer the player can reuse resolves to this pass.
+    //  WARNING: an anchor may only move the clock FORWARD. Taking one that names
+    //  the row it is already on restarts the fraction and the row never advances,
+    //  which pins R for as long as the note lasts; taking one that is behind drags
+    //  the view back. So the row is compared first, and only a later row is taken.
+    lda muValHi
+    cmp muPhCurLo+1
+    bcc muPsRts                 // behind the clock: leave it alone
+    bne muPsTake
+    lda muValLo
+    cmp muPhCurLo
+    bcc muPsRts                 // behind the clock: leave it alone
+    beq muPsRts                 // the row it is already on
 muPsTake:
     lda muValLo
     sta muPhCurLo
