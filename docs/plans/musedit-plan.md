@@ -1186,45 +1186,40 @@ it was drawn on and its option byte -- that ring is *exactly* what the lanes wer
   and the offset on that line is the byte to look at;
 - **nothing at all** -- the walk stopped for that voice, and `V`'s `ERRn` names why.
 
-### 13.2 The playhead's clock, derived rather than tuned
+### 13.2 The playhead: publish the position, do not infer it
 
-**The walk is not in question**: `v` reports `t=7632 e=231,215,663`, identical to
-`tools/mus-sim.py` for all three voices. What drifts is the *clock*, and its rate can be
-derived from the player's own timing instead of guessed.
+**Root cause, after every alternative was measured on the machine.** The editor's playhead is
+derived from *proxies* for the player's position, and none of them is the position itself:
 
-A row is `unit` jiffies (2 for `TEM $80`). The player sleeps `MU_MUS_DELAY` (1) scheduler ticks
-per jiffy, doubled once for a 200% machine, so the nominal is `unit x 2` = 4 ticks a row. Two
-numbers read off a running editor give the truth: the clock had advanced 711 rows at 4 ticks
-each (2844 ticks) while the music had reached offset 92, which the model puts at row 632. So a
-row really takes **4.50 ticks**, i.e. **2.25 ticks per jiffy** — the player's own work costs
-**0.25 ticks per jiffy**, which is the `sysSleep` overshoot.
+- a **clock** (`muPhStep`) predicting jiffies per row — the editor cannot know the player's
+  `sysSleep`-to-tick relationship, so the rate is unobservable and any value is wrong at some
+  tempo (measured: 4, 4.5 and 5 ticks a row all read as "fast" or "slow", and 10% flipped the
+  symptom, because the sign of the error, not its size, decides whether the anchor helps);
+- an **offset -> row cache** (the `muHist` ring), which is a side effect of *drawing*: it covers
+  only the drawn window, holds 32 entries per voice, and is rebuilt per redraw. So exactness is
+  intermittent by construction — a sparse passage, or the tune looping, leaves the player
+  outside the cache and the playhead holds or drifts. Redrawing to refill it is both too slow
+  during playback and visibly wrong (it repaints the tune's start).
 
-That fixes the shape of the correction, and it is why every per-row constant felt right on
-`immig` and wrong elsewhere:
+The walk itself is proven correct (`v` reports `t=7632 e=231,215,663`, identical to
+`tools/mus-sim.py`), so the fault is only in *locating* the player.
 
-    ticks per row = unit x (4 x ticksPerJiffy + 1) / 4      (9/4 at a 200% machine)
+**The fix: the player publishes its own position in the units the grid is drawn in.** The grid's
+row is a fixed number of jiffies (`unit`), and the player already counts jiffies per voice
+(`WorkNoteJiffiesLeft`). Give `SID_POS_BLOCK` one more field — a 16-bit **song tick** counter
+that the player increments once per jiffy and clears when it starts a pass — and the editor's
+row becomes
 
-| unit | derived | flat +0.5 per row (the constant's answer) |
-|---|---|---|
-| 2 | 4.50 | 4.5 (right by luck) |
-| 3 | 6.75 | 6.5 |
-| 5 | 11.25 | 10.5 |
-| 9 | 20.25 | 18.5 (**9% fast**) |
+    row = songTicks / unit
 
-So the fix is: scale the *per-jiffy* factor by 9/4 rather than adding a tick per N rows, and
-carry the quarter-tick remainder in the existing `muPhFrac` accumulator so the average is exact
-at any unit (`4,5,4,5` for unit 2; `20,20,20,21` for unit 9). The clock then needs no
-measurement, no window, no anchors to survive — which also removes the deadlock that made the
-measured version starve (anchors cannot help a clock that is already out of the window).
+which is exact by construction: no cache, no clock, no anchor, nothing to drift, no dependence on
+what has been drawn, and correct across a loop because the counter restarts with the music. The
+division is the same one the walk already performs (`muGdSpan`). Cost: two bytes in the published
+block and an `inc/…` in the player's tick path; a `kDiv16` per frame in the editor.
 
-**Rejected in the process**, all measured on the machine: a flat `+1` tick per 4, 5, 6 or 8 rows
-(tunes one unit but not another); a two-way anchor (drags the playhead below the window bottom,
-so the scroll stops); a forward-only anchor with an exact-unit clock (runs fast); and a measured
-`jiffies / rows` rate (correct in principle, but it can only start once the anchors match, and
-they cannot match while the clock is out of step -- the bootstrap chicken-and-egg).
-
-Acceptance: `immig` in step from the first bar to the last, and the regression set (`tetris`,
-`commodo`, `katmand`, `fsonata`) unchanged.
+This is the only design of the seven tried whose input *is* the quantity being displayed.
+Acceptance: `immig` in step from the first bar, through bar 18, round its loop; and the
+regression set unchanged.
 
 ### 13.3 A gate that keeps them equal
 
