@@ -94,7 +94,7 @@ Inside a lane:
 | mark | meaning |
 |---|---|
 | `C-4 16` | a note starts here, and its duration is a sixteenth |
-| `C-4 16  *` | the note also carries commands (see *Commands*), so the `*` sits in the lane's last cell |
+| `C-4 16  *` | the note also carries commands that have no line of their own — `ATK`, `WAV`, `PNT` and the rest; a structural one is shown above instead |
 | `... 4` | a rest starts here, lasting a quarter |
 | `DEF 3` | a structural command, on a line of its own (see below) |
 
@@ -113,15 +113,15 @@ holding.
 ### Structural commands have their own line
 
 Most commands only change how the voice sounds — `ATK`, `WAV`, `PNT` and the rest — and they are
-marked with a `*` on the note they belong to. A few are **structural**: they move the music rather
-than colour it, and they take no time at all. Those get a line of their own, above the row they
-belong to, with the other two lanes empty:
+shown as a `*` in the lane's last cell of the note they belong to. A few are **structural**: they
+move the music rather than colour it, and they take no time at all. Those get a line of their own,
+above the row they belong to, with the other two lanes empty:
 
 ```
       |TEM $80    |           |           |
       |           |HED 7      |           |
       |           |           |DEF 0      |
- 01   |C-4 16    *|... 16    *|F#2 8      |
+ 01   |C-4 16     |... 16     |F#2 8      |
  02   |           |           |           |
 ```
 
@@ -136,6 +136,8 @@ belong to, with the other two lanes empty:
 A command line has **no row number**, because it is not a point in time — it belongs to the row
 below it. And because it takes no time, playback does not stop on it: the cursor passes straight
 over it to the row's own line, scrolling as many lines as it takes to get there.
+
+### The keys
 
 | action | how |
 |---|---|

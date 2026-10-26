@@ -1967,8 +1967,12 @@ muSimStop:
 //  In: A = the mnemonic id (MU_MN_*), X = its operand. The voice is MU_SV, the one
 //  the walker just read -- every event between two notes belongs to the row the
 //  next note starts on, so the log is drained one row's worth at a time.
-//  A full log drops the extra: MU_LOG_N holds three voices of the longest run any
-//  bundled tune has, and a lost line costs a line, not a wrong grid.
+//  A logged command is shown on a line of its own, so it comes back out of the
+//  note's mark count (muCmdN): the '*' on a note, and the MU_CMD_CH it draws, say
+//  "there are commands here that are shown nowhere else".
+//  A full log drops the extra and leaves the count alone, so the '*' still reports
+//  the command it could not draw: MU_LOG_N holds three voices of the longest run
+//  any bundled tune has, and a lost line costs a line, not a wrong grid.
 muLogAdd:
     tay                         // the id, while the write index is fetched
     lda muLogN
@@ -1983,6 +1987,8 @@ muLogAdd:
     lda muSv
     sta muLogV,y
     inc muLogN
+    ldx muSv
+    dec muCmdN,x
 mlaRts:
     rts
 
