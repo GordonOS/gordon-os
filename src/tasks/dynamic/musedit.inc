@@ -6493,24 +6493,24 @@ mgpOff:
     jsr muGdAdv
     jmp mgpLoop
 mgpDone:
-    lda muLogN                  // the sound commands are drawn first, then the
-    cmp muLogN+2                //   structural nine: a line carries one class only,
-    bcs mgpSnd2                 //   because a tempo and an envelope step are not
-    lda muLogN+2                //   comparable events
+    lda muLogN+1                // the sound commands are drawn first: their counts
+    cmp muLogN+3                //   are the ODD blocks (voice * 2 + 1, class 1), so a
+    bcs mgpSnd2                 //   line carries one class only -- a tempo and an
+    lda muLogN+3                //   envelope step are not comparable events
 mgpSnd2:
-    cmp muLogN+4
+    cmp muLogN+5
     bcs mgpSnd3
-    lda muLogN+4
+    lda muLogN+5
 mgpSnd3:
     sta muLogSnd                // the row's sound lines, from the top
-    lda muLogN+1                // ...and the structural lines sit nearest the row,
-    cmp muLogN+3                //   where they were before the sound commands had
-    bcs mgpStr2                 //   lines of their own
-    lda muLogN+3
+    lda muLogN                  // ...and the structural nine, the EVEN blocks,
+    cmp muLogN+2                //   sit nearest the row, where they were before the
+    bcs mgpStr2                 //   sound commands had lines of their own
+    lda muLogN+2
 mgpStr2:
-    cmp muLogN+5
+    cmp muLogN+4
     bcs mgpStr3
-    lda muLogN+5
+    lda muLogN+4
 mgpStr3:
     clc
     adc muLogSnd

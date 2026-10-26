@@ -129,6 +129,8 @@ def decode_cmd(cmd, opt):
         return MARK["RUP"], (opt >> 3) & 0x1F
     if low == 5:
         return MARK["RDN"], (opt >> 3) & 0x1F
+    if low == 0:
+        return MARK["DCY"], opt >> 4
     if low == 2:
         return MARK["RES" if opt & 8 else "CALL"], opt >> 4
     if low == 6:

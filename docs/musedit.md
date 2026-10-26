@@ -145,7 +145,7 @@ comparable events:
 | `HED 7` | the head of a repeat section, seven times |
 | `DEF 3` / `CALL 3` | a phrase definition, or a call to one |
 | `TAL` / `HLT` / `END` | back to the head, this voice stops, the tune's end |
-| `ATK 2` / `VOL 15` / `DEF 21` | an envelope step, a volume, a phrase above 15 — in decimal |
+| `ATK $2` / `VOL $F` / `DCY $9` | an envelope step or a volume — a nibble, in hex |
 | `F-C $FE` / `PNT $32` / `P-W $5DC` | a filter cutoff, a release point, a pulse width — in hex |
 
 Four commands are **not** drawn: `MS#` and `FLG` are the first two bytes of a phrase rather than
