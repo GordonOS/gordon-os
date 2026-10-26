@@ -577,12 +577,9 @@ behind 18 % per second. So the player publishes, in one contiguous block:
 - The pointers cost **two stores in the command-fetch path** of `sidplay.inc` (A already holds
   the value, so each is one `sta`), the counter one increment per jiffy in `sidTick` and two
   stores. `sid.asm` holds the `.const` aliases and `main.asm` the asserts.
-- **The row is the count, less one jiffy, divided by the row's length.** A grid row is a fixed
-  number of jiffies (`muUnitVal`, recomputed from the tempo in force), so `muPhSync` is one
-  `kDiv16` of the tick by the unit — no anchor, no interpolation, no rate to drift and no window
-  to fall outside of. The jiffy comes off because `sidInitSong` starts every voice's counter at 1
-  and `sidTick` increments the count before it processes, so row 0 is fetched with the count
-  already at 1: the raw quotient is one row boundary ahead of the row being played. A
+- **The row is the count divided by the row's length.** A grid row is a fixed number of jiffies
+  (`muUnitVal`, recomputed from the tempo in force), so `muPhSync` is one `kDiv16` of the tick by
+  the unit — no anchor, no interpolation, no rate to drift and no window to fall outside of. A
   loop (`HED`/`TAL`) restarts the count with the music, and `sidInitSong` clears it where A is
   genuinely zero. See §13.2 for why every predicted-row scheme failed.
 - The renderer still records `(offset -> row, pitch)` in a per-voice ring (`muHist*`, 32 entries)
@@ -1218,13 +1215,10 @@ row is a fixed number of jiffies (`unit`), and the player already counts jiffies
 that the player increments once per jiffy and clears when it starts a pass — and the editor's
 row becomes
 
-    row = (songTicks - 1) / unit
+    row = songTicks / unit
 
 which is exact by construction: no cache, no clock, no anchor, nothing to drift, no dependence on
 what has been drawn, and correct across a loop because the counter restarts with the music. The
-one jiffy comes off because row 0 is fetched with the count already at 1 (`WorkNoteJiffiesLeft`
-starts at 1 on every voice and `sidTick` increments before it processes); without it the marker
-stands on the next row for the last jiffy of every row. The
 division is the same one the walk already performs (`muGdSpan`). Cost: two bytes in the published
 block and an `inc/…` in the player's tick path; a `kDiv16` per frame in the editor.
 
