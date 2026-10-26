@@ -1,7 +1,7 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: the editor is built, wired and shipped.** `musedit.asm`, `musedit.inc` and the
-> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **93 pages of 109** (16 of
+> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **101 pages of 109** (8 of
 > margin, with `sprite`/`mouse`/`filesys`/`sid` counted by `tools/check-pool-budget.ps1`).
 >
 > **`main`'s streamed player is merged in.** A tune no longer has to be in RAM: `kSidPlay` takes a
@@ -12,8 +12,9 @@
 > holding the tune**, which is why it exists.
 > Everything in steps 1-6 is verified, as is playback (step 8.1-8.9): a music thread child plays
 > the tune through `kSidPlay`, `SPACE` toggles it, `sidplay.inc` publishes each voice's position
-> at `$54A2`, the cursor is the playhead and is stepped by the tick clock between events, the
-> window follows it a line at a time, every edit path reports `? stop first` while it runs,
+> at `$54A2` and the jiffies it has played in this pass at `$54A8`, the cursor is the playhead and
+> its row is that count divided by the row's length, the window follows it a line at a time, every
+> edit path reports `? stop first` while it runs,
 > `? no player` when the child is gone, and the child is reaped before the surface goes. Release
 > wiring (9.1-9.4) is done: `README.md`, `docs/features.md`, `docs/quick-start.md`,
 > `tools/quickstart.binaries.md` and `publish-binaries.ps1`'s `$guides` all name it, and the
@@ -649,8 +650,11 @@ saves again.
 | pointer | `mouse.lib` + `sprite.lib` + the existing `pointer.spr` (already seeded by `build-reu.ps1`); `mouseKind` required — 0 is the `? no mouse` refusal; two sprites resolved once, **before** anything is drawn; `sprOn(0)` and `MOUSE_DISABLE` before exit |
 | exit | `kSwitchView` to the parent **before** `kFreeScreen`, then `SYS_EXIT`; drain the key queue by capacity (16 reads) first |
 
-Footprint: code target **≤ 12 KB** (48 pages) + mouse 2 + sprite 1 + filesys 10 + sid 13 + the
-largest tune 18 = **93 of 109 pages**, margin 16.
+Footprint, as `tools/check-pool-budget.ps1` measures it: code **67** pages + mouse 2 + sprite 1 +
+filesys 10 + sid 15 + malloc 6 = **101 of 109 pages**, margin 8. The six malloc pages are the
+window service — three page-aligned 256-byte read windows for the editor and three more handed to
+the music child in `kSidPlay`'s mode-1 config — so the tune's own length costs nothing: it is paged
+out of `<base>.wrk` (step 12).
 with `musedit` resident and pinned, `run basic` fails with `? no space in pool` — the
 documented cost of `KF_NOT_EVICTABLE`, which it needs because it holds unsaved work. The
 three eager pages the pointer costs are part of that pin.
@@ -1019,6 +1023,14 @@ does now; the observations behind them live in the git log, not here.
   the window is at row 0 with the cursor on the first row, the marker and the head when just the
   cursor is elsewhere, a full repaint only for a scrolled window. The rewind runs *before*
   `muPlayOn` is set — see §9 for why the order matters.
+- [x] **11.10 The cursor's window edges move the band, not a repaint.** Down off the bottom row
+  calls `muScrollBand`: `kScrollScreen` shifts the region's pixels and matrix up one line through
+  the REU and `muGdLine` draws only the line that arrives, so the walker is stepped, not restarted.
+  Up off the top row cannot shift anything in — the interpreter only walks forward, so the line
+  above the window has never been computed — so it moves the window back a whole page (`muTop -
+  MU_GRID_ROWS`, clamped at row 0) and repaints once, with the cursor landing on the page's last
+  line. `muScrollBand` leaves the cursor where it is and the caller places it, because the follow
+  centres it while a cursor key keeps it on its row.
 
 ### Step 12 — Streaming the tune (unbounded tune size)
 
@@ -1257,7 +1269,7 @@ the editor currently treats every one of them as an opaque "this event has comma
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 9 pages; a-c are ~2-3 pages
+- **e. Keep the accounting.** Budget: musedit's margin is 8 pages; a-c are ~2-3 pages
   (mnemonic table, menu, the `D` key). `check-pool-budget.ps1` is the gate, and `basic`-style
   exact fits are refused rather than warned about.
 

@@ -111,7 +111,7 @@ a line at a time by drawing nothing but the row that appears.
 | action | how |
 |---|---|
 | place the cursor | click a cell in the grid |
-| move one row | cursor up / down; the window scrolls at its edges |
+| move one row | cursor up / down; at the bottom the window scrolls a line, at the top it moves back a whole page |
 | change voice | cursor left / right, or click a cell in another lane |
 | jump to the start of the voice | `CLR/HOME` |
 
@@ -387,11 +387,13 @@ stays where the music stopped — that is where editing resumes. Starting again 
 the tune's first row, so the score goes home with it: the window, the cursor and the head all
 return to the top, and what you see is what you hear from the first note.
 
-The player publishes its position once per **event**, and an event can last a whole note (128 grid
-rows at the default tempo), so the cursor is stepped from the scheduler-tick clock between
-publications rather than from each fresh pointer: one row per note-unit of ticks, re-anchored on
-every event. A scroll redraws only the newly revealed bottom line — the rows above are moved
-by the kernel's REU screen scroll.
+The player publishes the number of jiffies it has played in this pass, and a grid row is a fixed
+number of jiffies at the tempo in force, so the cursor's row is that count divided by the row's
+length. Nothing is predicted between events and nothing is re-anchored: a note that lasts 128 rows
+simply stays on each row for its share of the count, and a loop restarts the count with the music.
+A scroll down redraws only the newly revealed bottom line — the rows above are moved by the
+kernel's REU screen scroll. Scrolling up moves the window back a whole page and repaints it,
+because the line above the window has not been walked yet.
 
 The first release always plays from the start: the format has no seek command, and a voice's
 stream can only be entered at its beginning or at a `HED`. Use sections to structure a long
