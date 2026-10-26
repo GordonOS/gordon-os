@@ -1852,7 +1852,11 @@ muCmEnd:
     lda muBaseTab,x
     cmp muDep,x
     bne muCmEndGo2
-    jmp muSimStop               // the outermost frame: the song ends
+    jmp muStepRun               // the outermost frame: the player's stopSong sets
+                                //   SID_STATUS bit 5 and RETURNS, so the voice
+                                //   carries on at the pair after the END. Stopping
+                                //   the walk here ends the grid at the END while the
+                                //   music plays on
 muCmEndGo2:
     dec muDep,x
     lda muDep,x

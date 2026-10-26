@@ -126,6 +126,7 @@ def simulate(image, trace_limit=0, trace_cmd=False):
     clock = 0
     error = None
     events = 0
+    ended = False
 
     try:
         while events < MAX_EVENTS:
@@ -183,8 +184,11 @@ def simulate(image, trace_limit=0, trace_cmd=False):
                             voice.ptr = voice.hed_at
                     elif opt == 0x2F:           # END
                         if voice.dep == CALL_BASE[voice.index]:
-                            raise Stop("voice %d: END with no call to return to"
-                                       % (voice.index + 1))
+                            # The player's stopSong: it sets SID_STATUS bit 5 and
+                            # RETURNS, so the voice carries on at the pair after the
+                            # END. It does not stop the song.
+                            ended = True
+                            continue
                         voice.dep -= 1
                         index = voice.dep
                         if frhi[index] is not None:     # not the DEF sentinel
@@ -237,6 +241,7 @@ def simulate(image, trace_limit=0, trace_cmd=False):
         "clock": clock,
         "events": events,
         "error": error,
+        "ended": ended,
         "capped": events >= MAX_EVENTS,
         "tempo": tempo,
         "utl": utl,
@@ -260,6 +265,8 @@ def report(path, result, trace, trace_cmd):
              result["voices"][0].utv, result["voices"][1].utv, result["voices"][2].utv))
     if result["error"]:
         print("  player would stop: %s" % result["error"])
+    if result["ended"]:
+        print("  an END outside any call flagged the tune's end (the player carries on)")
     if trace:
         print("trace (tick, voice, image offset, bytes%s):" % (", command" if trace_cmd else ""))
         for tick, index, at, cmd, opt in trace:
