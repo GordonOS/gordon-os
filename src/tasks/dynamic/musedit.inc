@@ -2376,8 +2376,6 @@ muGdInitLp:
     lda #$ff
     sta muGrpRow
     sta muGrpRow+1
-    sta muLnPrev
-    sta muLnPrev+1
     sta muLnScr                 // discarded while the walk skips down to MU_TOP
     lda #0
     sta muGrpSt
@@ -6249,30 +6247,12 @@ mgpDone:
     clc
     rts
 
-// --- muLnSpot -- where this line goes: drawn or not, which row, which number ---
-//  Out: MU_LNDRAW (0 = the line is outside a partial repaint), MU_LNNEW (1 = the
-//  line opens a row, so it prints a number) and the table entry for its screen
-//  row. A line the caller discards is counted for MU_LNNEW but not recorded.
+// --- muLnSpot -- where this line goes: drawn or not, which row it holds ---
+//  Out: MU_LNDRAW (0 = the line is outside a partial repaint) and the table entry
+//  for its screen row. A line the caller discards is not recorded.
 muLnSpot:
     lda #1
     sta muLnDraw
-    lda muGrpRow
-    cmp muLnPrev
-    bne mlsNew
-    lda muGrpRow+1
-    cmp muLnPrev+1
-    beq mlsSame
-mlsNew:
-    lda #1
-    bne mlsSet
-mlsSame:
-    lda #0
-mlsSet:
-    sta muLnNew
-    lda muGrpRow
-    sta muLnPrev
-    lda muGrpRow+1
-    sta muLnPrev+1
     lda muLnScr
     cmp #$ff
     beq mlsNoDraw
@@ -6435,11 +6415,9 @@ mlrNext:
     cpx #3
     bcc mlrVoices
     jsr muLnQmark
-    lda muLnNew                 // the number belongs to the row, not the line
-    beq mlrRts
-    jmp muLnNum
-mlrRts:
-    rts
+    jmp muLnNum                 // the number belongs to the row's own line, every
+                                //   time: a row's command lines sit above it and are
+                                //   not points in time, so they never carry one
 
 // --- muLnNum -- the row's number in its own column, bar-relative ---
 muLnNum:
@@ -7085,10 +7063,8 @@ muPendDur:  .fill 3, 0          // its duration byte
 muPendMk:   .fill 3, 0          // it arrived with commands
 muPendSp:   .fill 3, 0          // it lasts a whole row or more
 muLnScr:    .byte $ff           // the screen row the next line goes at ($ff: discard)
-muLnNew:    .byte 0             // the line opens a row, so it prints a number
 muLnDraw:   .byte 0             // the line is inside the band being repainted
 muLnV:      .byte 0             // the voice a note line is drawing
-muLnPrev:   .fill 2, 0          // the row of the line emitted before this one
 muLnTbLo:   .fill MU_GRID_ROWS, 0   // the row each visible line holds...
 muLnTbHi:   .fill MU_GRID_ROWS, 0   //   ...16-bit; $ffff = past the tune's end
 muNoteOut:  .byte 0             // 1 = muStep returned a note, 0 = it halted a voice
