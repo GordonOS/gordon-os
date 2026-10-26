@@ -6645,10 +6645,15 @@ mlcChars:
     beq mlcNext
     cmp #MU_MN_END
     beq mlcNext
+    lda muLogHi,y               // a byte for every command but the three wide
+    bne mlcWide                 //   ones: P-W, DTN and POR
     lda muLogLo,y               // every operand is a count, so it prints in decimal
+    jsr muByteDec
+    jmp mlcNext
+mlcWide:
+    sta muDecHi                 // the high byte is already in A
+    lda muLogLo,y
     sta muDecLo
-    lda muLogHi,y
-    sta muDecHi
     jsr muDec16
 mlcNext:
     inc muLnV
@@ -6660,15 +6665,47 @@ mlcDone:
     lda #MU_C_TEXT
     jmp kSetTextColor
 
+// --- muByteDec -- print A (0-255) in decimal ---
+//  The kernel's kByteToDec does the conversion: it formats 1-3 digits at (kPtr)
+//  and returns the length in Y, and it never emits a leading zero. The digits then
+//  go out through muPutC, whose kPrintCharAt clobbers X and Y, so the read index
+//  lives in MU_DECIDX.
+muByteDec:
+    pha                         // the value rides the stack while kPtr is set up
+    lda #<muDecBuf
+    sta kPtr
+    lda #>muDecBuf
+    sta kPtr+1
+    pla
+    jsr kByteToDec              // digits at (kPtr), Y = length
+    sty muDecCnt
+    lda #0
+    sta muDecIdx
+mdbLp:
+    ldy muDecIdx
+    cpy muDecCnt
+    bcs mdbRts
+    lda muDecBuf,y              // the buffer's OWN address: muPutC clobbers kPtr
+    jsr muPutC
+    inc muDecIdx
+    bne mdbLp                   // at most three digits, so never off the end
+mdbRts:
+    rts
+
 // --- muDec16 -- print MU_DECHI:MU_DECLO in decimal, without leading zeroes ---
-//  Repeated subtraction over the decimal weights: a 6502 has no divide, and the
-//  widest operand this task shows is a portamento's 14 bits, so five weights
-//  cover it. A value that is entirely zero prints one '0'.
+//  For the three operands that are wider than a byte -- P-W, DTN, POR -- so the
+//  value is never zero and the first digit is always printed. Repeated subtraction
+//  over the decimal weights: a 6502 has no divide, and the widest of the three is
+//  a portamento's 14 bits, so five weights cover it.
+//  WARNING: the weight index lives in MU_DECIDX, not in X. muPutC prints through
+//  kPrintCharAt, which clobbers X, so an index in X is destroyed by the first
+//  digit printed -- the loop then walks off the weight table and never ends.
 muDec16:
     lda #0
     sta muDecAny                // 0 = nothing has been printed yet
-    ldx #0
+    sta muDecIdx
 mdLp:
+    ldx muDecIdx
     lda #0
     sta muDecDig
 mdTry:
@@ -6693,14 +6730,10 @@ mdNext:
     ora #'0'
     jsr muPutC
 mdSkip:
-    inx
-    cpx #5
+    inc muDecIdx
+    lda muDecIdx
+    cmp #5
     bne mdLp
-    lda muDecAny
-    bne mdRts
-    lda #'0'
-    jmp muPutC
-mdRts:
     rts
 
 muDecWLo:   .byte <10000, <1000, <100, <10, <1
@@ -7399,8 +7432,11 @@ muLnVLo:    .byte 0, 0       // the value muLnDec rebuilt for the line being dra
 muLnVHi:    .byte 0
 muDecLo:    .byte 0             // muDec16's operand and its running remainder
 muDecHi:    .byte 0
-muDecDig:   .byte 0             // the digit being built
-muDecAny:   .byte 0             // 1 once a digit has been printed
+muDecDig:   .byte 0             // the digit muDec16 is building
+muDecIdx:   .byte 0             // which decimal weight, or which digit of
+muDecCnt:   .byte 0             //   muByteDec's output; both a variable, because
+muDecAny:   .byte 0             //   muPutC clobbers X; 1 once a digit is printed
+muDecBuf:   .fill 3, 0          // kByteToDec's digits
 muLogN:     .fill 6, 0               // how many that voice and class has logged
 muLogSnd:   .byte 0             // the row's sound lines: the structural ones follow
 muLogLns:   .byte 0             // the sound lines plus the structural, command lines
