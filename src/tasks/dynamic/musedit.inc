@@ -3304,11 +3304,16 @@ muCurDown:
     lda (dataPtr),y
     cmp #MU_GRID_BOT
     bne muCurDownIn
-    //  at the bottom: the window moves instead of the cursor
+    //  at the bottom: the window moves instead of the cursor, the band shifts up
+    //  through the kernel and only the line that arrives at the bottom is drawn
     inc muTop
-    bne muCurRedraw
+    bne muCurScroll
     inc muTop+1
-    jmp muCurRedraw
+muCurScroll:
+    jsr muScrollBand
+    jsr muDrawHead
+    jsr muCursorShow
+    jmp muKeyIdle
 muCurDownIn:
     jsr muCursorHide
     ldy #MU_ROW
@@ -3328,11 +3333,25 @@ muCurUp:
     lda muTop
     ora muTop+1
     beq muCurDone               // already at the tune's first row
+    //  at the top: the window moves a whole page, so the grid is walked again
+    //  once per page rather than once per row. The line above the window has
+    //  never been walked -- the interpreter only runs forward -- so a repaint is
+    //  the only way to see it, and a page amortises it over MU_GRID_ROWS rows.
     lda muTop
-    bne muCurUpDec
-    dec muTop+1
-muCurUpDec:
-    dec muTop
+    sec
+    sbc #MU_GRID_ROWS
+    tay
+    lda muTop+1
+    sbc #0
+    bcs muCurUpSet
+    lda #0                      // less than a page in: the first row is the new top
+    tay
+muCurUpSet:
+    sta muTop+1
+    sty muTop
+    lda #MU_GRID_BOT            // the cursor arrives on the page's last line
+    ldy #MU_ROW
+    sta (dataPtr),y
     jmp muCurRedraw
 muCurUpIn:
     jsr muCursorHide
@@ -6299,14 +6318,14 @@ muPfRts:
 //  REU_BOUNCE (the REU does the move) and blanks the line at the bottom; this
 //  then draws only that line -- plus the row numbers, which are bar-relative and
 //  so change on every scroll. Nothing else in the band is touched.
+//  The cursor is hidden here and left hidden: where it belongs after the move is
+//  the caller's business -- the follow centres it, a cursor key leaves it on the
+//  row it is on.
 muScrollBand:
     jsr muCursorHide            // the glyph must not travel with the band
     lda #MU_GRID_TOP
     ldx #MU_GRID_BOT
     jsr kScrollScreen
-    lda #MU_GRID_TOP+MU_FOLLOW_CENTER
-    ldy #MU_ROW                 // the cursor holds the middle row
-    sta (dataPtr),y
     jmp muGdLine                // the line that appeared, lanes and number
 
 // --- muGdLine -- paint one line: the row that just scrolled in ---
