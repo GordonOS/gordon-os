@@ -6012,13 +6012,6 @@ muPtStart:
     sta muPlayHush              // arm a fresh stop
     sta muPhCurLo               // the tune plays from its first row
     sta muPhCurLo+1
-    sta muPhAcc
-    sta muPhAcc+1
-    sta muPhPtrLo               // nothing anchored yet
-    sta muPhPtrHi
-    lda #$ff
-    sta muPhBaseLo
-    sta muPhBaseLo+1
     jsr muPlayHome              // the view goes home BEFORE the music starts: a
                                 //   redraw must not run while the tune does
     lda #MU_BAR_PLAY
@@ -6059,20 +6052,15 @@ muPlayStop:
     jmp muSidHushSafe
 
 // --- muPlayRewind -- a pass is over: the playhead restarts at the beginning ---
-//  Reached when the child reports a natural end (muPlayTick) and when a new pass
-//  starts (muPtStart): the player is spawned for a single pass and always plays
-//  from the tune's first row, so the clock and the view restart with it.
+//  Reached when the child reports a natural end (muPlayTick). The player is spawned
+//  for a single pass and always plays from the tune's first row, and it clears its
+//  own jiffy count as it starts (sidInitSong), so the view restarts with it.
 muPlayRewind:
     lda #0
     sta muBarAct                // the pass is over: PLAY goes plain in this redraw
     sta muPhCurLo
     sta muPhCurLo+1
-    sta muPhAcc
-    sta muPhAcc+1
-    jsr muRewindView
-    lda tickCount               // the clock restarts from here
-    sta muPhLast
-    rts
+    jmp muRewindView
 
 // --- muPlayHome -- take the view home for a pass, unless it is already there ---
 //  A window at row 0 with the cursor on the first row is already showing the row 0
@@ -6108,8 +6096,6 @@ muRewindView:
     sta muHistN
     sta muHistN+1
     sta muHistN+2
-    sta muPhPtrLo
-    sta muPhPtrHi
     muSet(MU_ROW, MU_GRID_TOP)  // the cursor, and with it the head's BAR and R
     jsr muDotsOff
     jmp muRedrawAll             // grid, head and cursor, in that order
@@ -6410,18 +6396,11 @@ muGdNumLine:
     adc #1
     jmp muNum2
 
-// --- muHistAdd -- remember the event the walk just took: pointer -> row ---
-//  In: X = the voice (muSv), muVRow = the onset row of the event just stepped,
-//  muPtr = the pointer past it. The renderer calls this for every event it walks;
-//  the playhead reads the record back instead of walking the tune again.
-//  WARNING: one entry describes ONE event -- its offset, the row it sounds on and
-//  its pitch. muPtr has already moved to the next event by the time the renderer
-//  calls this, so the offset is muPtr - 2, the same conversion muSkRecord makes;
-//  pairing the next event's offset with this event's row puts every anchor one
-//  event early, which a tune of short notes hides and a whole note exposes.
-//  The offset is a FILE OFFSET, not an address: the player publishes an offset (it
-//  may be reading the tune out of the REU, where it has no address at all), so the
-//  two are comparable as they stand.
+// --- muHistAdd -- remember the event the walk just took: its row and pitch ---
+//  In: X = the voice (muSv), muVRow = the onset row of the event just stepped.
+//  The renderer calls this for every event it walks; the keyboard dots read the
+//  record back instead of walking the tune again, so a voice's dot sits on the
+//  key of the note that is sounding rather than the one that starts next.
 muHistAdd:
     ldx muSv
     lda muHistN,x
@@ -6437,117 +6416,12 @@ muHistAdd:
     clc
     adc muTmpL
     tay
-    lda muPtrLo,x               // the event is the pair behind the pointer
-    sec
-    sbc #2
-    sta muHistPLo,y
-    lda muPtrHi,x
-    sbc #0
-    sta muHistPHi,y
     lda muVRow,x
     sta muHistRLo,y
     lda muVRowHi,x
     sta muHistRHi,y
     lda muSopt                  // the pitch, for the keyboard dots
     sta muHistOpt,y
-    rts
-muHfSkip:
-    jmp muHfNx                  // the loop head's branches cannot reach the tail
-muHfLp:
-    lda muHistS
-    clc
-    adc muTmpH
-    tay
-    ldx muHistV
-    lda muHistPLo,y
-    cmp muPhTgtLo,x
-    bne muHfSkip
-    lda muHistPHi,y
-    cmp muPhTgtHi,x
-    bne muHfSkip
-    lda muHistRHi,y             // a match: is its row at or after the playhead?
-    cmp muPhCurLo+1
-    bcc muHfBelow
-    bne muHfAbove
-    lda muHistRLo,y
-    cmp muPhCurLo
-    bcc muHfBelow
-muHfAbove:
-    lda muHistF                 // row >= the playhead: keep the SMALLEST
-    bne muHfCmpBest
-    lda #1
-    sta muHistF
-    lda muHistRLo,y
-    sta muBestLo
-    lda muHistRHi,y
-    sta muBestHi
-    jmp muHfNx
-muHfCmpBest:
-    lda muHistRHi,y
-    cmp muBestHi
-    bcc muHfTake
-    bne muHfNx
-    lda muHistRLo,y
-    cmp muBestLo
-    bcs muHfNx
-muHfTake:
-    lda muHistRLo,y
-    sta muBestLo
-    lda muHistRHi,y
-    sta muBestHi
-    jmp muHfNx
-muHfBelow:
-    lda muHistLow               // row is behind: keep the LARGEST of those
-    bne muHfCmpLow
-    lda #1
-    sta muHistLow
-    lda muHistRLo,y
-    sta muTmp2
-    lda muHistRHi,y
-    sta muTmp2+1
-    jmp muHfNx
-muHfCmpLow:
-    lda muHistRHi,y
-    cmp muTmp2+1
-    bcc muHfNx
-    bne muHfLowTake
-    lda muHistRLo,y
-    cmp muTmp2
-    bcc muHfNx
-muHfLowTake:
-    lda muHistRLo,y
-    sta muTmp2
-    lda muHistRHi,y
-    sta muTmp2+1
-muHfNx:
-    lda muHistS
-    sec
-    sbc #1
-    and #MU_HIST-1
-    sta muHistS
-    dec muHistC
-    beq muHfDone
-    jmp muHfLp                  // out of branch range: the loop body grew
-muHfDone:
-    lda muHistF
-    beq muHfLowOnly
-    lda muBestLo
-    sta muValLo
-    lda muBestHi
-    sta muValHi
-    sec
-    rts
-muHfLowOnly:
-    lda muHistLow
-    beq muHfNone
-    lda muTmp2
-    sta muValLo
-    lda muTmp2+1
-    sta muValHi
-    sec
-    rts
-muHfNone:
-    clc
     rts
 
 // --- muPlaying -- C=1 and a "? stop first" status when the player is on ---
@@ -6939,9 +6813,6 @@ muPfN:      .byte 0             // lines the follow path walks in one pass
 muHeadRowCol: .byte 0           // the head's row number, for the row-only update
 muHeadBarCol: .byte 0           // where the head's BAR field starts, for the playhead
 muHeadBar:  .word 0
-muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
-muPhPtrHi:  .byte 0
-muPhCand:   .fill 2, 0          // the row the last rejected rewind named
 muNeedPage: .byte 0
 muFreeMid:  .byte 0
 muFreeHi:   .byte 0
@@ -7122,33 +6993,17 @@ muPlayRefd: .byte 0             // the child sets this when the SID is busy
 muSidOk:    .byte 0             // a play attempt was made (sid.lib may be loaded)
 muReapCnt:  .byte 0             // countdown while waiting for the child to exit
 muSidCfgB:  .fill 9, 0          // kSidPlay mode 1: the file's FS offset, then windows 3-5
-// --- the playhead: the walk maps each voice's published pointer to a row ---
+// --- the playhead: the player publishes its own count, the walk rings the dots ---
 muPhFrame:  .byte 0             // frameCount at the last playhead update
-muPhTgtLo:  .fill 3, 0          // each voice's published next-command pointer
-muPhTgtHi:  .fill 3, 0
-muPhRowLo:  .fill 3, 0          // the timeline row the walk matched the pointer on
-muPhRowHi:  .fill 3, 0
-muPhHave:   .fill 3, 0          // 1 = that voice's pointer was matched this frame
 muPhCurLo:  .fill 2, 0          // the row the cursor is on while playing (lo, hi)
-muPhBaseLo: .fill 2, 0          // the onset row of the event it is anchored to
-muPhAcc:    .fill 2, 0          // ticks accumulated towards the next row
-muPhLast:   .byte 0             // tickCount at the last look
 muHistN:    .fill 3, 0          // next slot per voice
-muHistV:    .byte 0             // the voice a lookup is for
-muHistS:    .byte 0             // its slot cursor
-muHistC:    .byte 0             // its scan countdown
-muHistF:    .byte 0             // muHistFind: a match at or after the playhead
-muHistLow:  .byte 0             // ...and one behind it
 muLnRow:    .word 0             // the timeline row the bottom line shows
-//  pointer -> row, per voice, as the renderer walks: the playhead asks this
-//  table instead of re-walking the tune every frame. MU_HIST slots a voice,
-//  a power of two so the index is a shift.
-muHistPLo:  .fill 3*MU_HIST, 0
-muHistPHi:  .fill 3*MU_HIST, 0
+//  The row an event sounds on and its pitch, per voice, as the renderer walks:
+//  the keyboard dots ask this table instead of re-walking the tune. MU_HIST slots
+//  a voice, a power of two so the index is a shift.
 muHistOpt:  .fill 3*MU_HIST, 0  // the option byte of each recorded event
 muHistRLo:  .fill 3*MU_HIST, 0
 muHistRHi:  .fill 3*MU_HIST, 0
-muFollow:   .byte 1             // the window follows the playhead, always
 
 // --- the undo stack and the dirty guard ---
 muDirty:    .byte 0             // an image byte changed since the last save

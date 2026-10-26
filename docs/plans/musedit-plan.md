@@ -1,7 +1,7 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: the editor is built, wired and shipped.** `musedit.asm`, `musedit.inc` and the
-> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **101 pages of 109** (8 of
+> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **99 pages of 109** (10 of
 > margin, with `sprite`/`mouse`/`filesys`/`sid` counted by `tools/check-pool-budget.ps1`).
 >
 > **`main`'s streamed player is merged in.** A tune no longer has to be in RAM: `kSidPlay` takes a
@@ -640,8 +640,8 @@ saves again.
 | pointer | `mouse.lib` + `sprite.lib` + the existing `pointer.spr` (already seeded by `build-reu.ps1`); `mouseKind` required — 0 is the `? no mouse` refusal; two sprites resolved once, **before** anything is drawn; `sprOn(0)` and `MOUSE_DISABLE` before exit |
 | exit | `kSwitchView` to the parent **before** `kFreeScreen`, then `SYS_EXIT`; drain the key queue by capacity (16 reads) first |
 
-Footprint, as `tools/check-pool-budget.ps1` measures it: code **67** pages + mouse 2 + sprite 1 +
-filesys 10 + sid 15 + malloc 6 = **101 of 109 pages**, margin 8. The six malloc pages are the
+Footprint, as `tools/check-pool-budget.ps1` measures it: code **65** pages + mouse 2 + sprite 1 +
+filesys 10 + sid 15 + malloc 6 = **99 of 109 pages**, margin 10. The six malloc pages are the
 window service — three page-aligned 256-byte read windows for the editor and three more handed to
 the music child in `kSidPlay`'s mode-1 config — so the tune's own length costs nothing: it is paged
 out of `<base>.wrk` (step 12).
@@ -1152,7 +1152,7 @@ their own pass); a page that an edit straddles must be written back exactly once
 
 ## 16. Step 13 -- finish the walk, then make the editor phrase-native
 
-The streaming storage (steps 12.2-12.7) is in and `musedit` holds 101 of 109 pool pages. What
+The streaming storage (steps 12.2-12.7) is in and `musedit` holds 99 of 109 pool pages. What
 is left is not storage: it is the **walk** (the editor's copy of the player, which draws the
 lanes) and the **playhead** that follows it. Two rules govern this step.
 
@@ -1251,7 +1251,7 @@ the editor currently treats every one of them as an opaque "this event has comma
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 8 pages; a-c are ~2-3 pages
+- **e. Keep the accounting.** Budget: musedit's margin is 10 pages; a-c are ~2-3 pages
   (mnemonic table, menu, the `D` key). `check-pool-budget.ps1` is the gate, and `basic`-style
   exact fits are refused rather than warned about.
 
