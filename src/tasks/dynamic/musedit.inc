@@ -6103,29 +6103,36 @@ muPsHaveUnit:
 muPsRts:
     rts
 
+// --- muLnFind -- X = the visible index of the playhead's own line, or $ff ---
+//  The scan runs from the bottom up and skips the command lines (MU_LNKIND): a
+//  row can hold several lines and only the one with the notes may take the cursor.
+muLnFind:
+    ldx #MU_GRID_ROWS-1
+mlfLp:
+    lda muLnKind,x
+    beq mlfNext
+    lda muLnTbHi,x
+    cmp muPhCurLo+1
+    bne mlfNext
+    lda muLnTbLo,x
+    cmp muPhCurLo
+    beq mlfRts
+mlfNext:
+    dex
+    bpl mlfLp
+    ldx #$ff
+mlfRts:
+    rts
+
 // --- muPhCursor -- the cursor marks the sounding row ---
-//  The screen row comes from MU_LNTB: scan the visible lines from the bottom up
-//  for the playhead's row, which finds the row's OWN line rather than a command
-//  line that shares the row (a row's lines are contiguous, its line is the last).
-//  Whatever it finds, the cursor is one indicator and stopping leaves it there.
+//  Whatever muLnFind reports, the cursor is one indicator and stopping leaves it
+//  where it is.
 muPhCursor:
     jsr muCursorHide            // already out when the follow moved the band, so
                                 //   this only matters for a playhead that stays put
-    ldx #MU_GRID_ROWS-1
-muPcScan:
-    lda muLnKind,x              // a command's line shares the row but shows no note
-    beq muPcNext                //   the cursor must not stand on it
-    lda muLnTbHi,x
-    cmp muPhCurLo+1
-    bne muPcNext
-    lda muLnTbLo,x
-    cmp muPhCurLo
-    beq muPcFound
-muPcNext:
-    dex
-    bpl muPcScan
-    jmp muPcGone
-muPcFound:
+    jsr muLnFind
+    cpx #$ff
+    beq muPcGone
     txa
     clc
     adc #MU_GRID_TOP
@@ -6137,41 +6144,43 @@ muPcGone:
     rts                         // the sounding row is not in the window: the cursor
                                 //   simply stays out rather than jumping to the top
 
-// --- muPhFollow -- keep the playhead MU_FOLLOW_CENTER lines below the top ---
-//  The band is a list of lines, so how far it has to move is not a row difference:
-//  it moves while the bottom line is still behind the row the playhead should sit
-//  above, and a command line advances the band without advancing the row. A
-//  settled playhead costs one comparison per frame and nothing more.
+// --- muPhFollow -- hold the playhead's own line MU_FOLLOW_CENTER above the bottom ---
+//  The test is in LINES, never in rows. A row with three commands is four lines, so
+//  "the bottom line ten rows below the playhead" can be more lines than the band
+//  holds: that target is unreachable, and a row-based follow scrolls to its cap on
+//  every pass and runs the window away from the music while the cursor's row falls
+//  out of it. muLnFind gives the playhead's line, and the band scrolls until that
+//  line sits MU_FOLLOW_CENTER from the bottom -- always reachable, one line a scroll.
+//  A settled playhead costs one scan per frame and nothing more.
 muPhFollow:
     jsr muCursorHide            // out before the band can move: one hide for the
                                 //   whole pass, however many lines it walks, and
                                 //   muPhCursor puts it back where the row now is
-    lda muPhCurLo               // the bottom line should reach this row
-    clc
-    adc #(MU_GRID_ROWS-1-MU_FOLLOW_CENTER)
-    sta muValLo
-    lda muPhCurLo+1
-    adc #0
-    sta muValHi
-    lda #MU_FOLLOW_WALK         // a slow pass may walk the whole band
+    lda #MU_FOLLOW_WALK
     sta muPfN
 muPfStep:
-    lda muLnTbHi+MU_GRID_ROWS-1
-    cmp muValHi
-    bcc muPfMove
-    bne muPfDone
-    lda muLnTbLo+MU_GRID_ROWS-1
-    cmp muValLo
-    bcc muPfMove
-muPfDone:
-    lda muGrpSt                 // a row's lines are not all out yet: finish the
-    bne muPfMove                //   row, so the band never stops inside one and the
-muPfRts:                        //   playhead's own line is always there to stand on
-    rts
+    jsr muLnFind
+    cpx #$ff
+    beq muPfBlind
+    cpx #(MU_GRID_ROWS-MU_FOLLOW_CENTER)
+    bcc muPfRts                 // at or above the centre line: it stays there
 muPfMove:
     jsr muScrollBand            // one line: the band moves, only it is drawn
     dec muPfN
     bne muPfStep
+muPfRts:
+    rts
+muPfBlind:
+    lda muLnTbHi+MU_GRID_ROWS-1 // the playhead's line is not in the band
+    cmp muPhCurLo+1
+    bcc muPfMove                // the band is behind it: scroll on
+    bne muPfRts                 // it is above the band: never scroll away from it
+    lda muLnTbLo+MU_GRID_ROWS-1
+    cmp muPhCurLo
+    bcc muPfMove
+    bne muPfRts
+    lda muGrpSt                 // the band has reached the row and is still emitting
+    bne muPfMove                //   it: finish the row so its own line can be found
     rts
 
 // ==========================================
