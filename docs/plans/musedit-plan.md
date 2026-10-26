@@ -1186,34 +1186,45 @@ it was drawn on and its option byte -- that ring is *exactly* what the lanes wer
   and the offset on that line is the byte to look at;
 - **nothing at all** -- the walk stopped for that voice, and `V`'s `ERRn` names why.
 
-### 13.2 The playhead anchors structurally
+### 13.2 The playhead's clock, derived rather than tuned
 
-**What the evidence says (immig, after 13.1's fixes).** The walk now reproduces `tools/mus-sim.py`
-exactly — `v` reports `t=7632 e=231,215,663` for all three voices — and the playhead still
-stalls around bar 6, jumps to the right place, stalls again and finally drifts. That rules out
-the walk. What remains is the anchor.
+**The walk is not in question**: `v` reports `t=7632 e=231,215,663`, identical to
+`tools/mus-sim.py` for all three voices. What drifts is the *clock*, and its rate can be
+derived from the player's own timing instead of guessed.
 
-`muPhSync` re-anchors only when the player's published pointer *changes* **and** `muHistFind`
-finds that exact offset in the ring. Two things keep that from happening often:
+A row is `unit` jiffies (2 for `TEM $80`). The player sleeps `MU_MUS_DELAY` (1) scheduler ticks
+per jiffy, doubled once for a 200% machine, so the nominal is `unit x 2` = 4 ticks a row. Two
+numbers read off a running editor give the truth: the clock had advanced 711 rows at 4 ticks
+each (2844 ticks) while the music had reached offset 92, which the model puts at row 632. So a
+row really takes **4.50 ticks**, i.e. **2.25 ticks per jiffy** — the player's own work costs
+**0.25 ticks per jiffy**, which is the `sysSleep` overshoot.
 
-- the ring is rebuilt only by a **grid redraw**, so between scrolls it is frozen while the
-  music moves through the window;
-- the ring holds only *stepped events*, so a published pointer that names a **command pair**
-  (the player publishes the next command, which may be a `UTL`, a filter write, anything)
-  matches nothing at all.
+That fixes the shape of the correction, and it is why every per-row constant felt right on
+`immig` and wrong elsewhere:
 
-With no anchor the playhead free-runs on `muPhStep`, which is deliberately a quarter slow, so
-it falls behind; when the view eventually scrolls, the redraw repopulates the ring, the anchor
-lands and the marker jumps forward to where the music actually is. That is exactly the
-"stops, picks up in the right place, stops again, then drifts" report.
+    ticks per row = unit x (4 x ticksPerJiffy + 1) / 4      (9/4 at a 200% machine)
 
-**The fix is to stop requiring an exact offset match.** The playhead is *between* events; what
-it needs is the row of the event sounding at it, which is the newest ring entry at or below
-the playhead's row — the same rule `muDvLp` already uses for the keyboard dots. That anchor is
-always available while the window holds the playhead, survives the ring going stale between
-redraws, and cannot be defeated by a pointer that names a command. Acceptance: `immig` in step
-from the first bar to the last, and the regression set (`tetris`, `commodo`, `katmand`,
-`fsonata`) unchanged.
+| unit | derived | flat +0.5 per row (the constant's answer) |
+|---|---|---|
+| 2 | 4.50 | 4.5 (right by luck) |
+| 3 | 6.75 | 6.5 |
+| 5 | 11.25 | 10.5 |
+| 9 | 20.25 | 18.5 (**9% fast**) |
+
+So the fix is: scale the *per-jiffy* factor by 9/4 rather than adding a tick per N rows, and
+carry the quarter-tick remainder in the existing `muPhFrac` accumulator so the average is exact
+at any unit (`4,5,4,5` for unit 2; `20,20,20,21` for unit 9). The clock then needs no
+measurement, no window, no anchors to survive — which also removes the deadlock that made the
+measured version starve (anchors cannot help a clock that is already out of the window).
+
+**Rejected in the process**, all measured on the machine: a flat `+1` tick per 4, 5, 6 or 8 rows
+(tunes one unit but not another); a two-way anchor (drags the playhead below the window bottom,
+so the scroll stops); a forward-only anchor with an exact-unit clock (runs fast); and a measured
+`jiffies / rows` rate (correct in principle, but it can only start once the anchors match, and
+they cannot match while the clock is out of step -- the bootstrap chicken-and-egg).
+
+Acceptance: `immig` in step from the first bar to the last, and the regression set (`tetris`,
+`commodo`, `katmand`, `fsonata`) unchanged.
 
 ### 13.3 A gate that keeps them equal
 
