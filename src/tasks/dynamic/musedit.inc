@@ -84,7 +84,6 @@
 .const MU_TRACE_N   = 18      // events the trace key prints, one per grid row
 .const MU_GRID_ROWS = 19      // the rows a window shows
 .const MU_REST_CH   = '.'     // a rest
-.const MU_CMD_CH    = '*'     // the event arrived with commands
 .const MU_OFF_CH    = '?'     // its onset fell between rows
 .const MU_GRID_STEPS = 3000    // events one redraw may walk
 .const MU_ERR_SPIN  = 1       // a run of commands with no note behind it
@@ -103,10 +102,10 @@
 .const MU_LOG_SLOTS = 16      // command pairs one voice may log for one row: the
                               //   longest run a bundled tune has is twelve
 .const MU_MN_TEM    = 1       // ids 1..9 are the structural commands, 10..46 the
-.const MU_MN_UTL    = 2       //   sound ones. The mnemonic table is one
-.const MU_MN_UTV    = 3       //   five-character field per id, in this order; TAL,
-.const MU_MN_HED    = 4       //   HLT and END take no operand and print no value.
-.const MU_MN_DEF    = 5
+.const MU_MN_UTL    = 2       //   sound ones and 47..49 the player's own three. The
+.const MU_MN_UTV    = 3       //   mnemonic table is one five-character field per id,
+.const MU_MN_HED    = 4       //   in this order; TAL, HLT and END take no operand and
+.const MU_MN_DEF    = 5       //   print no value.
 .const MU_MN_CALL   = 6
 .const MU_MN_TAL    = 7
 .const MU_MN_HLT    = 8
@@ -148,6 +147,10 @@
 .const MU_MN_RDN    = 44      // LFO ramp down
 .const MU_MN_SRC    = 45      // modulation source
 .const MU_MN_DST    = 46      // modulation destination
+.const MU_MN_MS     = 47      // measure number, 0-999: the command byte's top two
+                              //   bits are its high byte
+.const MU_MN_FLG    = 48      // the player's flag byte
+.const MU_MN_AUX    = 49      // reserved: the player has no hook to run
 .const MU_WIN_PAGES  = 6       // the window service: SIX 256-byte, page-aligned
                                //   windows -- 0-2 are the editor's, one per voice, and
                                //   3-5 are the player's, handed over in kSidPlay's
@@ -1660,11 +1663,7 @@ muStepRun:
     lda muScmd
     and #$03
     beq muStepNote
-    ldx muSv
-    inc muCmdN,x                // this event arrives with a command in front of it
-    jsr muLnLog                 // ...and the grid draws it on a line, unless it is
-                                //   one of the four it never shows (MS#, FLG, AUX,
-                                //   JIF), which leaves the note's '*' to report it
+    jsr muLnLog                 // the grid draws it on a line of its own
     dec muSpun
     bne muSpunOk
     lda #MU_ERR_SPIN
@@ -1698,9 +1697,7 @@ muStepLen:
     lda #1
     sta muNoteOut               // a note came back: the caller may measure it
     lda #0
-    sta muJifOut+1              // muCmdN is NOT cleared here -- the renderer reads
-                                //   it to mark the event's cells, and clears it
-                                //   once it has taken the count
+    sta muJifOut+1
     lda muJifOut
     bne muStepSome
     inc muJifOut+1              // a zero countdown is 256 jiffies
@@ -1984,9 +1981,7 @@ muSimStop:
 //  tests are in the order that keeps the overlapping patterns straight.
 
 // --- muLnLog -- record the pair the walk just read, if the grid draws it ---
-//  In: MU_SCMD/MU_SOPT (the pair), MU_SV (the voice). A shown command comes back
-//  out of muCmdN, so the '*' on a note means "there are commands here that are
-//  shown nowhere else" -- the four this log skips.
+//  In: MU_SCMD/MU_SOPT (the pair), MU_SV (the voice).
 muLnLog:
     jsr muLnDec                 // A = the id, value in MU_LNVLO/HI; 0 = not shown
     beq muLlRts
@@ -2003,7 +1998,7 @@ mlbHave:
     tax
     lda muLogN,x
     cmp #MU_LOG_SLOTS
-    bcs muLlRts                 // full: the '*' still reports it
+    bcs muLlRts                 // full: the pair has no line this row
     clc
     adc muLogBase,x             // slot = this voice's block + how many it has
     tay
@@ -2014,8 +2009,6 @@ mlbHave:
     lda muLnVHi
     sta muLogHi,y
     inc muLogN,x
-    ldx muSv
-    dec muCmdN,x
 muLlRts:
     rts
 
@@ -2041,18 +2034,31 @@ muLnDec:
     bne muDecHide               // a 2-type command: nothing this grid shows
     jmp muDecOpt                // the $01 family: the OPTION picks the command
 muDecExact:
-    lda muScmd                  // 20 commands have a fixed command byte, one per
-    lsr                         //   eight values of it, and take the whole option
-    lsr                         //   as their value
+    lda muScmd                  // each of these commands is one value of the low
+    lsr                         //   three bits of the command byte, and the whole
+    lsr                         //   option is its value
     lsr
     tay
     lda muDecTab,y
-    beq muDecHide               // MS# and JIF land here: the grid hides them
+    beq muDecHide               // a value of that eight that names no command
     sta muTmpH
     lda muSopt
     sta muLnVLo
     lda #0
     sta muLnVHi
+    lda muScmd                  // MS# alone keeps its value's high byte in the
+    and #$3f                    //   command byte's top two bits
+    cmp #$1e
+    bne mdeRts
+    lda muScmd
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    sta muLnVHi
+mdeRts:
     lda muTmpH
     rts
 muDecHi12:
@@ -2650,7 +2656,6 @@ muGdInitLp:
     sta muVRow,x
     sta muVRowHi,x
     sta muVRem,x
-    sta muCmdN,x
     dex
     bpl muGdInitLp
     //  The producer starts one row before the first, so the group it opens first
@@ -6478,10 +6483,6 @@ mgpStep:
     sta muPendOpt,x
     lda muVDur,x
     sta muPendDur,x
-    lda muCmdN,x
-    sta muPendMk,x
-    lda #0
-    sta muCmdN,x                // the next note's commands start from zero
     lda muSpan
     ora muSpan+1
     beq mgpOff
@@ -6815,8 +6816,8 @@ mlqRts:
 // --- muLnNote -- one voice's note cells on the row's own line ---
 //  In: X = the voice, MU_LNSCR = the line. The pitch, a space, the duration in the
 //  format's own numbers (C#6 16 is a sixteenth, G-4 4 a quarter), then the lane's
-//  last cell: '*' when the event arrived with commands, '?' when its onset fell
-//  between rows. A rest is three dots and the same number.
+//  last cell: '?' when its onset fell between rows. A rest is three dots and the
+//  same number.
 //  Only the onset row carries anything -- the rows a note covers stay blank, which
 //  is what makes a scroll cost nothing under a sounding note.
 muLnNote:
@@ -6855,18 +6856,8 @@ mlnDur:
     jsr muNumDur
 mlnMark:
     ldx muLnV
-    lda muPendMk,x
-    beq mlnOff
-    lda #MU_CMD_CH
-    jmp mlnMarkSet
-mlnOff:
-    ldx muLnV
     lda muPendSp,x
     bne mlnDone                 // a whole row or more: nothing is squeezed
-    lda #MU_OFF_CH
-mlnMarkSet:
-    pha
-    ldx muLnV
     lda muLaneCol,x
     clc
     adc muLaneW,x
@@ -6874,7 +6865,7 @@ mlnMarkSet:
     sbc #1
     sta muGdCol
     jsr muGdAtCell
-    pla
+    lda #MU_OFF_CH
     jsr muPutC
 mlnDone:
     lda #MU_C_TEXT
@@ -7374,22 +7365,26 @@ muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a ut
 muGlyBuf:   .fill 8, 0          // one keyboard cell, expanded to the 8 bytes a blit reads
 //  One five-character field per mnemonic id, so the id indexes the table with a
 //  multiply by five and a command line prints exactly one field. The order is
-//  MU_MN_TEM..MU_MN_DST; ids 1..9 are the structural nine.
+//  MU_MN_TEM..MU_MN_AUX; ids 1..9 are the structural nine.
 muMnTab:    .text "TEM  UTL  UTV  HED  DEF  CALL TAL  HLT  END  "
             .text "F-C  PNT  RTP  HLD  P-S  F-S  SCA  VDP  VRT  AUT  "
             .text "TPS  PVD  PVR  MAX  P-W  DTN  POR  "
             .text "ATK  DCY  SUS  REL  VOL  RES  WAV  F-M  BMP  FLT  "
             .text "RNG  SNC  F-X  3-O  LFO  P&V  RUP  RDN  SRC  DST  "
-//  The 20 commands with a fixed command byte, indexed by command byte / 8. A zero
-//  is a pair the grid does not draw: MS# (byte $1E), JIF ($3E), FLG ($46) and the
-//  inert AUX ($B6), plus the values of each eight that name no command at all.
-muDecTab:   .byte MU_MN_TEM, MU_MN_FC,  MU_MN_UTL, 0
+            .text "MS#  FLG  AUX  "
+muMnEnd:
+.assert "the mnemonic table is five bytes per id", (muMnEnd - muMnTab) == 49*5 ? 1 : 0, 1
+//  The commands with a fixed command byte, indexed by command byte / 8. A zero is
+//  a value of that eight that names no command, or one the grid does not draw. MS#
+//  takes four indices, one per value of its high byte; JIF takes none, because its
+//  value is the option * 4 plus those two bits.
+muDecTab:   .byte MU_MN_TEM, MU_MN_FC,  MU_MN_UTL, MU_MN_MS
             .byte MU_MN_PNT, MU_MN_RTP, MU_MN_HED, 0
-            .byte 0,         MU_MN_HLD, MU_MN_PS,  0
+            .byte MU_MN_FLG, MU_MN_HLD, MU_MN_PS,  MU_MN_MS
             .byte MU_MN_FS,  MU_MN_SCA, MU_MN_VDP, 0
-            .byte MU_MN_VRT, 0,         MU_MN_AUT, 0
-            .byte MU_MN_TPS, 0,         0,         0
-            .byte MU_MN_PVD, 0,         MU_MN_PVR, 0
+            .byte MU_MN_VRT, 0,         MU_MN_AUT, MU_MN_MS
+            .byte MU_MN_TPS, 0,         MU_MN_AUX, 0
+            .byte MU_MN_PVD, 0,         MU_MN_PVR, MU_MN_MS
             .byte MU_MN_MAX, 0,         MU_MN_UTV, 0
 //  The eight commands whose option ends in ...011, indexed by option / 8. The
 //  index is what the player's own shift chain tests, which is why RNG sits at 2
@@ -7444,7 +7439,6 @@ muLogIx:    .byte 0             // the command line being drawn
 muPendOn:   .fill 3, 0          // that voice has a note on the open group's row
 muPendOpt:  .fill 3, 0          // its option byte
 muPendDur:  .fill 3, 0          // its duration byte
-muPendMk:   .fill 3, 0          // it arrived with commands
 muPendSp:   .fill 3, 0          // it lasts a whole row or more
 muLnScr:    .byte $ff           // the screen row the next line goes at ($ff: discard)
 muLnDraw:   .byte 0             // the line is inside the band being repainted
@@ -7478,7 +7472,6 @@ muTop:      .word 0             // the timeline row at the top of the window
 muVRow:     .fill 3,0          // each voice's next event row
 muVRowHi:   .fill 3,0
 muVRem:     .fill 3,0          // jiffies carried into that voice's next row
-muCmdN:     .fill 3,0          // commands seen since that voice's last note
 muSpan:     .word 0            // rows the current event covers
 muJifOut:   .word 0            // the length muStep just consumed
 muGdRowLo:  .byte 0

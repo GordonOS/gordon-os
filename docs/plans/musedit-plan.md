@@ -810,9 +810,9 @@ Landed: the header carries the tune's tempo, the cursor's bar and its absolute r
 BAR n Rnnn`), the row unit comes from `muUnitNow` (the plain unit for the tune's tempo, refined
 by `SHIFT+U`), and `muDrawGrid` walks the same simulator the `V`/`X` pages use, drawing each
 event as its onset (a three-character pitch, or `...` for a rest) followed by a `=` run as long
-as the length's rows. A rest shows only its onset, so silence stays visibly silent; a `*` in the
-lane's last cell says the event arrived with commands, a `?` that its onset fell between rows.
-The row numbers are counted from each bar's first row (a bar is at most 64 rows, so two digits
+as the length's rows. A rest shows only its onset, so silence stays visibly silent; the lane's last
+cell says `?` when the event's onset fell between rows. The row numbers are counted from each
+bar's first row (a bar is at most 64 rows, so two digits
 hold it) and divided out with `kDiv16`; the window position is written out in the header. The
 cursor keys move the `>` inside the window and step the window at its edges, redrawing through
 `muCurRedraw`; the header is redrawn with the cursor so `BAR`/`R` never lag what is on screen.
@@ -840,7 +840,8 @@ then `MU_GRID_STEPS` is what keeps a pathological tune from spinning.
   shifts a line, at the top row it moves back a whole page.
 - [x] **5.4 Click placement.** Clicking a lane cell sets the voice and the row; the lane header row, a separator and the spare column answer nothing.
 - [ ] **5.5 `SHIFT+U` refines.** Needs a look on `fsonata` (it has triplets): the off-grid `?` should appear, and `SHIFT+U` should move every onset onto a row.
-- [x] **5.6 Command markers.** A note carrying commands shows `*` in its lane's last cell.
+- [x] **5.6 Command markers.** A note's lane carries no command marker: step 13.4a draws every
+  command on a line of its own.
 - [x] **5.7 Nothing else is drawn.** `kClearScreen` at start-up and `muGridClear` on every redraw leave nothing behind; the debug pages (`B`/`V`/`X`) overwrite rows the next redraw restores.
 
 ### Step 6 — Editing algebra and undo
@@ -1249,8 +1250,10 @@ order:
 
 - **a. Show it.** *Done.* A command event draws its mnemonic on a **line of its own**, above the row
   it belongs to, with no row number (it is not a point in time). Every command the grid can draw
-  has such a line — all 46 ids, the nine structural ones and the 37 that colour the sound (only
-  `MS#`, `FLG`, `AUX` and `JIF` are hidden, and they keep the `*`). A line carries **one command
+  has such a line — all 49 ids, the nine structural ones, the 37 that colour the sound and the
+  player's own `MS#`, `FLG` and `AUX` (`MS#` takes its value's high byte from the command byte's
+  top two bits; the one command with no line is `JIF`, whose value is the option times four plus
+  those two bits, and no bundled tune uses it). A line carries **one command
   from each lane**, so voices that fire on the same row share it and a voice with more commands
   continues on the lines below, and the two classes never share a line: each voice keeps a queue
   per class (`muLogBase` is indexed by `voice * 2 + class`), the sound commands are drawn first and

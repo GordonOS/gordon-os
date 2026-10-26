@@ -46,7 +46,7 @@ first — `S` in `sidplay` stops the tune — and the editor starts normally.
 ```
 commodo.mus TEM 144 BAR3 R048      C-4
 ROW VOICE 1     VOICE 2     VOICE 3   OVR
->01 C-4 16  *   A-3 8       ... 2
+>01 C-4 16      A-3 8       ... 2
  02                         ... 4
  03             E-4 4       ... 4
  04 A-3 16                  ... 8
@@ -94,7 +94,7 @@ Inside a lane:
 | mark | meaning |
 |---|---|
 | `C-4 16` | a note starts here, and its duration is a sixteenth |
-| `C-4 16  *` | the note also carries a command the grid cannot draw — `MS#`, `FLG`, `AUX` or `JIF`; everything else is shown above |
+| `C-4 16  ?` | the note's onset falls between two rows, so the row it is drawn on is not where it starts |
 | `... 4` | a rest starts here, lasting a quarter |
 | `DEF 3` | a command, on a line of its own (see below) |
 
@@ -151,9 +151,12 @@ comparable events:
 Every operand is a count, so every one prints in **decimal** — nothing on a command
 line is hex.
 
-Four commands are **not** drawn: `MS#` and `FLG` are the first two bytes of a phrase rather than
-notes, and `AUX` and `JIF` change nothing at all. A note that carries one of them shows a `*` in
-its lane's last cell, so a command is never silently dropped.
+Every command the player implements has a line, including `MS#` and `FLG`, which are the first
+two bytes of a phrase rather than notes, and `AUX`, which changes nothing. The one exception is
+`JIF`, whose value is not the option byte alone but the option times four plus the command byte's
+top two bits, so the grid would have to show a 10-bit signed number to be truthful; no bundled
+tune uses it, and a `JIF` is kept in the file untouched. A note never carries a command that has
+no line anywhere.
 
 A command line has **no row number**, because it is not a point in time — it belongs to the row
 below it. And because it takes no time, playback does not stop on it: the cursor passes straight
@@ -200,7 +203,7 @@ double-dotted, triplet). The armed value is shown in the control bar's `DUR` fie
 cell shows `.` dotted, `:` double-dotted, `3` triplet.
 
 Some notes do not land exactly on a row — a triplet or a double-dotted note can be shorter
-than one step. Such an onset is drawn on the row it falls in, with `~` at the right edge.
+than one step. Such an onset is drawn on the row it falls in, with `?` at the right edge.
 `SHIFT+U` refines the grid (half, third, or a single jiffy) until every onset has a row of
 its own; the row numbering follows the new grid.
 
@@ -371,7 +374,7 @@ decoded decimal or signed value beside each field. Setting a field to the value 
 |---|---|---|---|
 | TEMPO | `UTL` | 0-255 | length, in jiffies, of a note with the UTL duration |
 | | `TEM` | tempo value | sets the tempo (the classic table: `$90` ≈ 100, `$A0` ≈ 90, `$F0` ≈ 60) |
-| | `JIF` | -200…757 | jiffy-clock adjust — **no effect in GordonOS** (the scheduler is the clock) |
+| | `JIF` | -200…757 | jiffy-clock adjust — **no effect in GordonOS** (the scheduler is the clock) and not drawn on the grid |
 | VOLUME | `VOL` | 0-15 | master volume |
 | | `BMP` | up / down | volume ±1, or down a whole group |
 | REPEAT | `HED` | 0-255 | start of a repeat section; the count, 0 = forever |
@@ -409,7 +412,7 @@ decoded decimal or signed value beside each field. Setting a field to the value 
 | | `DST` | 0-3 | destination: off, frequency, pulse width, cutoff |
 | | `SCA` | -7…7 | modulation scale |
 | | `MAX` | 0-255 | modulation maximum |
-| MISC | `MS#` | 0-999 | measure number, stored by the player (nothing displays it in GordonOS) |
+| MISC | `MS#` | 0-999 | measure number, written by the player and shown on its own line |
 | | `UTV` | 0-255 | this voice's utility length (see *Utility lengths*) |
 | | `FLG` | 0-255 | sets the player's flag byte |
 | | `AUX` | 0-255 | reserved — **no effect** (the player's hook cannot be reached) |

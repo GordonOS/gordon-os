@@ -84,32 +84,39 @@ MARK = {
     "DTN": 25, "POR": 26, "ATK": 27, "DCY": 28, "SUS": 29, "REL": 30,
     "VOL": 31, "RES": 32, "WAV": 33, "F-M": 34, "BMP": 35, "FLT": 36,
     "RNG": 37, "SNC": 38, "F-X": 39, "3-O": 40, "LFO": 41, "P&V": 42,
-    "RUP": 43, "RDN": 44, "SRC": 45, "DST": 46,
+    "RUP": 43, "RDN": 44, "SRC": 45, "DST": 46, "MS#": 47, "FLG": 48,
+    "AUX": 49,
 }
 NAMES = dict((ident, name) for name, ident in MARK.items())
 
-#  The 20 commands with a fixed command byte, one per eight values of it.
-EXACT = {0x06: "TEM", 0x0E: "F-C", 0x16: "UTL", 0x26: "PNT", 0x2E: "RTP",
-         0x36: "HED", 0x4E: "HLD", 0x56: "P-S", 0x66: "F-S", 0x6E: "SCA",
-         0x76: "VDP", 0x86: "VRT", 0x96: "AUT", 0xA6: "TPS", 0xC6: "PVD",
-         0xD6: "PVR", 0xE6: "MAX", 0xF6: "UTV"}
+#  The commands with a fixed command byte, indexed by command byte / 8. A zero is a
+#  value of that eight that names no command, or one the grid does not draw. MS#
+#  takes four indices, one per value of its high byte; JIF takes none, because its
+#  value is the option * 4 plus those two bits.
+EXACT = {0: "TEM", 1: "F-C", 2: "UTL", 3: "MS#", 4: "PNT", 5: "RTP",
+         6: "HED", 8: "FLG", 9: "HLD", 10: "P-S", 11: "MS#", 12: "F-S",
+         13: "SCA", 14: "VDP", 16: "VRT", 18: "AUT", 19: "MS#", 20: "TPS",
+         22: "AUX", 24: "PVD", 26: "PVR", 27: "MS#", 28: "MAX", 30: "UTV"}
 #  The eight whose option ends in 011, indexed by option / 16. The index is what
 #  the player's own shift chain tests, which is why RNG sits at 2 even though its
 #  comment at the source reads 0101n011.
 SW = ["BMP", "FLT", "RNG", "SNC", "F-X", "3-O", "LFO", "P&V"]
 NO_VALUE = (7, 8, 9)                     # TAL, HLT, END
-DECIMAL = (2, 3, 4, 5, 6)                # UTL, UTV, HED, DEF, CALL
 
 
 def decode_cmd(cmd, opt):
-    """(id, value) for a command pair, (0, 0) for the four the grid hides.
+    """(id, value) for a command pair, (0, 0) for a pair the grid does not draw.
 
     Mirrors muLnDec in musedit.inc, which mirrors the player's routing: the command
     byte picks the family and the option picks the command, in an order that keeps
     the overlapping patterns straight."""
-    if cmd & 7 == 6:                     # 20 fixed-byte commands, value = option
-        name = EXACT.get(cmd)
-        return (MARK[name], opt) if name else (0, 0)
+    if cmd & 7 == 6:                     # fixed-byte commands, value = option
+        name = EXACT.get(cmd >> 3)
+        if not name:
+            return 0, 0
+        if name == "MS#":                # its high byte rides in bits 7-6
+            return MARK[name], ((cmd >> 6) << 8) | opt
+        return MARK[name], opt
     if cmd & 0x0F == 0x02:
         return MARK["P-W"], ((cmd >> 4) << 8) | opt
     if cmd & 0x0F == 0x0A:
@@ -157,13 +164,7 @@ def command_name(cmd, opt):
     name = NAMES[ident]
     if ident in NO_VALUE:
         return name
-    if ident == MARK["TEM"]:
-        return "%s  $%02X" % (name, value)
-    if ident in DECIMAL:
-        return "%s  %d" % (name, value)
-    if value > 0xFF:
-        return "%s  $%X%02X" % (name, value >> 8, value & 0xFF)
-    return "%s  $%X" % (name, value)
+    return "%s  %d" % (name, value)
 
 
 def simulate(image, trace_limit=0, trace_cmd=False):
@@ -413,13 +414,12 @@ def layout(result, trace, count):
     line the playhead stops on.
 
     The lanes are MU_LANE_W (11) cells: the pitch in 0-2, a space, the duration in
-    4-5, and the command mark in the last cell. A command line has its mnemonic from
-    cell 0 and nothing else.
+    4-5, and the editor's own mark in the last cell. A command line has its mnemonic
+    from cell 0 and nothing else.
     """
     model = timing()
     unit, per_bar = model.unit_and_rows(result["tempo"])
     notes = {}
-    starred = {}
     cmds = [[[], []], [[], []], [[], []]]   # [voice][class]: the two never share a line
     out = []
     row = 0
@@ -432,8 +432,6 @@ def layout(result, trace, count):
         if number:
             digits = str(number)
             cells[4:4 + len(digits)] = list(digits)
-        if starred.get(voice):
-            cells[10] = "*"
         return "".join(cells)
 
     def flush():
@@ -449,7 +447,6 @@ def layout(result, trace, count):
             for cls in (0, 1):
                 del cmds[voice][cls][:]
         notes.clear()
-        starred.clear()
 
     for clock, voice, at, cmd, opt in trace:
         here = clock // unit
@@ -462,8 +459,6 @@ def layout(result, trace, count):
                 cls = 0 if ident < 10 else 1
                 if len(cmds[voice][cls]) < 16:
                     cmds[voice][cls].append(command_name(cmd, opt))
-            else:
-                starred[voice] = True
         else:
             notes[voice] = (pitch_name(opt) or "...", cmd)
     flush()
