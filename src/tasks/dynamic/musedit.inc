@@ -6162,8 +6162,9 @@ muPfStep:
     jsr muLnFind
     cpx #$ff
     beq muPfBlind
-    cpx #(MU_GRID_ROWS-MU_FOLLOW_CENTER)
-    bcc muPfRts                 // at or above the centre line: it stays there
+    cpx #(MU_FOLLOW_CENTER+1)   // settled once the line is at or above index
+    bcc muPfRts                 //   MU_FOLLOW_CENTER: that is the row the playhead
+                                //   is pinned to, counted from the window's top
 muPfMove:
     jsr muScrollBand            // one line: the band moves, only it is drawn
     dec muPfN
