@@ -1228,6 +1228,16 @@ editor's ring dump for the same window is compared with it by
 `tools/check-musedit-walk.py`. Plan §15.1's equivalence risk is then closed by a test that can
 be re-run, not by a one-off listening session.
 
+**Tidy-up, not yet done: one contiguous published block.** The player now publishes two things
+that a reader needs -- each voice's next-command offset (`$54A2-$54A7`) and its song jiffies
+(`$54A8-$54A9`, `SID_POS_TICK`) -- but the kernel's `tickCount` sits between the second and the
+free space at `$54AA`, so the block is not contiguous and a reader that does arithmetic on the
+base reads the wrong thing (exactly the off-by-one that made the walk run ten times fast). The
+tidy layout moves `tickCount` to `$54AA` so `$54A2-$54A9` is the player's alone, and gives the
+fields named offsets in `sid.asm` mirrored in `kernel-shared.inc`, with an assert pinning
+`tickCount == $54AA`. It was attempted inline and broke a working playhead, so it is to be done
+as its own change, on its own build, with nothing else in flight.
+
 ### 13.4 Phrase-native editing
 
 The format's structure commands are what make it a language rather than a list of notes, and
