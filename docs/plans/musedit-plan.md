@@ -825,9 +825,17 @@ from row 3 with its bar continuing), and a window scrolled nineteen rows shows t
 window deep in a long tune is slow to redraw; resuming from a checkpoint is the fix, and until
 then `MU_GRID_STEPS` is what keeps a pathological tune from spinning.
 
-- [x] **5.1 It reads as a tracker.** `run musedit commodo` — three lanes of bars, notes at their onsets, rests as `...`, commands as `*`, the row numbers and bar count matching `mus-sim.py --grid` for the rows compared.
-- [x] **5.2 Bars are lengths.** Every `=` row is one unit of the note's length: `commodo` at `$A0` (unit 5) draws two-row notes as `C-2` plus one bar row, which is what the model's spans are.
-- [x] **5.3 Cursor.** Cursor keys move the `>`; LEFT/RIGHT change voice; moving past the bottom or top row steps the window and redraws it.
+- [x] **5.1 It reads as a tracker.** `run musedit commodo` — three lanes, each event's pitch and
+  length on its onset row, rests as `...`, commands as `*`, the row numbers and bar count matching
+  `mus-sim.py --grid` for the rows compared.
+- [x] **5.2 The length is the note's own number, and the rows it covers are blank.** `C-2 4` is a
+  quarter: `muDurNum` maps the length class (whole..64th) to 1, 2, 4, 8, 16, 32, 64 and a utility
+  length prints nothing. A note is therefore one row of cells, not a run of `=` bars — which is
+  what makes the scroll cost only what starts on the arriving line. A lane that looks empty below
+  a long note is the note still sounding, not a gap: the grid draws onsets, and the keyboard dot
+  is what shows which pitch is held.
+- [x] **5.3 Cursor.** Cursor keys move the `>`; LEFT/RIGHT change voice; at the bottom row the window
+  shifts a line, at the top row it moves back a whole page.
 - [x] **5.4 Click placement.** Clicking a lane cell sets the voice and the row; the lane header row, a separator and the spare column answer nothing.
 - [ ] **5.5 `SHIFT+U` refines.** Needs a look on `fsonata` (it has triplets): the off-grid `?` should appear, and `SHIFT+U` should move every onset onto a row.
 - [x] **5.6 Command markers.** A note carrying commands shows `*` in its lane's last cell.
