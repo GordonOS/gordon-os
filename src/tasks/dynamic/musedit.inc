@@ -2460,7 +2460,7 @@ muRrClrLp:
     cmp muGdTo
     bcc muRrClrLp
     jsr muDrawGrid
-    rts
+    jmp muCursorShow            // the cleared band may have taken the glyph with it
 
 // --- muGridClear -- blank the eighteen grid rows ---
 muGridClear:
@@ -2945,6 +2945,12 @@ muClearRow0:
     sta muClrRow
 muClearRow:
     lda muClrRow
+    cmp muCurScr                // blanking the row the glyph is in forgets it
+    bne muClrKeep
+    lda #$ff
+    sta muCurScr
+muClrKeep:
+    lda muClrRow
     ldy #MU_CURROW
     sta (dataPtr),y
     muSet(MU_CURCOL, 0)
@@ -2999,6 +3005,10 @@ muStatTickRts:
 // ==========================================
 //  Cursor
 // ==========================================
+//  MU_CURSCR is the screen row the glyph was actually drawn at, $ff when it is not
+//  drawn. That is what a hide blanks, so hiding twice does nothing: during playback
+//  the band scrolls the glyph away, and a hide that re-derived the cell from MU_ROW
+//  after the scroll would blank a cell of the line that had just arrived.
 //  Both routines END in `rts`, not in a tail jump: they are called from more
 //  than one place, and a tail jump into kPrintCharAt would let its `rts` pop
 //  whichever return address happens to be on top -- the caller's, or an earlier
@@ -3006,6 +3016,7 @@ muStatTickRts:
 muCursorShow:
     ldy #MU_ROW
     lda (dataPtr),y
+    sta muCurScr
     tay
     ldx #0
     lda #'>'
@@ -3013,12 +3024,16 @@ muCursorShow:
     rts
 
 muCursorHide:
-    ldy #MU_ROW
-    lda (dataPtr),y
+    lda muCurScr
+    cmp #$ff
+    beq muChRts                 // not drawn: there is no cell to take it out of
     tay
     ldx #0
     lda #MU_SPACE
     jsr kPrintCharAt
+    lda #$ff
+    sta muCurScr
+muChRts:
     rts
 
 // ==========================================
@@ -3194,7 +3209,9 @@ muCurDown:
     //  at the bottom: the window moves instead of the cursor, the band shifts up
     //  through the kernel and only the line that arrives at the bottom is drawn.
     //  muScrollBand brings muTop with it, because the line's row is what the window
-    //  now starts on -- a command's line does not advance the row at all.
+    //  now starts on -- a command's line does not advance the row at all. The glyph
+    //  comes out before the band moves and goes back on after it.
+    jsr muCursorHide
     jsr muScrollBand
     jsr muDrawHead
     jsr muCursorShow
@@ -6085,7 +6102,8 @@ muPsRts:
 //  line that shares the row (a row's lines are contiguous, its line is the last).
 //  Whatever it finds, the cursor is one indicator and stopping leaves it there.
 muPhCursor:
-    jsr muCursorHide            // the stored row always holds the glyph: take it up
+    jsr muCursorHide            // already out when the follow moved the band, so
+                                //   this only matters for a playhead that stays put
     ldx #MU_GRID_ROWS-1
 muPcScan:
     lda muLnTbHi,x
@@ -6107,10 +6125,8 @@ muPcFound:
     jsr muCursorShow
     jmp muPhHead                // the bar and the row both follow the playhead
 muPcGone:
-    lda #MU_GRID_TOP            // out of the window: park it inside so the next
-    ldy #MU_ROW                 //   hide lands on a real cell
-    sta (dataPtr),y
-    rts
+    rts                         // the sounding row is not in the window: the cursor
+                                //   simply stays out rather than jumping to the top
 
 // --- muPhFollow -- keep the playhead MU_FOLLOW_CENTER lines below the top ---
 //  The band is a list of lines, so how far it has to move is not a row difference:
@@ -6118,6 +6134,9 @@ muPcGone:
 //  above, and a command line advances the band without advancing the row. A
 //  settled playhead costs one comparison per frame and nothing more.
 muPhFollow:
+    jsr muCursorHide            // out before the band can move: one hide for the
+                                //   whole pass, however many lines it walks, and
+                                //   muPhCursor puts it back where the row now is
     lda muPhCurLo               // the bottom line should reach this row
     clc
     adc #(MU_GRID_ROWS-1-MU_FOLLOW_CENTER)
@@ -6541,11 +6560,11 @@ mlnDone:
 //  REU_BOUNCE (the REU does the move) and blanks the line at the bottom; the line
 //  that arrives is drawn, and MU_LNTB moves with the band so a screen row still
 //  names the row it holds. Nothing else in the band is touched.
-//  The cursor is hidden here and left hidden: where it belongs after the move is
-//  the caller's business -- the follow centres it, a cursor key leaves it on the
-//  row it is on.
+//  The cursor is NOT touched here: it belongs to the caller, which takes it out
+//  once before the scroll and puts it back once after -- the follow scrolls several
+//  lines in a pass, and a hide per line would blank a cell of the line that had
+//  just arrived.
 muScrollBand:
-    jsr muCursorHide            // the glyph must not travel with the band
     lda #MU_GRID_TOP
     ldx #MU_GRID_BOT
     jsr kScrollScreen
@@ -7064,6 +7083,7 @@ muPendMk:   .fill 3, 0          // it arrived with commands
 muPendSp:   .fill 3, 0          // it lasts a whole row or more
 muLnScr:    .byte $ff           // the screen row the next line goes at ($ff: discard)
 muLnDraw:   .byte 0             // the line is inside the band being repainted
+muCurScr:   .byte $ff           // the screen row the cursor glyph is drawn at
 muLnV:      .byte 0             // the voice a note line is drawing
 muLnTbLo:   .fill MU_GRID_ROWS, 0   // the row each visible line holds...
 muLnTbHi:   .fill MU_GRID_ROWS, 0   //   ...16-bit; $ffff = past the tune's end
