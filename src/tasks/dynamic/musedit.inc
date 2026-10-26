@@ -98,7 +98,6 @@
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
-.const MU_PH_SLOW       = 4   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 .const MU_WIN_PAGES  = 6       // the window service: SIX 256-byte, page-aligned
@@ -2029,50 +2028,6 @@ muSimCounts:
 //  One row each, in the shape tools/mus-sim.py's --trace prints.
 muSimTrace:
     jsr muSimInit
-    jsr muUnit                  // the row unit, so the pre-roll's spans match the grid
-    sta muUnitVal
-    ldx #2
-muTrZero:
-    lda #0
-    sta muVRow,x
-    sta muVRowHi,x
-    sta muVRem,x
-    dex
-    bpl muTrZero
-    //  Pre-roll to the row the view starts at: the lines then describe the stretch
-    //  on screen instead of the tune's first events. The step cap is the grid's,
-    //  so a voice that stops early cannot hold the key for ever.
-    lda #<MU_GRID_STEPS
-    sta muGdSteps
-    lda #>MU_GRID_STEPS
-    sta muGdSteps+1
-muTrPre:
-    jsr muStep
-    bcs muTrPreEnd
-    jsr muGdSpan
-    jsr muGdAdv
-    ldy #MU_VOICE
-    lda (dataPtr),y
-    tax
-    lda muVRowHi,x
-    cmp muTop+1
-    bcc muTrPreNext
-    bne muTrPreEnd
-    lda muVRow,x
-    cmp muTop
-    bcs muTrPreEnd
-muTrPreNext:
-    lda muGdSteps
-    sec
-    sbc #1
-    sta muGdSteps
-    lda muGdSteps+1
-    sbc #0
-    sta muGdSteps+1
-    lda muGdSteps
-    ora muGdSteps+1
-    bne muTrPre
-muTrPreEnd:
     lda #0
     sta muSidx
 muTrLp:
@@ -2138,76 +2093,6 @@ muTrGo:
 muTrDone:
     jsr muStatArm
     rts
-
-// --- muHistShow -- the events the grid walk recorded, for the cursor's voice ---
-//  SHIFT+L. One line per recorded event, newest first, as `RRRR OOOO OO`: the
-//  row the walk gave the event, its image offset and its option byte. Rows that
-//  step by the length the file gives mean the walk read the bytes correctly; a
-//  row that jumps far further means a length was decoded wrong, and the offset
-//  on that line is the byte to look at; no lines at all means the walk stopped
-//  for that voice.
-muHistShow:
-    jsr muGridClear
-    ldy #MU_VOICE
-    lda (dataPtr),y
-    sta muTmpH
-    asl
-    asl
-    asl
-    asl
-    asl
-    sta muHsBase
-    ldx muTmpH
-    lda muHistN,x
-    beq muHsNone
-    sec
-    sbc #1
-    and #MU_HIST-1
-    sta muHsSlot
-    lda #MU_TRACE_N
-    sta muHsN
-    lda #MU_GRID_TOP
-    sta muClrRow
-muHsLp:
-    jsr muClearRow
-    lda muHsSlot
-    clc
-    adc muHsBase
-    tay
-    lda muHistRLo,y
-    sta muHsRow
-    lda muHistRHi,y
-    sta muHsRow+1
-    lda muHistPLo,y
-    sta muHsOfs
-    lda muHistPHi,y
-    sta muHsOfs+1
-    lda muHistOpt,y
-    sta muHsOpt
-    lda muHsRow+1
-    jsr muHex8
-    lda muHsRow
-    jsr muHex8
-    lda #MU_SPACE
-    jsr muPutC
-    lda muHsOfs+1
-    jsr muHex8
-    lda muHsOfs
-    jsr muHex8
-    lda #MU_SPACE
-    jsr muPutC
-    lda muHsOpt
-    jsr muHex8
-    inc muClrRow
-    lda muHsSlot
-    sec
-    sbc #1
-    and #MU_HIST-1
-    sta muHsSlot
-    dec muHsN
-    bne muHsLp
-muHsNone:
-    jmp muStatArm
 
 // ==========================================
 //  Drawing
@@ -3281,20 +3166,15 @@ muKeyNotB:
     jmp muKeyIdle
 muKeyNotV:
     cmp #$58                    // SHIFT+X: the first events, as the walk plays them
-    bne muKeyNotX
+    bne muKeyNotU
     jsr muSimTrace
     jmp muKeyIdle
-muKeyNotX:
-    cmp #$4c                    // SHIFT+L: what the walk recorded for this voice
-    bne muKeyNotL
-    jsr muHistShow
-    jmp muKeyIdle
-muKeyNotL:
+muKeyNotU:
     cmp #$55                    // SHIFT+U: a finer row unit
-    bne muKeyNotU
+    bne muKeyNotU2
     jsr muUnitCycle
     jmp muCurRedraw
-muKeyNotU:
+muKeyNotU2:
     cmp #'-'                    // octave down for the note keys
     bne muKeyNotDash
     lda muKbdOct
@@ -6121,71 +6001,15 @@ muPtStart:
     sta muPhBaseLo
     sta muPhBaseLo+1
     jsr muPlayHome              // the view goes home BEFORE the music starts: a
-                                //   redraw must not run while the tune does, or the
-                                //   clock begins rows behind and the first pointer
-                                //   match is refused as stale
-    jsr muPhPer                 // how many ticks a row really takes
+                                //   redraw must not run while the tune does
     lda #MU_BAR_PLAY
-    jsr muBarActive             // the bar shows PLAY before the clock is stamped
+    jsr muBarActive             // the bar shows PLAY
     lda #1
-    sta muPlayOn                // the music starts here, clock and view ready
-    lda tickCount
-    sta muPhLast
+    sta muPlayOn                // the music starts here, the view ready
     rts
 muPtNoChild:
     muStr(muSNoPlayer)
     jmp muStatus
-
-// --- muPhPer -- ticks one row really takes: unit jiffies x the player's delay ---
-//  A row is the tempo's unit of jiffies, and a jiffy is MU_MUS_DELAY ticks scaled
-//  by the machine's speed -- exactly the scaling kSidPlay applies through
-//  sidScaleDelay, because a faster machine's jiffies are shorter and the player
-//  sleeps MORE ticks per jiffy to keep the tune's tempo in real time. The clock
-//  has to scale the same way or the cursor runs ahead of the music on a fast
-//  machine and behind it on a slow one.
-muPhPer:
-    lda #MU_MUS_DELAY
-    ldy sysSpeedShift
-    beq muPtUnit
-    bmi muPtDown
-muPtUp:
-    asl
-    bcs muPtMax
-    dey
-    bne muPtUp
-    beq muPtUnit
-muPtMax:
-    lda #255
-    jmp muPtUnit
-muPtDown:
-    lsr
-    iny
-    bne muPtDown
-    cmp #1
-    bcs muPtUnit
-    lda #1
-muPtUnit:
-    ldy muUnitVal               // the jiffies a row runs for
-    bne muPtMul0
-    ldy #1
-muPtMul0:
-    sta muTmp
-    sta muPhRowT
-    dey
-    beq muPtRet
-muPtMul:
-    lda muPhRowT
-    clc
-    adc muTmp
-    sta muPhRowT
-    dey
-    bne muPtMul
-muPtRet:
-    lda muPhRowT                // sidTick's own work is spent on top of the sleep
-    sta muPhNeed                //   the player asks for, so every MU_PH_SLOW'th row
-    lda #MU_PH_SLOW             //   is one tick longer than delay x unit
-    sta muPhFrac
-    rts
 
 // --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
 //  A lazy library that fails to load does not return: the kernel prints
@@ -6362,51 +6186,6 @@ muPsHaveUnit:
     sta muPhCurLo+1
 muPsRts:
     rts
-
-// --- muPhStep -- add the ticks that went by, one row per `unit` of them ---
-muPhStep:
-    lda tickCount
-    sec
-    sbc muPhLast
-    beq muPhStRts               // no tick since the last look
-    sta muTmpL                  // elapsed ticks
-    lda tickCount
-    sta muPhLast
-    lda muPhAcc
-    clc
-    adc muTmpL
-    sta muPhAcc
-    bcc muPhStLp
-    inc muPhAcc+1
-muPhStLp:
-    lda muPhAcc+1
-    bne muPhStGo
-    lda muPhAcc
-    cmp muPhNeed
-    bcc muPhStRts
-muPhStGo:
-    lda muPhAcc
-    sec
-    sbc muPhNeed
-    sta muPhAcc
-    lda muPhAcc+1
-    sbc #0
-    sta muPhAcc+1
-    lda muPhRowT                // the next row's length: longer once every
-    sta muPhNeed                //   MU_PH_SLOW rows
-    dec muPhFrac
-    bne muPhStepRow
-    lda #MU_PH_SLOW
-    sta muPhFrac
-    inc muPhNeed
-muPhStepRow:
-    inc muPhCurLo
-    bne muPhStLp
-    inc muPhCurLo+1
-    jmp muPhStLp
-muPhStRts:
-    rts
-
 
 // --- muPhCursor -- the cursor marks the sounding row ---
 //  One indicator, not two: the cursor's screen row is derived from the placed
@@ -6653,36 +6432,6 @@ muHistAdd:
     lda muSopt                  // the pitch, for the keyboard dots
     sta muHistOpt,y
     rts
-
-// --- muHistFind -- C=1 and muValLo/muValHi = the row, for voice muHistV ---
-//  A phrase BODY is one offset that the renderer draws once per call, so a single
-//  offset maps to MANY rows and "the newest entry" is whichever call was drawn last
-//  -- not the one that is playing. Resolving to it pulls the playhead onto another
-//  call's row, and the further into a tune full of repeats the music gets, the more
-//  occurrences the ring holds and the further the playhead is dragged.
-//  So the match is the SMALLEST row at or after the playhead: that is this call,
-//  because the calls the player has already made are behind it. When every match is
-//  behind (a section loop, or the song starting again) the LARGEST of those is the
-//  one the music just wrapped to.
-muHistFind:
-    lda muHistV
-    asl
-    asl
-    asl
-    asl
-    asl
-    sta muTmpH                  // base = voice x MU_HIST
-    lda #0
-    sta muHistF                 // nothing at or after the playhead yet
-    sta muHistLow               // ...and nothing before it
-    ldx muHistV
-    lda muHistN,x
-    sec
-    sbc #1
-    and #MU_HIST-1
-    sta muHistS
-    lda #MU_HIST
-    sta muHistC
 muHfSkip:
     jmp muHfNx                  // the loop head's branches cannot reach the tail
 muHfLp:
@@ -7173,9 +6922,6 @@ muHeadBarCol: .byte 0           // where the head's BAR field starts, for the pl
 muHeadBar:  .word 0
 muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
 muPhPtrHi:  .byte 0
-muPhNeed:   .byte 1             // the current row's length in ticks
-muPhFrac:   .byte 1             // rows left before that length grows by one
-muPhRowT:   .byte 1             // ticks one row takes, machine speed included
 muPhCand:   .fill 2, 0          // the row the last rejected rewind named
 muNeedPage: .byte 0
 muFreeMid:  .byte 0
@@ -7374,12 +7120,6 @@ muHistS:    .byte 0             // its slot cursor
 muHistC:    .byte 0             // its scan countdown
 muHistF:    .byte 0             // muHistFind: a match at or after the playhead
 muHistLow:  .byte 0             // ...and one behind it
-muHsBase:   .byte 0             // muHistShow: voice x MU_HIST
-muHsSlot:   .byte 0             // its slot cursor
-muHsN:      .byte 0             // its line countdown
-muHsRow:    .fill 2, 0          // the row of the line being printed
-muHsOfs:    .fill 2, 0          // ...and its image offset
-muHsOpt:    .byte 0             // ...and its option byte
 muLnRow:    .word 0             // the timeline row the bottom line shows
 //  pointer -> row, per voice, as the renderer walks: the playhead asks this
 //  table instead of re-walking the tune every frame. MU_HIST slots a voice,
