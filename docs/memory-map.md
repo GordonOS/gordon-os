@@ -572,8 +572,8 @@ For 16MB REU (256 banks): the FS data region spans banks 5–251, capacity ≈ 1
 
 Free ranges in C64 RAM, recomputed from the KickAssembler build map (every
 range below is a gap between two emitted blocks or the tail of a pinned
-pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 127
--ExpectPockets 22` are its built-in defaults — no arguments needed.
+pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
+-ExpectPockets 21` are its built-in defaults — no arguments needed.
 
 > **The jump-table addresses in the docs have their own gate:**
 > `tools/verify-jumptable-docs.ps1`. It pairs every `` `kName` `` in a

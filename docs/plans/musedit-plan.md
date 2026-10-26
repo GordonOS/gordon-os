@@ -566,35 +566,27 @@ until musedit is restarted.
 
 **The playhead needs the player's position, and the editor's clock cannot supply it.** The
 scheduler tick is 59.2 Hz and the display frame is 50.1 Hz, so a frame-counted playhead falls
-behind 18 % per second. So the player publishes:
+behind 18 % per second. So the player publishes, in one contiguous block:
 
-- **6 resident bytes at `$54A2-$54A7`** — `WorkNxtCmdLo[3]` then `WorkNxtCmdHi[3]`.
-- Publication is **two stores in the command-fetch path** of `sidplay.inc`: after
-  `sta WorkNxtCmdLo,x` and after `sta WorkNxtCmdHi,x`, A already holds the value, so each is a
-  single `sta $54A2,x` / `sta $54A5,x`. **6 bytes of library code**; `sid.lib` is 3,318 bytes
-  (13 pages of 3,328), so it stays 13 pages. `sid.asm` gains a `.const` alias and `main.asm`
-  an exact-address assert, as `gfx.asm`'s pinned state already does.
-- The block takes the 9-byte free pocket `$54A2-$54AA` down to 3 bytes:
-  `tools/verify-map.ps1`'s `-ExpectTotal` default 125 → **119** and its pocket check becomes
-  `54A8-54AA` = 3. `docs/memory-map.md` publishes its own total (127 B across 22 pockets,
-  against the script's 125 — the two conventions differ and each is re-derived, not adjusted
-  by 6).
-- **Mapping**: the renderer writes `(pointer -> row)` into a per-voice ring (`muHist*`, 32
-  entries) for every event it walks, so a row is a lookup rather than a second walk of the
-  tune. A *change* of the published pointer means an event has just begun, and only then is the
-  row taken (`muPhSync`); a forward match more than `MU_SYNC_WIN` (4) rows from the clock is a
-  ring entry an earlier pass left behind and is ignored. A backwards match is taken only when
-  the **walker's own row** agrees with it ? that is what makes a `HED`/`TAL` section loop
-  followable while a stale entry is not.
-- **Between anchors the clock interpolates**: a row is `unit x delay` scheduler ticks plus the
-  time the player spends on its own work, which is charged as one extra tick every
-  `MU_PH_SLOW` (4) rows. `tickCount` is the same CIA #1 Timer A clock the player's jiffy uses,
-  so the two agree at any machine speed. This constant is *tuned*, not measured ? see step 10.
+- **8 resident bytes at `$54A2-$54A9`** — `WorkNxtCmdLo[3]` at +0, `WorkNxtCmdHi[3]` at +3, then
+  **`SID_POS_TICK`** at +6: a 16-bit count of the jiffies the player has played *this pass*. The
+  kernel's own `tickCount` sits immediately after it at `$54AA`, pinned by an assert, so nothing
+  may be inserted into the block.
+- The pointers cost **two stores in the command-fetch path** of `sidplay.inc` (A already holds
+  the value, so each is one `sta`), the counter one increment per jiffy in `sidTick` and two
+  stores. `sid.asm` holds the `.const` aliases and `main.asm` the asserts.
+- **The row is the count divided by the row's length.** A grid row is a fixed number of jiffies
+  (`muUnitVal`, recomputed from the tempo in force), so `muPhSync` is one `kDiv16` of the tick by
+  the unit — no anchor, no interpolation, no rate to drift and no window to fall outside of. A
+  loop (`HED`/`TAL`) restarts the count with the music, and `sidInitSong` clears it where A is
+  genuinely zero. See §13.2 for why every predicted-row scheme failed.
+- The renderer still records `(offset -> row, pitch)` in a per-voice ring (`muHist*`, 32 entries)
+  for every event it walks — but the ring feeds the **keyboard dots**, not the playhead.
 - The block is read **only while our own child is inside `kSidPlay`**; otherwise it may be
   another task's play, or stale.
 
 **The view rewinds with the music, never on its own.** `muRewindView` is the one place that takes
-the score home: window top 0, the history ring, the anchor and the cursor's row, then a full
+the score home: window top 0, the history ring and the cursor's row, then a full
 redraw — so the head's `BAR` and `R` and the `>` all follow. It runs from `muPlayRewind` (a pass
 ended), and from `muPtStart` through `muPlayHome`, because the child always plays from the tune's
 first row. A stop is the exception that proves it: the cursor stays where the music stopped, which
@@ -609,9 +601,7 @@ are already right. Only a scrolled window has to be walked and repainted.
 
 **The rewind must run BEFORE the pass is armed** (`muPtStart` goes home, then sets `muPlayOn`, then
 stamps `muPhLast`). The redraw is the slow part; if the child is already playing while it runs,
-the clock is stamped several rows behind the music — and a first match more than `MU_SYNC_WIN` (4)
-rows ahead is refused as a stale ring entry, so the playhead never catches up and the whole pass
-runs out of step.
+the published tick has already advanced and the first row drawn is behind the music.
 
 ## 10. Files
 
@@ -955,28 +945,20 @@ not rediscovered from scratch.
   covered rows are blank. Note that a row copy needs no kernel change if it is ever wanted: the
   shadow's row address is `gfxCellRowLutLo/Hi[row] + taskShadowHi[curTask]` (both task-visible)
   and the pixels come from `gfxRowLutLo/Hi` (`$1977`/`$1990`).
-- [ ] **10.2 The row clock is a tuned constant, not a measurement.** `MU_PH_SLOW` (4) is the
-  player's own per-jiffy overhead expressed as "one extra tick every N rows", tuned by eye at
-  100 % and 200 %. It is right for the tunes and speeds tested and it *is* a pure ratio, so it is
-  the single knob if a future tune drifts (lower = the display slows down, higher = it speeds
-  up). **Verified working at 100 % and 200 %; do not touch without a reason.**
-  *A measurement was tried and abandoned:* dividing the ticks since an anchor by the rows the
-  clock had itself advanced is circular ? those rows are produced by the very value being
-  measured, so the answer can only agree with whatever it started from, and subtracting the
-  leftover biased it low (the display ran fast). If this is ever revisited, the independent
-  observation to use is the **anchor rows from the tune** (`muValLo - muPhAnchorLo`, which is the
-  tune's own spacing), with the leftover *not* subtracted, and only on a window of at least four
-  rows so a one-row event cannot supply a noisy divisor.
+- [x] **10.2 A predicted row rate is not viable.** *Done: the row is the player's own published
+  jiffy count divided by the row's length (§13.2), so there is no rate, no anchor and no tuned
+  constant left. Every variant that predicted rows from a clock disagreed with the music by an
+  amount whose *sign*, not its size, decided whether it read as fast or slow — 4, 4.5 and 5 ticks
+  per row all failed that way. Never reintroduce a predicted rate between two observed events;
+  publish the position instead.*
 - [ ] **10.3 Repeat-forever is not supported by the editor.** The child is spawned for one pass
   (`MU_MUS_REPEATS = 1`); when it returns the parent rewinds. With `repeats = 0` the tune really
-  restarts, and **three separate things break**: the ring holds only the pass's last 32 events
-  per voice, so the tune's opening events are gone and there is no row to anchor on; a backwards
-  match is rejected because the rewind test compares it with the *walker's* row, which is at the
-  end of the pass, not the start; and the walker itself never rewinds, so the arriving lines come
-  in blank and the dots stop moving. *Fix:* detect the restart (published pointer below the
-  clock while the walker is at the end) and run `muRewindView` ? zero `muHistN`, `muTop`,
-  the accumulator and the anchor, put the cursor back on the first row, then repaint ? before
-  continuing. Not wanted today; a tracker that loops in the editor would need it.
+  restarts, and **two things break**: the walker never rewinds, so the arriving lines come in
+  blank and the dots stop moving; and the view keeps painting the pass that has ended. *Fix:*
+  detect the restart — the published `SID_POS_TICK` is cleared by `sidInitSong`, so a count that
+  drops below the row last drawn is a restart — and run `muRewindView` (which now only has to
+  zero `muHistN`, `muTop` and the cursor's row and repaint) before continuing. Not wanted today;
+  a tracker that loops in the editor would need it.
 
 ### Step 11 — The polish pass after the first sitting (done)
 
@@ -1152,9 +1134,9 @@ their own pass); a page that an edit straddles must be written back exactly once
    corrected if not.
 6. **`TEM` mid-tune and the grid.** A tempo change re-quantises rows from that point. Whether
    that reads well (or wants a per-section unit) is judged in step 5 on `immig`.
-7. **The 127/125 map discrepancy.** `docs/memory-map.md` publishes 127 B and
-   `verify-map.ps1` defaults to 125. Re-derive both when the block is pinned rather than
-   assuming which convention is right.
+7. **The map's free total.** `docs/memory-map.md` and `tools/verify-map.ps1` now publish the same
+   figure (116 B across 21 pockets) and the script is the authority; re-derive it from the build
+   map whenever a pocket changes rather than adjusting it by hand.
 8. **Audition against another task's player.** The audition writes `$D400-$D406` directly and
    the editor cannot read `sid.lib`'s `sidOwner`, so a player in another task could in
    principle be disturbed. Mitigation: audition only while stopped and displayed, and the
@@ -1170,7 +1152,7 @@ their own pass); a page that an edit straddles must be written back exactly once
 
 ## 16. Step 13 -- finish the walk, then make the editor phrase-native
 
-The streaming storage (steps 12.2-12.7) is in and `musedit` holds 100 of 109 pool pages. What
+The streaming storage (steps 12.2-12.7) is in and `musedit` holds 101 of 109 pool pages. What
 is left is not storage: it is the **walk** (the editor's copy of the player, which draws the
 lanes) and the **playhead** that follows it. Two rules govern this step.
 
