@@ -8,10 +8,14 @@ have to be a whole cell, because a glyph is 8x8 pixels.
 
 Output: src/tasks/dynamic/musedit-glyphs.inc
 
-    muPianoGlyphs   ROWS x CELLS x 8 bytes (index = (row * 5 + cell) * 8)
+    muPianoGlyphs   ROWS x CELLS bytes (index = row * 5 + cell): one byte per cell
     muKeyHi         40 bytes: semitone 0-11, bit 7 set for a black key
                     (the three rows the black keys reach)
     muKeyLo         40 bytes: the bottom row, white keys only
+
+A cell is one byte rather than the eight a glyph blit takes: every pixel row of a
+cell carries the same horizontal pattern (keys are vertical bars), so the task
+expands it when it draws. That is 15 bytes of data instead of 120.
 
 The geometry below is the single source: a glyph and the hit table it is tested
 against are both derived from it, so they cannot disagree.
@@ -103,13 +107,13 @@ def build():
     out.append("//  White-key edges: %s" % ", ".join(str(e) for e in WHITE_EDGES))
     out.append("//  Black keys: %s" % ", ".join("%d-%d" % (lo, hi - 1) for lo, hi, _ in BLACK))
     out.append("")
-    out.append("// %d glyphs x 8 bytes; index = (row * %d + cell) * 8" % (ROWS * CELLS, CELLS))
-    out.append("muPianoGlyphs:")
+    out.append("// %d cells x 1 byte; index = row * %d + cell. A cell is ONE byte: every" % (ROWS * CELLS, CELLS))
+    out.append("// pixel row of it is the same horizontal pattern, because keys are vertical")
+    out.append("// bars, so the task expands it to the 8 bytes a glyph blit wants.")
+    out.append("muPianoCell:")
     for row in range(ROWS):
         for cell in range(CELLS):
-            g = glyph(row, cell)
-            out.append("    .byte %s   // row %d cell %d"
-                       % (",".join("$%02x" % b for b in g), row, cell))
+            out.append("    .byte $%02x   // row %d cell %d" % (glyph(row, cell)[0], row, cell))
     out.append("")
     out.append("// %d bytes per row of %d cells: the top three rows (black keys)" % (OCT_W, CELLS))
     out.append("muKeyHi:")
@@ -143,12 +147,12 @@ def main():
         if have != text:
             print("gen-musedit-glyphs: %s is stale -- run the generator" % OUT)
             return 1
-        print("gen-musedit-glyphs: OK (%d glyphs, 2 x %d hit entries)"
+        print("gen-musedit-glyphs: OK (%d cells, 2 x %d hit entries)"
               % (ROWS * CELLS, OCT_W))
         return 0
     with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(text)
-    print("gen-musedit-glyphs: wrote %s (%d glyphs, 2 x %d hit entries)"
+    print("gen-musedit-glyphs: wrote %s (%d cells, 2 x %d hit entries)"
           % (OUT, ROWS * CELLS, OCT_W))
     return 0
 

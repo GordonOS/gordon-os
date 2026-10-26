@@ -1,7 +1,7 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: the editor is built, wired and shipped.** `musedit.asm`, `musedit.inc` and the
-> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **105 pages of 109** (4 of
+> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **103 pages of 109** (6 of
 > margin, with `sprite`/`mouse`/`filesys`/`sid` counted by `tools/check-pool-budget.ps1`).
 >
 > **`main`'s streamed player is merged in.** A tune no longer has to be in RAM: `kSidPlay` takes a
@@ -405,9 +405,11 @@ key does not have to be a whole cell.
   32 px), with a 2-px gap between neighbours inside each group (C#-D# and F#-G#-A#) — which
   puts D# and A# one pixel right of their own boundary.
   The first cell of each octave carries a small C marker, so the octaves read at a glance.
-- **Glyphs**: 5 cell positions × 4 rows = **20 glyphs (160 B)**, because the pattern repeats
-  every five cells. `tools/gen-musedit-glyphs.py` derives them from one geometry table, so a
-  glyph and the hit test can never disagree.
+- **Glyphs**: 5 cell positions × 3 rows = **15 cells (15 B)**, because the pattern repeats
+  every five cells. A cell is one byte rather than the eight a glyph blit takes: keys are
+  vertical bars, so every pixel row of a cell carries the same pattern, and `muDrawPiano`
+  expands it into the eight bytes at draw time. `tools/gen-musedit-glyphs.py` derives them from
+  one geometry table, so a cell and the hit test can never disagree.
 - **Hit test**: `oct = x / 40`, `p = x % 40`, and two 40-byte tables — one for the three
   black-key rows, one for the bottom row — give the semitone (0-11) and a "black" flag in bit
   7. Pitch = `oct × 12 + semitone`. 80 bytes of table, no per-pixel arithmetic, exact at any
@@ -640,8 +642,8 @@ saves again.
 | pointer | `mouse.lib` + `sprite.lib` + the existing `pointer.spr` (already seeded by `build-reu.ps1`); `mouseKind` required — 0 is the `? no mouse` refusal; two sprites resolved once, **before** anything is drawn; `sprOn(0)` and `MOUSE_DISABLE` before exit |
 | exit | `kSwitchView` to the parent **before** `kFreeScreen`, then `SYS_EXIT`; drain the key queue by capacity (16 reads) first |
 
-Footprint, as `tools/check-pool-budget.ps1` measures it: code **71** pages + mouse 2 + sprite 1 +
-filesys 10 + sid 15 + malloc 6 = **105 of 109 pages**, margin 4. The six malloc pages are the
+Footprint, as `tools/check-pool-budget.ps1` measures it: code **69** pages + mouse 2 + sprite 1 +
+filesys 10 + sid 15 + malloc 6 = **103 of 109 pages**, margin 6. The six malloc pages are the
 window service — three page-aligned 256-byte read windows for the editor and three more handed to
 the music child in `kSidPlay`'s mode-1 config — so the tune's own length costs nothing: it is paged
 out of `<base>.wrk` (step 12).
@@ -672,7 +674,7 @@ task's real footprint.
 | `tools/check-mus-timing.py` | the duration arithmetic: 8,192 cases against the player's algorithm and the published tempo table |
 | `tools/check-mus-commands.py` | the command descriptor table against `gen-mus.py`'s definitions |
 | `tools/gen-musedit-tables.py` | emits `musedit-tables.inc` (`DataTempoTable` copy, note letters, mnemonic strings) with a `-Check` mode, like `gen-task-asm.ps1` |
-| `tools/gen-musedit-glyphs.py` | one geometry table → the 20 piano glyphs and the two 40-byte pixel→semitone hit tables, emitted into `musedit-glyphs.inc` with a `-Check` mode, so a glyph and its hit test cannot drift apart |
+| `tools/gen-musedit-glyphs.py` | one geometry table → the 15 piano cells and the two 40-byte pixel→semitone hit tables, emitted into `musedit-glyphs.inc` with a `-Check` mode, so a cell and its hit test cannot drift apart |
 | `tools/check-reu-fs.ps1 -Extract <fsName> -Out <path>` | round-trip tests: extract a saved file and hash it against `music/<name>.mus` |
 | `tools/mus-sim.py` | Python reference simulator for the C64 one; prints `(tick, voice, event)` for a `.mus`, so a debug view can be diffed against it |
 
@@ -1272,10 +1274,11 @@ order:
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 4 pages; b and d are the ones that
-  need them (a used 4: the 46-field mnemonic table, the two decode tables, the ladder that
-  formats each class of value, and the per-class queues). `check-pool-budget.ps1` is the gate,
-  and `basic`-style exact fits are refused rather than warned about.
+- **e. Keep the accounting.** Budget: musedit's margin is 6 pages; b and d are the ones that
+  need them (a and the command-line pass used 6 between them: the 46-field mnemonic table, the
+  two decode tables, the ladder that formats each class of value, the per-class queues — and
+  then gave 412 bytes back by folding six repeated idioms into helpers). `check-pool-budget.ps1`
+  is the gate, and `basic`-style exact fits are refused rather than warned about.
 
 Order matters: 13.1-13.3 before 13.4, because a phrase editor built on a walk that is not
 proven will hide the next defect behind a new feature.

@@ -7,23 +7,25 @@
 //  White-key edges: 0, 6, 11, 17, 23, 29, 34
 //  Black keys: 4-7, 10-13, 21-24, 27-30, 33-36
 
-// 15 glyphs x 8 bytes; index = (row * 5 + cell) * 8
-muPianoGlyphs:
-    .byte $70,$70,$70,$70,$70,$70,$70,$70   // row 0 cell 0
-    .byte $c3,$c3,$c3,$c3,$c3,$c3,$c3,$c3   // row 0 cell 1
-    .byte $b8,$b8,$b8,$b8,$b8,$b8,$b8,$b8   // row 0 cell 2
-    .byte $61,$61,$61,$61,$61,$61,$61,$61   // row 0 cell 3
-    .byte $87,$87,$87,$87,$87,$87,$87,$87   // row 0 cell 4
-    .byte $70,$70,$70,$70,$70,$70,$70,$70   // row 1 cell 0
-    .byte $c3,$c3,$c3,$c3,$c3,$c3,$c3,$c3   // row 1 cell 1
-    .byte $b8,$b8,$b8,$b8,$b8,$b8,$b8,$b8   // row 1 cell 2
-    .byte $61,$61,$61,$61,$61,$61,$61,$61   // row 1 cell 3
-    .byte $87,$87,$87,$87,$87,$87,$87,$87   // row 1 cell 4
-    .byte $7d,$7d,$7d,$7d,$7d,$7d,$7d,$7d   // row 2 cell 0
-    .byte $ef,$ef,$ef,$ef,$ef,$ef,$ef,$ef   // row 2 cell 1
-    .byte $be,$be,$be,$be,$be,$be,$be,$be   // row 2 cell 2
-    .byte $fb,$fb,$fb,$fb,$fb,$fb,$fb,$fb   // row 2 cell 3
-    .byte $df,$df,$df,$df,$df,$df,$df,$df   // row 2 cell 4
+// 15 cells x 1 byte; index = row * 5 + cell. A cell is ONE byte: every
+// pixel row of it is the same horizontal pattern, because keys are vertical
+// bars, so the task expands it to the 8 bytes a glyph blit wants.
+muPianoCell:
+    .byte $70   // row 0 cell 0
+    .byte $c3   // row 0 cell 1
+    .byte $b8   // row 0 cell 2
+    .byte $61   // row 0 cell 3
+    .byte $87   // row 0 cell 4
+    .byte $70   // row 1 cell 0
+    .byte $c3   // row 1 cell 1
+    .byte $b8   // row 1 cell 2
+    .byte $61   // row 1 cell 3
+    .byte $87   // row 1 cell 4
+    .byte $7d   // row 2 cell 0
+    .byte $ef   // row 2 cell 1
+    .byte $be   // row 2 cell 2
+    .byte $fb   // row 2 cell 3
+    .byte $df   // row 2 cell 4
 
 // 40 bytes per row of 5 cells: the top three rows (black keys)
 muKeyHi:

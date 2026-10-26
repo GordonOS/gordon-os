@@ -435,6 +435,21 @@ muWsHave:
     clc
     rts
 
+// --- muPgArg -- the kArg block for a 256-byte REU transfer of page A ---
+//  A page is a high byte and a zero, so the position is the page itself. Every
+//  read and write of a whole page in this task goes through here: the caller
+//  picks the direction (kReuReadAt or kReuWriteAt) and kPtr's window.
+//  Clobbers A only. X and Y survive, and kArg+0/+1 (the file record) is the
+//  caller's, so a site can set it before or after this call.
+muPgArg:
+    sta kArg+3
+    lda #0
+    sta kArg+2
+    sta kArg+6
+    lda #1
+    sta kArg+7                  // len = 256
+    rts
+
 // --- muWinFill -- voice X's window := the scratch file's page muWinPage ---
 //  The working image is <base>.wrk, so a page is one kReuReadAt of 256 bytes and
 //  the window is page-aligned, which makes the position `page x 256` -- a high
@@ -442,14 +457,8 @@ muWsHave:
 muWinFill:
     stx muScrV                  // kReuReadAt clobbers X
     jsr muSFrecArg
-    lda #0
-    sta kArg+2
     lda muWinPage
-    sta kArg+3                  // pos = page x 256
-    lda #0
-    sta kArg+6
-    lda #1
-    sta kArg+7                  // len = 256
+    jsr muPgArg
     ldx muScrV
     txa
     asl
@@ -507,14 +516,8 @@ muWrLp:
 muWinFlush:
     stx muScrV
     jsr muSFrecArg
-    lda #0
-    sta kArg+2
     lda muWinPg,x
-    sta kArg+3                  // pos = page x 256
-    lda #0
-    sta kArg+6
-    lda #1
-    sta kArg+7                  // len = 256
+    jsr muPgArg
     txa
     asl
     tay
@@ -672,14 +675,8 @@ muLdCopy:
     sta muScrPg
 muLcLp:
     jsr muRecArg
-    lda #0
-    sta kArg+2
     lda muScrPg
-    sta kArg+3                  // pos = page x 256
-    lda #0
-    sta kArg+6
-    lda #1
-    sta kArg+7                  // len = 256
+    jsr muPgArg
     jsr muWin0Ptr
     jsr kReuReadAt
     bcs muLcBad
@@ -815,14 +812,8 @@ muSwLp:
     sta muTmp2+1
 muSwLen:
     jsr muSFrecArg              // window 0 := page muScrPg of the working file
-    lda #0
-    sta kArg+2
     lda muScrPg
-    sta kArg+3
-    lda #0
-    sta kArg+6
-    lda #1
-    sta kArg+7
+    jsr muPgArg
     jsr muWin0Ptr
     jsr kReuReadAt
     bcs muSwBad
@@ -2887,7 +2878,9 @@ muGdPSem:
 
 // --- muDrawPiano -- the generated keyboard rows ---
 //  The pattern repeats every five cells (one octave is 40 px = 5 cells), so the
-//  glyph is chosen by the cell's position inside the octave, not by the column.
+//  cell is chosen by its position inside the octave, not by the column. A cell is
+//  one byte of data -- keys are vertical bars, so every pixel row of a cell is the
+//  same pattern -- and muGlyFill expands it to the eight bytes a blit wants.
 muDrawPiano:
     lda #0
     sta muPRow
@@ -2903,14 +2896,16 @@ muPColLp:
     adc muPRow                  // row * 5
     clc
     adc muPCell                 // + cell
-    asl
-    asl
-    asl                         // * 8 (bytes per glyph)
-    clc
-    adc #<muPianoGlyphs
+    tay
+    lda muPianoCell,y
+    ldx #7
+muPFillLp:
+    sta muGlyBuf,x
+    dex
+    bpl muPFillLp
+    lda #<muGlyBuf
     sta srcPtr
-    lda #>muPianoGlyphs
-    adc #0
+    lda #>muGlyBuf
     sta srcPtr+1
     ldx muPCol
     lda muPRow
@@ -3210,20 +3205,7 @@ muNameLp:
     ldy muNameIdx
     lda muName,y
     beq muNameDone
-    pha
-    ldy #MU_CURCOL
-    lda (dataPtr),y
-    tax
-    ldy #MU_CURROW
-    lda (dataPtr),y
-    tay
-    pla
-    jsr kPrintCharAt
-    ldy #MU_CURCOL
-    lda (dataPtr),y
-    clc
-    adc #1
-    sta (dataPtr),y
+    jsr muPutC
     inc muNameIdx
     jmp muNameLp
 muNameDone:
@@ -3777,12 +3759,7 @@ muNcOvr:
 muNcKind2:
     jmp muFillNote              // a gap, or past the voice's last event
 muNcReplace:
-    lda muSekLo                 // the undo record: 2 bytes at the onset...
-    sta muRecOff
-    lda muSekHi
-    sta muRecOff+1
-    lda muSkV
-    sta muRecV
+    jsr muRecAtSek  // the undo record: 2 bytes at the onset...
     lda #2
     sta muRecOldN
     sta muRecNewN
@@ -3941,12 +3918,7 @@ muNcSplit:
     iny
     lda (kPtr),y
     sta muSekOpt
-    lda muSekLo                 // the undo record: 2 bytes at the onset become...
-    sta muRecOff
-    lda muSekHi
-    sta muRecOff+1
-    lda muSkV
-    sta muRecV
+    jsr muRecAtSek  // the undo record: 2 bytes at the onset become...
     lda #2
     sta muRecOldN
     jsr muCapOld
@@ -3961,13 +3933,7 @@ muNsGo:
     sbc #1
     asl
     sta muInsN
-    lda muSekLo
-    clc
-    adc #2
-    sta muInsLo
-    lda muSekHi
-    adc #0
-    sta muInsHi
+    jsr muInsSek2
     lda muSkV
     jsr muInsGap
     bcc muNsWrite
@@ -4037,10 +4003,7 @@ muFillPlan:
     sta muLenTie
     sta muLenMode               // counting pass
     lda muGapJ
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit
+    jsr muLenOne                  // the rests
     bcs muFpRts
     sta muN1
     lda #1
@@ -4048,10 +4011,7 @@ muFillPlan:
     lda muNewOpt
     sta muLenOpt
     lda muDurJif
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit
+    jsr muLenOne                  // ...and the note
     bcs muFpRts
     sta muN2
     clc
@@ -4076,19 +4036,8 @@ muFgGo:
     adc muN2
     asl
     sta muInsN
-    lda muSekLo
-    clc
-    adc #2
-    sta muInsLo
-    lda muSekHi
-    adc #0
-    sta muInsHi
-    lda muInsLo                 // the undo record: 0 bytes become muInsN, after
-    sta muRecOff                //   the event that runs past the row
-    lda muInsHi
-    sta muRecOff+1
-    lda muSkV
-    sta muRecV
+    jsr muInsSek2
+    jsr muRecAtIns  // the undo record: 0 bytes become muInsN, after the event that runs past the row
     lda #0
     sta muRecOldN
     lda muSkV
@@ -4110,19 +4059,13 @@ muFgRest:
     sta muLenTie
     sta muLenOpt
     lda muGapJ
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit               // the rests
+    jsr muLenOne                  // the rests up to the cursor
     lda #1
     sta muLenTie
     lda muNewOpt
     sta muLenOpt
     lda muDurJif
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit               // ...and the note
+    jsr muLenOne                  // ...and the note
     lda muInsN                  // the opened bytes, pushed as one action
     sta muRecNewN
     jsr muPushEdit
@@ -4245,19 +4188,8 @@ muIvAppFit:
     adc muN2
     asl
     sta muInsN
-    lda muSekLo
-    clc
-    adc #2
-    sta muInsLo
-    lda muSekHi
-    adc #0
-    sta muInsHi
-    lda muInsLo
-    sta muRecOff
-    lda muInsHi
-    sta muRecOff+1
-    lda muSkV
-    sta muRecV
+    jsr muInsSek2
+    jsr muRecAtIns
     lda #0
     sta muRecOldN
     lda muSkV
@@ -4277,19 +4209,13 @@ muIvApR:
     sta muLenTie
     sta muLenOpt
     lda muGapJ
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit               // the rests up to the cursor
+    jsr muLenOne                  // the inserted content
     lda #1
     sta muLenTie
     lda muNewOpt
     sta muLenOpt
     lda muDurJif
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit               // ...and the note
+    jsr muLenOne                  // the front
     lda muInsN
     sta muRecNewN
     jsr muInsPush
@@ -4305,19 +4231,11 @@ muIvOnset:
     sta muLenTie
     sta muLenMode               // count the rest events
     lda muInsJif
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit
+    jsr muLenOne                  // the silence
     bcs muIvRts                 // this tempo cannot express the silence: skip
     asl
     sta muInsN                  // the rest events, in bytes
-    lda muSekLo
-    sta muRecOff
-    lda muSekHi
-    sta muRecOff+1
-    lda muSkV
-    sta muRecV
+    jsr muRecAtSek
     lda #0
     sta muRecOldN               // nothing is replaced
     lda muSekLo
@@ -4335,10 +4253,7 @@ muIvOnset:
     lda muInsOpt
     sta muLenOpt
     lda muInsJif
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit               // the inserted content
+    jsr muLenOne                  // the remainder, a fresh attack
     lda muInsN
     sta muRecNewN
     jsr muInsPush
@@ -4380,20 +4295,14 @@ muIvStraddle:
     lda muSekOpt
     sta muLenOpt
     lda muItJ1
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit
+    jsr muLenOne
     bcs muIvsBail
     sta muItN1
     lda #0
     sta muLenTie
     sta muLenOpt
     lda muInsJif
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit
+    jsr muLenOne
     bcs muIvsBail
     sta muItNr
     lda muLenJ2                 // J2 = eventJ - J1
@@ -4405,10 +4314,7 @@ muIvStraddle:
     lda muSekOpt
     sta muLenOpt
     lda muItJ2
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit
+    jsr muLenOne
     bcs muIvsBail
     sta muItN2
     jmp muIvsWrite
@@ -4423,19 +4329,8 @@ muIvsWrite:
     sec
     sbc #2                      // the event already holds one pair
     sta muInsN
-    lda muSekLo
-    clc
-    adc #2
-    sta muInsLo
-    lda muSekHi
-    adc #0
-    sta muInsHi
-    lda muSekLo
-    sta muRecOff
-    lda muSekHi
-    sta muRecOff+1
-    lda muSkV
-    sta muRecV
+    jsr muInsSek2
+    jsr muRecAtSek
     lda #2
     sta muRecOldN
     jsr muCapOld                // the old pair, for undo
@@ -4450,28 +4345,19 @@ muIvsWrite:
     lda muSekOpt
     sta muLenOpt
     lda muItJ1
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit               // the front
+    jsr muLenOne
     lda muInsTie                // the middle: silence, or the note in insert mode
     sta muLenTie
     lda muInsOpt
     sta muLenOpt
     lda muInsJif
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit               // the silence
+    jsr muLenOne
     lda #1
     sta muLenTie
     lda muSekOpt
     sta muLenOpt
     lda muItJ2
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
-    jsr muLenEmit               // the remainder, a fresh attack
+    jsr muLenOne
     lda muItN1                  // the new byte count = all three runs x 2
     clc
     adc muItNr
@@ -4493,12 +4379,7 @@ muRestKey:
     muStr(muSNoEvent)
     jmp muStatus
 muRkGo:
-    lda muSekLo                 // the undo record: 2 bytes at the onset
-    sta muRecOff
-    lda muSekHi
-    sta muRecOff+1
-    lda muSkV
-    sta muRecV
+    jsr muRecAtSek  // the undo record: 2 bytes at the onset
     lda #2
     sta muRecOldN
     sta muRecNewN
@@ -4529,12 +4410,7 @@ muDelKey:
     muStr(muSNoEvent)
     jmp muStatus
 muDkGo:
-    lda muSekLo                 // the undo record: 2 bytes at the onset go away
-    sta muRecOff
-    lda muSekHi
-    sta muRecOff+1
-    lda muSkV
-    sta muRecV
+    jsr muRecAtSek  // the undo record: 2 bytes at the onset go away
     lda #2
     sta muRecOldN
     lda #0
@@ -4563,6 +4439,30 @@ muDkGo:
 //  range replace -- no multi-step offsets to keep in step as a gap shifts the
 //  tail. Records grow up muUndoBuf; a trailing length byte lets undo walk back.
 //  Layout: off_lo, off_hi, voice, oldN, newN, old[oldN], new[newN], total.
+
+// --- muRecAtSek -- the undo record points at the pair the seek found ---
+//  In: MU_SEKLO/MU_SEKHI, MU_SKV. A comes back as MU_SKV, as the inline copies
+//  left it. Clobbers A only.
+muRecAtSek:
+    lda muSekLo
+    sta muRecOff
+    lda muSekHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    rts
+
+// --- muRecAtIns -- the undo record points at the pair being inserted ---
+//  The insert moves the seek's own pair, so the record's offset is the one the
+//  insertion works on. Clobbers A only.
+muRecAtIns:
+    lda muInsLo
+    sta muRecOff
+    lda muInsHi
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    rts
 
 // --- muCapOld -- MU_RECOLD = the MU_RECOLDN image bytes at MU_RECOFF ---
 //  Called before an edit writes, so the old bytes survive it. oldN is 0 or 2.
@@ -4949,6 +4849,16 @@ muNoAcc:
 //  every offset the player computes while it walks (a DEF's phrase address, a
 //  CALL's return) follows with it and nothing in the image has to be patched.
 
+// --- muLenOne -- a 16-bit length with no high byte, then muLenEmit ---
+//  The lengths this task builds are all one byte (a row's slice of a note, a
+//  rest, an inserted event), so the high byte is cleared here instead of at each
+//  site. A = the jiffies; C comes back from muLenEmit unchanged.
+muLenOne:
+    sta muLenJ
+    lda #0
+    sta muLenJ+1
+    jmp muLenEmit
+
 // --- muLenEmit -- turn MU_LENJ jiffies into events ---
 //  Greedy over muDurTab, longest first; every entry is a power of two, so any
 //  length the tempo can express decomposes and never takes more events than it
@@ -5077,6 +4987,19 @@ muImgNeed:
     lda (dataPtr),y
     adc #0
     sta muNeedHi
+    rts
+
+// --- muInsSek2 -- MU_INSLO/HI = the seek's own pair + 2 ---
+//  An insertion at the seek's onset opens behind that pair, so the new bytes start
+//  two past the offset the seek found. Clobbers A and C only.
+muInsSek2:
+    lda muSekLo
+    clc
+    adc #2
+    sta muInsLo
+    lda muSekHi
+    adc #0
+    sta muInsHi
     rts
 
 // --- muInsGap -- open MU_INSN bytes at MU_INSLO/HI ---
@@ -5273,14 +5196,8 @@ muGpRts:
 // --- muPgLoad -- window 0 := page MU_SCRPG of the working file ---
 muPgLoad:
     jsr muSFrecArg
-    lda #0
-    sta kArg+2
     lda muScrPg
-    sta kArg+3                  // pos = page x 256
-    lda #0
-    sta kArg+6
-    lda #1
-    sta kArg+7                  // len = 256
+    jsr muPgArg
     jsr muWin0Ptr
     jmp kReuReadAt
 
@@ -7451,6 +7368,7 @@ muDotXHi:   .byte 0             // 1 = the dot's x is 256 or more
 muDotX:     .byte 0
 muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
 muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a utility, then whole..32nd
+muGlyBuf:   .fill 8, 0          // one keyboard cell, expanded to the 8 bytes a blit reads
 //  One five-character field per mnemonic id, so the id indexes the table with a
 //  multiply by five and a command line prints exactly one field. The order is
 //  MU_MN_TEM..MU_MN_DST; ids 1..9 are the structural nine.
