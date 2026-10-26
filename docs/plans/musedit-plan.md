@@ -1,7 +1,7 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: the editor is built, wired and shipped.** `musedit.asm`, `musedit.inc` and the
-> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **101 pages of 109** (8 of
+> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **104 pages of 109** (5 of
 > margin, with `sprite`/`mouse`/`filesys`/`sid` counted by `tools/check-pool-budget.ps1`).
 >
 > **`main`'s streamed player is merged in.** A tune no longer has to be in RAM: `kSidPlay` takes a
@@ -640,8 +640,8 @@ saves again.
 | pointer | `mouse.lib` + `sprite.lib` + the existing `pointer.spr` (already seeded by `build-reu.ps1`); `mouseKind` required — 0 is the `? no mouse` refusal; two sprites resolved once, **before** anything is drawn; `sprOn(0)` and `MOUSE_DISABLE` before exit |
 | exit | `kSwitchView` to the parent **before** `kFreeScreen`, then `SYS_EXIT`; drain the key queue by capacity (16 reads) first |
 
-Footprint, as `tools/check-pool-budget.ps1` measures it: code **67** pages + mouse 2 + sprite 1 +
-filesys 10 + sid 15 + malloc 6 = **101 of 109 pages**, margin 8. The six malloc pages are the
+Footprint, as `tools/check-pool-budget.ps1` measures it: code **70** pages + mouse 2 + sprite 1 +
+filesys 10 + sid 15 + malloc 6 = **104 of 109 pages**, margin 5. The six malloc pages are the
 window service — three page-aligned 256-byte read windows for the editor and three more handed to
 the music child in `kSidPlay`'s mode-1 config — so the tune's own length costs nothing: it is paged
 out of `<base>.wrk` (step 12).
@@ -1242,21 +1242,23 @@ as its own change, on its own build, with nothing else in flight.
 
 ### 13.4 Phrase-native editing
 
-The format's structure commands are what make it a language rather than a list of notes, and
-the editor currently treats every one of them as an opaque "this event has commands" mark
-(`*`). In order:
+The format's structure commands are what make it a language rather than a list of notes. In
+order:
 
-- **a. Show it.** *Done.* A `DEF n`, `CALL n`, `END`, `HLT`, `TAL`, `HED n`, `TEM`, `UTL` or `UTV`
-  event draws its mnemonic on a **line of its own**, above the row it belongs to, with no row number
-  (it is not a point in time). A line carries **one command from each lane**, so voices that fire on
-  the same row share it and a voice with more commands continues on the lines below. The band is
-  therefore a list of lines rather than of time rows: the command handlers log what they consume
-  (`muLogAdd`, one block per voice), the producer (`muLnNext`/`muGrpOpen`) emits a row's command
+- **a. Show it.** *Done.* A command event draws its mnemonic on a **line of its own**, above the row
+  it belongs to, with no row number (it is not a point in time). Every command the grid can draw
+  has such a line — all 46 ids, the nine structural ones and the 37 that colour the sound (only
+  `MS#`, `FLG`, `AUX` and `JIF` are hidden, and they keep the `*`). A line carries **one command
+  from each lane**, so voices that fire on the same row share it and a voice with more commands
+  continues on the lines below. The band is therefore a list of lines rather than of time rows: the
+  walk decodes each pair once (`muLnDec`, which mirrors the player's own routing) instead of each
+  handler logging what it consumed, the producer (`muLnNext`/`muGrpOpen`) emits a row's command
   lines and then the row's own line, and `muLnTbLo/Hi` records which row each visible line holds
   (with `muLnKind` marking the row's own line) so the cursor, the header's `BAR`/`R`, the seek and
   the click path still read a time row. Playback skips a command line: the follow holds the
   playhead's line at `MU_FOLLOW_CENTER`, in LINES, so one tick of music may move the band several
-  lines. `tools/mus-sim.py --lines N` is the host reference for the layout.
+  lines. `tools/mus-sim.py --lines N` is the host reference for the layout, and its `decode_cmd`
+  mirrors `muLnDec`.
 - **b. Move through it.** `D` on a call row moves the cursor to that phrase's `DEF` (the walk
   already holds the address); `D` on a definition lists its call sites, nearest first.
 - **c. Author it.** The `CMD` key (printed on the bar, not yet wired) opens the mnemonic menu
@@ -1267,8 +1269,9 @@ the editor currently treats every one of them as an opaque "this event has comma
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 10 pages; a-c are ~2-3 pages
-  (mnemonic table, menu, the `D` key). `check-pool-budget.ps1` is the gate, and `basic`-style
+- **e. Keep the accounting.** Budget: musedit's margin is 5 pages; b and d are the ones that
+  need them (a used 3: the 46-field mnemonic table, the two decode tables and the ladder that
+  formats each class of value). `check-pool-budget.ps1` is the gate, and `basic`-style
   exact fits are refused rather than warned about.
 
 Order matters: 13.1-13.3 before 13.4, because a phrase editor built on a walk that is not

@@ -94,9 +94,9 @@ Inside a lane:
 | mark | meaning |
 |---|---|
 | `C-4 16` | a note starts here, and its duration is a sixteenth |
-| `C-4 16  *` | the note also carries commands that have no line of their own — `ATK`, `WAV`, `PNT` and the rest; a structural one is shown above instead |
+| `C-4 16  *` | the note also carries a command the grid cannot draw — `MS#`, `FLG`, `AUX` or `JIF`; everything else is shown above |
 | `... 4` | a rest starts here, lasting a quarter |
-| `DEF 3` | a structural command, on a line of its own (see below) |
+| `DEF 3` | a command, on a line of its own (see below) |
 
 The duration is written in the format's own numbers on the note's own row: a whole note, a half,
 a quarter, an 8th, a 16th, a 32nd and a 64th read `1`, `2`, `4`, `8`, `16`, `32`, `64`, and a
@@ -110,16 +110,17 @@ holding.
 
 ## Moving around
 
-### Structural commands have their own line
+### Every command has its own line
 
-Most commands only change how the voice sounds — `ATK`, `WAV`, `PNT` and the rest — and they are
-shown as a `*` in the lane's last cell of the note they belong to. A few are **structural**: they
-move the music rather than colour it, and they take no time at all. Those get a line of their own,
-above the row they belong to:
+A command changes how a voice sounds from the row it sits on: `ATK`, `WAV`, `PNT`, `TEM`, `HED`
+and the rest. Each one gets a line of its own, above the row it belongs to, so that everything a
+row does is visible and nothing hides behind a mark:
 
 ```
-      |TEM $80    |HED 7      |HED 15     |
-      |           |           |DEF 0      |
+      |TEM  $80   |ATK  $1    |ATK  $0    |
+      |ATK  $1    |WAV  $4    |WAV  $5    |
+      |WAV  $4    |SUS  $B    |SUS  $A    |
+      |F-C  $FE   |P-W  $5DC  |DEF  0     |
  01   |C-4 16     |... 16     |F#2 8      |
  02   |           |           |           |
 ```
@@ -130,15 +131,23 @@ commands than the others carries on down the lines below, with the other lanes e
 
 | command | what its line says |
 |---|---|
-| `TEM $80` | the tempo, in hex |
+| `TEM $80` | the tempo, always two hex digits |
 | `UTL 12` / `UTV 3` | a utility length, for all voices or this one |
 | `HED 7` | the head of a repeat section, seven times |
 | `DEF 3` / `CALL 3` | a phrase definition, or a call to one |
-| `TAL` / `END` / `HLT` | back to the head, return from a phrase, this voice stops |
+| `TAL` / `HLT` / `END` | back to the head, this voice stops, the tune's end |
+| `ATK 2` / `VOL 15` / `DEF 21` | an envelope step, a volume, a phrase above 15 — in decimal |
+| `F-C $FE` / `PNT $32` / `P-W $5DC` | a filter cutoff, a release point, a pulse width — in hex |
+
+Four commands are **not** drawn: `MS#` and `FLG` are the first two bytes of a phrase rather than
+notes, and `AUX` and `JIF` change nothing at all. A note that carries one of them shows a `*` in
+its lane's last cell, so a command is never silently dropped.
 
 A command line has **no row number**, because it is not a point in time — it belongs to the row
 below it. And because it takes no time, playback does not stop on it: the cursor passes straight
-over it to the row's own line, scrolling as many lines as it takes to get there.### The keys
+over it to the row's own line, scrolling as many lines as it takes to get there.
+
+### The keys
 
 | action | how |
 |---|---|

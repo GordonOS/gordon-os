@@ -100,17 +100,54 @@
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
-.const MU_LOG_SLOTS = 8       // structural commands one voice may log for one row,
-                              //   so a row's command lines are three lanes wide
-.const MU_MN_TEM    = 1       // the ids the command log stores. The mnemonic table
-.const MU_MN_UTL    = 2       //   is one five-character field per id, in this order;
-.const MU_MN_UTV    = 3       //   TAL, HLT and END take no operand so they are last
-.const MU_MN_HED    = 4
+.const MU_LOG_SLOTS = 16      // command pairs one voice may log for one row: the
+                              //   longest run a bundled tune has is twelve
+.const MU_MN_TEM    = 1       // ids 1..9 are the structural commands, 10..46 the
+.const MU_MN_UTL    = 2       //   sound ones. The mnemonic table is one
+.const MU_MN_UTV    = 3       //   five-character field per id, in this order; TAL,
+.const MU_MN_HED    = 4       //   HLT and END take no operand and print no value.
 .const MU_MN_DEF    = 5
 .const MU_MN_CALL   = 6
 .const MU_MN_TAL    = 7
 .const MU_MN_HLT    = 8
 .const MU_MN_END    = 9
+.const MU_MN_FC     = 10      // filter cutoff
+.const MU_MN_PNT    = 11      // release point
+.const MU_MN_RTP    = 12      // relative transpose
+.const MU_MN_HLD    = 13      // hold time
+.const MU_MN_PS     = 14      // pulse sweep
+.const MU_MN_FS     = 15      // filter sweep
+.const MU_MN_SCA    = 16      // modulation scale
+.const MU_MN_VDP    = 17      // vibrato depth
+.const MU_MN_VRT    = 18      // vibrato rate
+.const MU_MN_AUT    = 19      // auto filter
+.const MU_MN_TPS    = 20      // transpose
+.const MU_MN_PVD    = 21      // pulse-width vibrato depth
+.const MU_MN_PVR    = 22      // pulse-width vibrato rate
+.const MU_MN_MAX    = 23      // modulation maximum
+.const MU_MN_PW     = 24      // pulse width
+.const MU_MN_DTN    = 25      // detune
+.const MU_MN_POR    = 26      // portamento
+.const MU_MN_ATK    = 27
+.const MU_MN_DCY    = 28
+.const MU_MN_SUS    = 29
+.const MU_MN_REL    = 30
+.const MU_MN_VOL    = 31
+.const MU_MN_RES    = 32
+.const MU_MN_WAV    = 33
+.const MU_MN_FM     = 34      // filter mode
+.const MU_MN_BMP    = 35      // bump volume
+.const MU_MN_FLT    = 36      // filter through
+.const MU_MN_RNG    = 37      // ring modulation
+.const MU_MN_SNC    = 38      // oscillator sync
+.const MU_MN_FX     = 39      // filter external
+.const MU_MN_3O     = 40      // voice 3 off
+.const MU_MN_LFO    = 41
+.const MU_MN_PNV    = 42      // portamento + vibrato
+.const MU_MN_RUP    = 43      // LFO ramp up
+.const MU_MN_RDN    = 44      // LFO ramp down
+.const MU_MN_SRC    = 45      // modulation source
+.const MU_MN_DST    = 46      // modulation destination
 .const MU_WIN_PAGES  = 6       // the window service: SIX 256-byte, page-aligned
                                //   windows -- 0-2 are the editor's, one per voice, and
                                //   3-5 are the player's, handed over in kSidPlay's
@@ -1634,6 +1671,9 @@ muStepRun:
     beq muStepNote
     ldx muSv
     inc muCmdN,x                // this event arrives with a command in front of it
+    jsr muLnLog                 // ...and the grid draws it on a line, unless it is
+                                //   one of the four it never shows (MS#, FLG, AUX,
+                                //   JIF), which leaves the note's '*' to report it
     dec muSpun
     bne muSpunOk
     lda #MU_ERR_SPIN
@@ -1777,24 +1817,15 @@ muCmD15:
 muCmTem:
     lda muSopt
     sta muSimT
-    lda #MU_MN_TEM
-    ldx muSopt
-    jsr muLogAdd
     jmp muStepRun
 muCmUtl:
     lda muSopt
     sta muUl
-    lda #MU_MN_UTL
-    ldx muSopt
-    jsr muLogAdd
     jmp muStepRun
 muCmUtv:
     ldx muSv
     lda muSopt
     sta muUtv,x
-    lda #MU_MN_UTV
-    ldx muSopt
-    jsr muLogAdd
     jmp muStepRun
 
 muCmHed:
@@ -1807,14 +1838,8 @@ muCmHed:
     sta muHedHi,x
     lda muId,x
     sta muHedId,x
-    lda #MU_MN_HED
-    ldx muSopt
-    jsr muLogAdd
     jmp muStepRun
 muCmTal:
-    lda #MU_MN_TAL
-    ldx #0
-    jsr muLogAdd
     ldx muSv
     lda muHedN,x
     beq muCmTalBack             // a count of 0 repeats for ever
@@ -1836,18 +1861,12 @@ muCmTalGo:
     sta muPtrHi,x
     jmp muStepRun
 muCmHlt:
-    lda #MU_MN_HLT
-    ldx #0
-    jsr muLogAdd
     ldx muSv
     lda #0
     sta muOn,x
     clc
     rts
 muCmEnd:
-    lda #MU_MN_END
-    ldx #0
-    jsr muLogAdd
     ldx muSv
     lda muBaseTab,x
     cmp muDep,x
@@ -1875,9 +1894,6 @@ muCmEndSent:
     jmp muStepRun               // the DEF sentinel: carry on after the END
 
 muCmCall:
-    lda #MU_MN_CALL
-    ldx muSph
-    jsr muLogAdd
     ldx muSv
     lda muBaseTab,x
     clc
@@ -1923,9 +1939,6 @@ muCmCallGo2:
     jmp muStepRun
 
 muCmDef:
-    lda #MU_MN_DEF
-    ldx muSph
-    jsr muLogAdd
     ldx muSv
     ldy muSph
     lda muPtrLo,x
@@ -1967,38 +1980,299 @@ muSimStop:
     sec
     rts
 
-// --- muLogAdd -- record one structural command for the row being walked ---
-//  In: A = the mnemonic id (MU_MN_*), X = its operand. The voice is MU_SV, the one
-//  the walker just read -- every event between two notes belongs to the row the
-//  next note starts on, so the log is drained one row's worth at a time.
-//  The log is PER VOICE, because a line carries one command from each lane: the
-//  k-th command of every voice goes on the row's k-th command line.
-//  A logged command is shown on a line of its own, so it comes back out of the
-//  note's mark count (muCmdN): the '*' on a note, and the MU_CMD_CH it draws, say
-//  "there are commands here that are shown nowhere else".
-//  A full log drops the extra and leaves the count alone, so the '*' still reports
-//  the command it could not draw.
-muLogAdd:
+// ==========================================
+//  The command log: which pairs the grid draws, and what they read as
+// ==========================================
+//  Every pair the walk reads passes through muLnLog, which asks muLnDec what it is
+//  and stores (id, value) in THIS VOICE's block -- a line carries one command from
+//  each lane, so the k-th command of every voice goes on the row's k-th command
+//  line. A pair the grid does not draw stores nothing.
+//
+//  muLnDec mirrors the player's own routing (RouteCommand in sidplay.inc): the
+//  command byte decides the family, the option byte picks the command, and the
+//  tests are in the order that keeps the overlapping patterns straight.
+
+// --- muLnLog -- record the pair the walk just read, if the grid draws it ---
+//  In: MU_SCMD/MU_SOPT (the pair), MU_SV (the voice). A shown command comes back
+//  out of muCmdN, so the '*' on a note means "there are commands here that are
+//  shown nowhere else" -- the four this log skips.
+muLnLog:
+    jsr muLnDec                 // A = the id, value in MU_LNVLO/HI; 0 = not shown
+    beq muLlRts
     sta muTmpH                  // the id
-    stx muTmpL                  // the operand
     ldx muSv
     lda muLogN,x
     cmp #MU_LOG_SLOTS
-    bcs mlaRts
+    bcs muLlRts                 // full: the '*' still reports it
     clc
     adc muLogBase,x             // slot = this voice's block + how many it has
     tay
     lda muTmpH
     sta muLogId,y
-    lda muTmpL
-    sta muLogVal,y
+    lda muLnVLo
+    sta muLogLo,y
+    lda muLnVHi
+    sta muLogHi,y
     ldx muSv
     inc muLogN,x
     dec muCmdN,x
-mlaRts:
+muLlRts:
     rts
 
-// --- muSimRun -- walk the whole tune, up to MU_SIM_CAP events ---
+// --- muLnDec -- A = the mnemonic id for MU_SCMD/MU_SOPT, 0 = the grid hides it ---
+//  Out: A = the id, MU_LNVLO/MU_LNVHI = the value to show (a nibble, a byte, or a
+//  14-bit portamento). Clobbers A, X, Y and MU_TMPH.
+muLnDec:
+    lda muScmd
+    and #$07
+    cmp #$06
+    beq muDecExact
+    lda muScmd                  // P-W and DTN keep their high bits in the command
+    and #$0f                    //   byte; POR its top six
+    cmp #$02
+    beq muDecHi12
+    cmp #$0a
+    beq muDecDtn12
+    lda muScmd
+    and #$03
+    cmp #$03
+    beq muDecPor
+    cmp #$01
+    bne muDecHide               // a 2-type command: nothing this grid shows
+    jmp muDecOpt                // the $01 family: the OPTION picks the command
+muDecExact:
+    lda muScmd                  // 20 commands have a fixed command byte, one per
+    lsr                         //   eight values of it, and take the whole option
+    lsr                         //   as their value
+    lsr
+    tay
+    lda muDecTab,y
+    beq muDecHide               // MS# and JIF land here: the grid hides them
+    sta muTmpH
+    lda muSopt
+    sta muLnVLo
+    lda #0
+    sta muLnVHi
+    lda muTmpH
+    rts
+muDecHi12:
+    lda muScmd                  // P-W: high nibble of the command, then the option
+    lsr
+    lsr
+    lsr
+    lsr
+    sta muLnVHi
+    lda muSopt
+    sta muLnVLo
+    lda #MU_MN_PW
+    rts
+muDecDtn12:
+    lda muScmd
+    lsr
+    lsr
+    lsr
+    lsr
+    sta muLnVHi
+    lda muSopt
+    sta muLnVLo
+    lda #MU_MN_DTN
+    rts
+muDecPor:
+    lda muScmd                  // POR: six bits of the command, then the option
+    lsr
+    lsr
+    sta muLnVHi
+    lda muSopt
+    sta muLnVLo
+    lda #MU_MN_POR
+    rts
+muDecHide:
+    lda #0
+    rts
+
+// --- the $01 family: the option byte says which command, and its value ---
+//  The tests follow the player's own routing, so a pattern that could name two
+//  commands lands on the one the player executes. The test chain branches only to
+//  the stubs directly below it; the bodies past those are reached by jmp.
+muDecOpt:
+    lda muSopt
+    cmp #$0f
+    beq moTal
+    cmp #$2f
+    beq moEnd
+    cmp #$4f
+    beq moHlt
+    lda muSopt
+    and #$07
+    cmp #$01
+    beq moOneS
+    cmp #$05
+    beq moOneS
+    cmp #$02
+    beq moPair2
+    cmp #$06
+    beq moPair6
+    cmp #$04
+    beq moAtk
+    cmp #$07
+    beq moWav
+    cmp #$03
+    beq moSwS
+    lda #MU_MN_DCY               // opt & 7 == 0: DCY
+    jmp moNib
+moOneS:
+    jmp moOne
+moSwS:
+    jmp moSw
+moTal:
+    lda #MU_MN_TAL
+    jmp moNoVal
+moEnd:
+    lda #MU_MN_END
+    jmp moNoVal
+moHlt:
+    lda #MU_MN_HLT
+    jmp moNoVal
+moPair2:                    // CALL or RES
+    lda muSopt
+    and #$08
+    beq moCall2
+    lda #MU_MN_RES
+    jmp moNib
+moCall2:
+    lda #MU_MN_CALL
+    jmp moNib
+moPair6:                    // DEF or VOL
+    lda muSopt
+    and #$08
+    beq moDef2
+    lda #MU_MN_VOL
+    jmp moNib
+moDef2:
+    lda #MU_MN_DEF
+    jmp moNib
+moAtk:                      // ATK or SUS: bit 7 says which
+    lda muSopt
+    and #$80
+    beq moAtk2
+    lda #MU_MN_SUS
+    jmp moNib
+moAtk2:
+    lda #MU_MN_ATK
+    jmp moNib
+moWav:                      // opt & 7 == 7: WAV, F-M, or the 1111 group
+    lda muSopt
+    and #$0f
+    cmp #$0f
+    beq moNibF
+    lda muSopt
+    and #$1f
+    cmp #$17
+    beq moFm
+    lda #MU_MN_WAV
+    jmp moTop3
+moFm:
+    lda #MU_MN_FM
+    jmp moTop3
+moNibF:                     // bit 4 clear is DST, set is SRC; TAL, END and HLT
+    lda muSopt              //   were the exact bytes caught above
+    and #$10
+    beq moDst
+    lda #MU_MN_SRC
+    jmp moTop3
+moDst:
+    lda #MU_MN_DST
+    sta muTmpH
+    lda muSopt
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    and #$03                // off, frequency, pulse width, cutoff
+    jmp moNibV
+moOne:                      // A = opt & 7: 1 = RUP, 5 = RDN
+    sta muTmpH
+    lda muSopt
+    lsr
+    lsr
+    lsr
+    and #$1f                // the rate rides the top five bits
+    sta muLnVLo
+    lda #0
+    sta muLnVHi
+    lda muTmpH
+    cmp #$05
+    beq moRdn
+    lda #MU_MN_RUP
+    rts
+moRdn:
+    lda #MU_MN_RDN
+    rts
+moSw:                       // opt & 7 == 3: the eight, or a 16-23 phrase
+    lda muSopt
+    lsr
+    lsr
+    lsr
+    lsr
+    tay                     // option / 16 names the command
+    cpy #8
+    bcs moPhrase
+    lda #0
+    sta muLnVHi
+    lda muSopt              // bit 3 is the n every one of the eight acts on
+    and #$08
+    lsr
+    lsr
+    lsr
+    sta muLnVLo
+    lda muDecSm,y           // a zero entry is a command the grid hides
+    rts
+moPhrase:
+    lda muSopt
+    and #$08                // bit 3: CALL or DEF
+    beq moPhraseDef
+    lda #MU_MN_CALL
+    jmp moPhraseV
+moPhraseDef:
+    lda #MU_MN_DEF
+moPhraseV:
+    sta muTmpH
+    lda muSopt
+    lsr
+    lsr
+    lsr
+    lsr
+    and #$07
+    clc
+    adc #16                 // phrases 16..23
+    jmp moNibV
+moNib:                      // A = the id; value = the option's high nibble
+    sta muTmpH
+    lda muSopt
+    lsr
+    lsr
+    lsr
+    lsr
+moNibV:
+    sta muLnVLo
+    lda #0
+    sta muLnVHi
+    lda muTmpH
+    rts
+moNoVal:                    // A = the id; no operand to show
+    sta muTmpH
+    lda #0
+    jmp moNibV
+moTop3:                     // A = the id; value = the option's top three bits
+    sta muTmpH
+    lda muSopt
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    jmp moNibV
 //  Out: C=1 when the cap stopped it rather than the voices stopping.
 muSimRun:
     lda #<MU_SIM_CAP
@@ -6368,7 +6642,9 @@ mlcVoices:
     ldx muLnV
     lda muLogIx
     cmp muLogN,x
-    bcs mlcNext                 // this voice has no command this deep
+    bcc mlcHasCmd               // this voice has a command this deep
+    jmp mlcNext
+mlcHasCmd:
     lda muLogBase,x
     clc
     adc muLogIx
@@ -6405,19 +6681,39 @@ mlcChars:
     ldy muTmp2                  // TAL, HLT and END take no operand
     lda muLogId,y
     cmp #MU_MN_TAL
-    bcs mlcNext
+    beq mlcNext
+    cmp #MU_MN_HLT
+    beq mlcNext
+    cmp #MU_MN_END
+    beq mlcNext
     cmp #MU_MN_TEM
-    bne mlcDec
+    beq mlcHex2v                // the tempo is always two hex digits
+    cmp #7
+    bcs mlcHexVal               // 10 and up: a hex value, high byte first
+    lda muLogLo,y               // 2..6: a whole byte, so decimal
+    jsr muLnVal
+    jmp mlcNext
+mlcHex2v:
     lda #'$'
     jsr muPutC
     ldy muTmp2
-    lda muLogVal,y
+    lda muLogLo,y
     jsr muHex2
     jmp mlcNext
-mlcDec:
+mlcHexVal:
+    lda #'$'
+    jsr muPutC
     ldy muTmp2
-    lda muLogVal,y
-    jsr muLnVal
+    lda muLogHi,y
+    beq mlcHexLo
+    jsr muHexBare
+    ldy muTmp2
+    lda muLogLo,y
+    jsr muHex2
+    jmp mlcNext
+mlcHexLo:
+    lda muLogLo,y
+    jsr muHexBare
 mlcNext:
     inc muLnV
     lda muLnV
@@ -6474,6 +6770,12 @@ mhxAlpha:
     sec
     sbc #9
     jmp muPutC
+
+// --- muHexBare -- print A as hex with no leading zero (one or two digits) ---
+muHexBare:
+    cmp #$10
+    bcs muHex2
+    jmp muHex1
 
 // --- muLnRowDraw -- the row's own line: every lane's note, then its number ---
 muLnRowDraw:
@@ -7111,6 +7413,26 @@ muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a ut
 //  multiply by five and a command line prints exactly one field. The order is
 //  MU_MN_TEM..MU_MN_END; the three that take no operand are last.
 muMnTab:    .text "TEM  UTL  UTV  HED  DEF  CALL TAL  HLT  END  "
+            .text "F-C  PNT  RTP  HLD  P-S  F-S  SCA  VDP  VRT  AUT  "
+            .text "TPS  PVD  PVR  MAX  P-W  DTN  POR  "
+            .text "ATK  DCY  SUS  REL  VOL  RES  WAV  F-M  BMP  FLT  "
+            .text "RNG  SNC  F-X  3-O  LFO  P&V  RUP  RDN  SRC  DST  "
+//  The 20 commands with a fixed command byte, indexed by command byte / 8. A zero
+//  is a pair the grid does not draw: MS# (byte $1E), JIF ($3E), FLG ($46) and the
+//  inert AUX ($B6), plus the values of each eight that name no command at all.
+muDecTab:   .byte MU_MN_TEM, MU_MN_FC,  MU_MN_UTL, 0
+            .byte MU_MN_PNT, MU_MN_RTP, MU_MN_HED, 0
+            .byte 0,         MU_MN_HLD, MU_MN_PS,  0
+            .byte MU_MN_FS,  MU_MN_SCA, MU_MN_VDP, 0
+            .byte MU_MN_VRT, 0,         MU_MN_AUT, 0
+            .byte MU_MN_TPS, 0,         0,         0
+            .byte MU_MN_PVD, 0,         MU_MN_PVR, 0
+            .byte MU_MN_MAX, 0,         MU_MN_UTV, 0
+//  The eight commands whose option ends in ...011, indexed by option / 8. The
+//  index is what the player's own shift chain tests, which is why RNG sits at 2
+//  even though its comment at the source reads 0101n011.
+muDecSm:    .byte MU_MN_BMP, MU_MN_FLT, MU_MN_RNG, MU_MN_SNC
+            .byte MU_MN_FX,  MU_MN_3O,  MU_MN_LFO, MU_MN_PNV
 muLogBase:  .byte 0, MU_LOG_SLOTS, 2*MU_LOG_SLOTS  // each voice's block in the log
 muDurByte:  .byte 0
 muJifCls:   .byte 0
@@ -7138,7 +7460,10 @@ muGdHi:     .fill 2, 0          //   (the end exclusive)
 muGrpRow:   .fill 2, 0          // the row the open group belongs to
 muGrpSt:    .byte 0             // 1 = a group is open, 0 = the next line opens one
 muLogId:    .fill MU_LOG_SLOTS*3, 0  // each voice's commands for the open row,
-muLogVal:   .fill MU_LOG_SLOTS*3, 0  //   one block per voice (MU_LOGBASE)
+muLogLo:    .fill MU_LOG_SLOTS*3, 0  //   one block per voice (MU_LOGBASE); the
+muLogHi:    .fill MU_LOG_SLOTS*3, 0  //   value is the command's operands
+muLnVLo:    .byte 0, 0       // the value muLnDec rebuilt for the line being drawn
+muLnVHi:    .byte 0
 muLogN:     .fill 3, 0               // how many that voice has logged
 muLogLns:   .byte 0             // the busiest voice's count: the row's command lines
 muLogIx:    .byte 0             // the command line being drawn

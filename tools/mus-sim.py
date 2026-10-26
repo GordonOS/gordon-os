@@ -76,31 +76,92 @@ def le16(image, offset):
     return image[offset] | (image[offset + 1] << 8)
 
 
+MARK = {
+    "TEM": 1, "UTL": 2, "UTV": 3, "HED": 4, "DEF": 5, "CALL": 6,
+    "TAL": 7, "HLT": 8, "END": 9, "F-C": 10, "PNT": 11, "RTP": 12,
+    "HLD": 13, "P-S": 14, "F-S": 15, "SCA": 16, "VDP": 17, "VRT": 18,
+    "AUT": 19, "TPS": 20, "PVD": 21, "PVR": 22, "MAX": 23, "P-W": 24,
+    "DTN": 25, "POR": 26, "ATK": 27, "DCY": 28, "SUS": 29, "REL": 30,
+    "VOL": 31, "RES": 32, "WAV": 33, "F-M": 34, "BMP": 35, "FLT": 36,
+    "RNG": 37, "SNC": 38, "F-X": 39, "3-O": 40, "LFO": 41, "P&V": 42,
+    "RUP": 43, "RDN": 44, "SRC": 45, "DST": 46,
+}
+NAMES = dict((ident, name) for name, ident in MARK.items())
+
+#  The 20 commands with a fixed command byte, one per eight values of it.
+EXACT = {0x06: "TEM", 0x0E: "F-C", 0x16: "UTL", 0x26: "PNT", 0x2E: "RTP",
+         0x36: "HED", 0x4E: "HLD", 0x56: "P-S", 0x66: "F-S", 0x6E: "SCA",
+         0x76: "VDP", 0x86: "VRT", 0x96: "AUT", 0xA6: "TPS", 0xC6: "PVD",
+         0xD6: "PVR", 0xE6: "MAX", 0xF6: "UTV"}
+#  The eight whose option ends in 011, indexed by option / 16. The index is what
+#  the player's own shift chain tests, which is why RNG sits at 2 even though its
+#  comment at the source reads 0101n011.
+SW = ["BMP", "FLT", "RNG", "SNC", "F-X", "3-O", "LFO", "P&V"]
+NO_VALUE = (7, 8, 9)                     # TAL, HLT, END
+DECIMAL = (2, 3, 4, 5, 6)                # UTL, UTV, HED, DEF, CALL
+
+
+def decode_cmd(cmd, opt):
+    """(id, value) for a command pair, (0, 0) for the four the grid hides.
+
+    Mirrors muLnDec in musedit.inc, which mirrors the player's routing: the command
+    byte picks the family and the option picks the command, in an order that keeps
+    the overlapping patterns straight."""
+    if cmd & 7 == 6:                     # 20 fixed-byte commands, value = option
+        name = EXACT.get(cmd)
+        return (MARK[name], opt) if name else (0, 0)
+    if cmd & 0x0F == 0x02:
+        return MARK["P-W"], ((cmd >> 4) << 8) | opt
+    if cmd & 0x0F == 0x0A:
+        return MARK["DTN"], ((cmd >> 4) << 8) | opt
+    if cmd & 3 == 3:
+        return MARK["POR"], ((cmd >> 2) << 8) | opt
+    if cmd & 3 != 1:                     # a 2-type command: nothing the grid shows
+        return 0, 0
+    if opt == 0x0F:
+        return MARK["TAL"], 0
+    if opt == 0x2F:
+        return MARK["END"], 0
+    if opt == 0x4F:
+        return MARK["HLT"], 0
+    low = opt & 7
+    if low == 1:
+        return MARK["RUP"], (opt >> 3) & 0x1F
+    if low == 5:
+        return MARK["RDN"], (opt >> 3) & 0x1F
+    if low == 2:
+        return MARK["RES" if opt & 8 else "CALL"], opt >> 4
+    if low == 6:
+        return MARK["VOL" if opt & 8 else "DEF"], opt >> 4
+    if low == 4:
+        return MARK["SUS" if opt & 0x80 else "ATK"], opt >> 4
+    if low == 3:
+        index = opt >> 4
+        if index < 8:
+            return MARK[SW[index]], (opt >> 3) & 1
+        return MARK["CALL" if opt & 8 else "DEF"], 16 + (index & 7)
+    if opt & 0x0F == 0x0F:               # the 1111 group
+        if opt & 0x10:
+            return MARK["SRC"], opt >> 5
+        return MARK["DST"], (opt >> 5) & 3
+    return MARK["F-M" if opt & 0x1F == 0x17 else "WAV"], opt >> 5
+
+
 def command_name(cmd, opt):
-    """The mnemonic for a command pair, for the trace's last column."""
-    if cmd == 0x36:
-        return "HED %d" % opt
-    if cmd == 0x06:
-        return "TEM $%02X" % opt
-    if cmd == 0x16:
-        return "UTL %d" % opt
-    if cmd == 0xF6:
-        return "UTV %d" % opt
-    if cmd & 3 == 1:
-        if opt == 0x4F:
-            return "HLT"
-        if opt == 0x0F:
-            return "TAL"
-        if opt == 0x2F:
-            return "END"
-        if opt & 7 == 3 and opt >= 0x80:
-            return ("CALL" if opt & 8 else "DEF") + " %d" % (16 + ((opt >> 4) & 7))
-        if opt & 0x0F == 0x02:
-            return "CALL %d" % (opt >> 4)
-        if opt & 0x0F == 0x06:
-            return "DEF %d" % (opt >> 4)
-        return "cmd $%02X $%02X" % (cmd, opt)
-    return "cmd $%02X $%02X" % (cmd, opt)
+    """The text the grid draws for a command pair, or None when it draws nothing."""
+    ident, value = decode_cmd(cmd, opt)
+    if not ident:
+        return None
+    name = NAMES[ident]
+    if ident in NO_VALUE:
+        return name
+    if ident == MARK["TEM"]:
+        return "%s  $%02X" % (name, value)
+    if ident in DECIMAL:
+        return "%s  %d" % (name, value)
+    if value > 0xFF:
+        return "%s  $%X%02X" % (name, value >> 8, value & 0xFF)
+    return "%s  $%X" % (name, value)
 
 
 def simulate(image, trace_limit=0, trace_cmd=False):
@@ -271,8 +332,8 @@ def report(path, result, trace, trace_cmd):
         print("trace (tick, voice, image offset, bytes%s):" % (", command" if trace_cmd else ""))
         for tick, index, at, cmd, opt in trace:
             line = "t=%d v%d o=$%04X %02X %02X" % (tick, index + 1, at, cmd, opt)
-            if trace_cmd:
-                line += "  " + command_name(cmd, opt)
+            if trace_cmd and cmd & 3:
+                line += "  " + (command_name(cmd, opt) or "*")
             print(line)
 
 
@@ -392,9 +453,11 @@ def layout(result, trace, count):
             row += 1
         if cmd & 3:
             name = command_name(cmd, opt)
-            if not name.startswith("cmd "):
-                cmds[voice].append(name)
-            starred[voice] = True
+            if name:
+                if len(cmds[voice]) < 16:
+                    cmds[voice].append(name)
+            else:
+                starred[voice] = True
         else:
             notes[voice] = (pitch_name(opt) or "...", cmd)
     flush()
