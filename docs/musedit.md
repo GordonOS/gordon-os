@@ -423,6 +423,11 @@ exactly, including any bytes after its terminator. The first release does not ed
 `Q` quits. If there are unsaved changes it does not quit: the status line warns and you must
 press `Q` again to discard them, or `SHIFT+S` to save.
 
+While you edit, the tune you are working on lives in a scratch copy called `<name>.wrk`; the
+`<name>.mus` itself is only touched by a save. The scratch is removed when you quit, so it does
+not clutter `dir` — and because a deletion only tombstones a file's space, the REU filesystem
+gives that space back when you run `compact`.
+
 ## Undo
 
 `Z` undoes the last action and `X` redoes it. One action is one thing you did — entering a note

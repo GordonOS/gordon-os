@@ -106,9 +106,9 @@
                                //   config block so the child pages the same file the
                                //   editor edits (see muWinSeat)
 .const MU_SCR_PAGES  = 255     // <base>.wrk holds this many 256-byte pages: 65280
-                               //   bytes is the whole of a 16-bit file size, and the
-                               //   scratch is created once and then reused, because
-                               //   kReuDelete is a tombstone that frees nothing
+                               //   bytes is the whole of a 16-bit file size, and a
+                               //   write past EOF is refused, so the image must have
+                               //   room to grow through an edit before it is written
 
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
@@ -482,11 +482,11 @@ muWinFlush:
 //  The scratch file
 // ==========================================
 //  The working image is <base>.wrk in the REU filesystem: MU_LEN bytes of tune
-//  plus the zeroes that pad it to a whole page. It is created ONCE at its full
-//  MU_SCR_PAGES and then reused for ever, because a delete is a tombstone that
-//  frees neither the directory slot nor the data -- a create/delete cycle would
-//  leak the filesystem a tune at a time. The real <base>.mus is untouched until
-//  SAVE, so "quit without saving" stays safe.
+//  plus the zeroes that pad it to a whole page. It is created at its full
+//  MU_SCR_PAGES because kReuWriteAt refuses a write past EOF, so the image can
+//  grow through an edit without the file being recreated, and it is dropped on
+//  exit (muScrDrop) so a session leaves nothing behind. The real <base>.mus is
+//  untouched until SAVE, so "quit without saving" stays safe.
 
 // --- muSFArg -- kArg = the scratch name ---
 muSFArg:
@@ -6532,6 +6532,7 @@ muQuitDrain:
     dec muDrain
     bne muQuitDrain
     jsr muMusicBye              // stop and reap the child before its page goes
+    jsr muScrDrop               // the scratch goes with it: the next load rebuilds it
     lda #MOUSE_DISABLE
     jsr kMouseCall              // stop tracking before the surface goes
     sprOn(0)                    // the pointer goes while we still own the display
@@ -6540,6 +6541,21 @@ muQuitDrain:
     lda #SYS_EXIT
     jsr syscall
     jmp muQuit                  // never reached
+
+// --- muScrDrop -- remove <base>.wrk, which the next load rebuilds ---
+//  Called from the exit path AFTER the music child is reaped: the player pages
+//  the same file through its own windows, so it must not be dropped under it.
+//  A delete is a tombstone, so the space is freed by `compact`, not here; the
+//  test on the library matters because kReuDelete's cold stub leaves the task
+//  through libFailExit when filesys.lib cannot load.
+muScrDrop:
+    lda libStartPage+LIB_FILESYS
+    cmp #$ff
+    beq muSdRts                 // the library never loaded: there is no file to drop
+    jsr muSFArg
+    jmp kReuDelete
+muSdRts:
+    rts
 
 // --- muGiveDisplay -- hand the display back BEFORE releasing our surface ---
 //  edit.inc's rule: sysExit's hand-off runs after the task is DEAD, so a dying
