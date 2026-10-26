@@ -2357,6 +2357,9 @@ muDrawGrid:
 muDgTbLp:
     sta muLnTbLo,x
     sta muLnTbHi,x
+    lda #0
+    sta muLnKind,x
+    lda #$ff
     dex
     bpl muDgTbLp
 muDgWalk:
@@ -6106,6 +6109,8 @@ muPhCursor:
                                 //   this only matters for a playhead that stays put
     ldx #MU_GRID_ROWS-1
 muPcScan:
+    lda muLnKind,x              // a command's line shares the row but shows no note
+    beq muPcNext                //   the cursor must not stand on it
     lda muLnTbHi,x
     cmp muPhCurLo+1
     bne muPcNext
@@ -6150,15 +6155,19 @@ muPfStep:
     lda muLnTbHi+MU_GRID_ROWS-1
     cmp muValHi
     bcc muPfMove
-    bne muPfRts
+    bne muPfDone
     lda muLnTbLo+MU_GRID_ROWS-1
     cmp muValLo
-    bcs muPfRts
+    bcc muPfMove
+muPfDone:
+    lda muGrpSt                 // a row's lines are not all out yet: finish the
+    bne muPfMove                //   row, so the band never stops inside one and the
+muPfRts:                        //   playhead's own line is always there to stand on
+    rts
 muPfMove:
     jsr muScrollBand            // one line: the band moves, only it is drawn
     dec muPfN
     bne muPfStep
-muPfRts:
     rts
 
 // ==========================================
@@ -6267,9 +6276,14 @@ mgpDone:
     rts
 
 // --- muLnSpot -- where this line goes: drawn or not, which row it holds ---
-//  Out: MU_LNDRAW (0 = the line is outside a partial repaint) and the table entry
-//  for its screen row. A line the caller discards is not recorded.
+//  In: A = 1 for the row's own line, 0 for a command's. Out: MU_LNDRAW (0 = the
+//  line is outside a partial repaint) and the table entry for its screen row. A
+//  line the caller discards is not recorded.
+//  The kind matters because a row can occupy several lines and the playhead may
+//  only stand on the one that shows the notes: a command line shares its row but
+//  carries no note, so the cursor must pass over it.
 muLnSpot:
+    sta muTmpL                  // the kind, while the index is formed
     lda #1
     sta muLnDraw
     lda muLnScr
@@ -6282,6 +6296,8 @@ muLnSpot:
     sta muLnTbLo,y
     lda muGrpRow+1
     sta muLnTbHi,y
+    lda muTmpL
+    sta muLnKind,y
     lda muGdClip
     beq mlsRts
     lda muGrpRow+1
@@ -6311,6 +6327,7 @@ mlsNoDraw:
 //  the other lanes stay empty and the row column stays blank, because the line is
 //  not a point in time. The row's own line, below it, is the one with a number.
 muLnCmdDraw:
+    lda #0                      // a command's line: the playhead passes over it
     jsr muLnSpot
     lda muLnDraw
     bne mlcGo
@@ -6417,7 +6434,8 @@ mhxAlpha:
 
 // --- muLnRowDraw -- the row's own line: every lane's note, then its number ---
 muLnRowDraw:
-    jsr muLnSpot
+    lda #1                      // the row's own line: the one with the notes, and
+    jsr muLnSpot                //   the only line the cursor may stand on
     lda muLnDraw
     bne mlrGo
     rts
@@ -6574,6 +6592,8 @@ msbShift:
     sta muLnTbLo,x
     lda muLnTbHi+1,x
     sta muLnTbHi,x
+    lda muLnKind+1,x
+    sta muLnKind,x
     inx
     cpx #MU_GRID_ROWS-1
     bcc msbShift
@@ -6584,6 +6604,8 @@ msbShift:
     lda #$ff                    // the tune has no more lines: the tail stays empty
     sta muLnTbLo+MU_GRID_ROWS-1
     sta muLnTbHi+MU_GRID_ROWS-1
+    lda #0
+    sta muLnKind+MU_GRID_ROWS-1
 msbGot:
     lda muLnTbLo                // the window's top is the row now at the top
     sta muTop
@@ -7087,6 +7109,7 @@ muCurScr:   .byte $ff           // the screen row the cursor glyph is drawn at
 muLnV:      .byte 0             // the voice a note line is drawing
 muLnTbLo:   .fill MU_GRID_ROWS, 0   // the row each visible line holds...
 muLnTbHi:   .fill MU_GRID_ROWS, 0   //   ...16-bit; $ffff = past the tune's end
+muLnKind:   .fill MU_GRID_ROWS, 0   // 1 = the row's own line, 0 = a command's
 muNoteOut:  .byte 0             // 1 = muStep returned a note, 0 = it halted a voice
 muFoldN:    .byte 0
 muTmp:      .byte 0
