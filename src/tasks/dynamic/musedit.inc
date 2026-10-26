@@ -98,9 +98,7 @@
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
-.const MU_CAL_ROWS      = 16  // rows per measurement window: short enough that the
-                              //   integer quotient's rounding alternates quickly, long
-                              //   enough that the remainder carry keeps it unbiased
+.const MU_PH_SLOW       = 4   // rows per extra tick of the player's own work
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 .const MU_WIN_PAGES  = 6       // the window service: SIX 256-byte, page-aligned
@@ -2333,7 +2331,7 @@ muBarOf:
     lda muUnitBarHi
     sta kArg+3
     jsr kDiv16
-    lda kArg+4                  // the quotient (kArg+4 is kArg+4..+7 in a task)
+    lda kArg+4                  // the quotient (kResult is kArg+4..+7 in a task)
     clc
     adc #1
     sta muTmpL
@@ -6183,8 +6181,10 @@ muPtMul:
     dey
     bne muPtMul
 muPtRet:
-    lda muPhRowT                // the nominal row length until the measurement
-    sta muPhNeed                //   replaces it: unit x delay for the tempo in force
+    lda muPhRowT                // sidTick's own work is spent on top of the sleep
+    sta muPhNeed                //   the player asks for, so every MU_PH_SLOW'th row
+    lda #MU_PH_SLOW             //   is one tick longer than delay x unit
+    sta muPhFrac
     rts
 
 // --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
@@ -6373,12 +6373,10 @@ muPsNew:
     bcs muPsFound
     rts
 muPsFound:
-    //  WARNING: an anchor may only move the clock FORWARD. The record covers the
-    //  window, so once the playhead reaches the window's last event every anchor is
-    //  behind it -- taking one drags the playhead back below the bottom row, the
-    //  scroll never fires and the view stops while the music plays on. A row the
-    //  clock is already on is equally useless (it restarts the fraction). So only a
-    //  later row is taken.
+    //  WARNING: an anchor may only move the clock FORWARD. Taking one that names
+    //  the row it is already on restarts the fraction and the row never advances,
+    //  which pins R for as long as the note lasts; taking one that is behind drags
+    //  the view back. So the row is compared first, and only a later row is taken.
     lda muValHi
     cmp muPhCurLo+1
     bcc muPsRts                 // behind the clock: leave it alone
@@ -6388,30 +6386,6 @@ muPsFound:
     bcc muPsRts                 // behind the clock: leave it alone
     beq muPsRts                 // the row it is already on
 muPsTake:
-    //  The leg just measured: muVal - muPhCur rows of music, whose jiffies muPhStep
-    //  has been adding to muCalTk. When the window fills, the row length stops being
-    //  a guess and becomes jiffies / rows.
-    lda muCalRw
-    clc
-    adc muValLo
-    sta muCalRw
-    lda muCalRw+1
-    adc muValHi
-    sta muCalRw+1
-    lda muCalRw
-    sec
-    sbc muPhCurLo
-    sta muCalRw
-    lda muCalRw+1
-    sbc muPhCurLo+1
-    sta muCalRw+1
-    lda muCalRw
-    cmp #MU_CAL_ROWS
-    lda muCalRw+1
-    sbc #0
-    bcc muPsNoCal
-    jsr muPhCal
-muPsNoCal:
     lda muValLo
     sta muPhCurLo
     lda muValHi
@@ -6424,50 +6398,6 @@ muPsNoCal:
 muPsRts:
     rts
 
-// --- muPhCal -- the row length, measured: (muCalTk + carry) / muCalRw ---
-//  The player's own per-row work is spent on top of the sleep it asks for, so a row
-//  costs more jiffies than unit x delay, and how much more depends on the unit -- a
-//  constant cannot fit every tempo. Measuring it makes the clock right by
-//  construction, and the remainder rides into the next window so the average cannot
-//  creep. Clobbers A, X, Y and kArg..kArg+7.
-muPhCal:
-    lda muCalTk
-    clc
-    adc muCalRd
-    sta kArg                    // dividend lo
-    lda muCalTk+1
-    adc muCalRd+1
-    sta kArg+1
-    lda muCalRw
-    sta kArg+2                  // divisor lo
-    lda muCalRw+1
-    sta kArg+3
-    jsr kDiv16                  // kResult is kArg+4: quotient, then remainder
-    lda kArg+4
-    ora kArg+5
-    beq muPhCalX                // a nonsense zero: keep the row length in force
-    lda kArg+5
-    bne muPhCalMax
-    lda kArg+4
-    beq muPhCalX                // sub-tick rows cannot happen: a tick is the grain
-    sta muPhRowT
-    bne muPhCalRem
-muPhCalMax:
-    lda #$ff                    // a row longer than 255 jiffies is a mis-measure
-    sta muPhRowT
-muPhCalRem:
-    lda kArg+6                  // the remainder goes into the next window
-    sta muCalRd
-    lda kArg+7
-    sta muCalRd+1
-    lda #0
-    sta muCalTk
-    sta muCalTk+1
-    sta muCalRw
-    sta muCalRw+1
-muPhCalX:
-    rts
-
 // --- muPhStep -- add the ticks that went by, one row per `unit` of them ---
 muPhStep:
     lda tickCount
@@ -6477,13 +6407,6 @@ muPhStep:
     sta muTmpL                  // elapsed ticks
     lda tickCount
     sta muPhLast
-    lda muCalTk                 // the jiffies half of the rate measurement
-    clc
-    adc muTmpL
-    sta muCalTk
-    bcc muPhStAcc
-    inc muCalTk+1
-muPhStAcc:
     lda muPhAcc
     clc
     adc muTmpL
@@ -6504,8 +6427,13 @@ muPhStGo:
     lda muPhAcc+1
     sbc #0
     sta muPhAcc+1
-    lda muPhRowT                // a row costs the measured row length
-    sta muPhNeed
+    lda muPhRowT                // the next row's length: longer once every
+    sta muPhNeed                //   MU_PH_SLOW rows
+    dec muPhFrac
+    bne muPhStepRow
+    lda #MU_PH_SLOW
+    sta muPhFrac
+    inc muPhNeed
 muPhStepRow:
     inc muPhCurLo
     bne muPhStLp
@@ -7281,10 +7209,7 @@ muHeadBar:  .word 0
 muPhPtrLo:  .byte 0             // the cursor voice's published pointer, last pass
 muPhPtrHi:  .byte 0
 muPhNeed:   .byte 1             // the current row's length in ticks
-muPhFrac:   .byte 1             // unused: keeps the field block's size
-muCalTk:    .fill 2, 0          // jiffies seen in this measurement window
-muCalRw:    .fill 2, 0          // rows the music advanced in it
-muCalRd:    .fill 2, 0          // the last division's remainder, carried forward
+muPhFrac:   .byte 1             // rows left before that length grows by one
 muPhRowT:   .byte 1             // ticks one row takes, machine speed included
 muPhCand:   .fill 2, 0          // the row the last rejected rewind named
 muNeedPage: .byte 0
