@@ -96,7 +96,7 @@ Inside a lane:
 | `C-4 16` | a note starts here, and its duration is a sixteenth |
 | `C-4 16  *` | the note also carries commands (see *Commands*), so the `*` sits in the lane's last cell |
 | `... 4` | a rest starts here, lasting a quarter |
-| `WAV=4` | a command fires here and no note starts on this row |
+| `DEF 3` | a structural command, on a line of its own (see below) |
 
 The duration is written in the format's own numbers on the note's own row: a whole note, a half,
 a quarter, an 8th, a 16th, a 32nd and a 64th read `1`, `2`, `4`, `8`, `16`, `32`, `64`, and a
@@ -109,6 +109,33 @@ note is that note still sounding; the dots on the keyboard are what show which p
 holding.
 
 ## Moving around
+
+### Structural commands have their own line
+
+Most commands only change how the voice sounds — `ATK`, `WAV`, `PNT` and the rest — and they are
+marked with a `*` on the note they belong to. A few are **structural**: they move the music rather
+than colour it, and they take no time at all. Those get a line of their own, above the row they
+belong to, with the other two lanes empty:
+
+```
+      |TEM $80    |           |           |
+      |           |HED 7      |           |
+      |           |           |DEF 0      |
+ 01   |C-4 16    *|... 16    *|F#2 8      |
+ 02   |           |           |           |
+```
+
+| command | what its line says |
+|---|---|
+| `TEM $80` | the tempo, in hex |
+| `UTL 12` / `UTV 3` | a utility length, for all voices or this one |
+| `HED 7` | the head of a repeat section, seven times |
+| `DEF 3` / `CALL 3` | a phrase definition, or a call to one |
+| `TAL` / `END` / `HLT` | back to the head, return from a phrase, this voice stops |
+
+A command line has **no row number**, because it is not a point in time — it belongs to the row
+below it. And because it takes no time, playback does not stop on it: the cursor passes straight
+over it to the row's own line, scrolling as many lines as it takes to get there.
 
 | action | how |
 |---|---|

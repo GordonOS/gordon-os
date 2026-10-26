@@ -329,14 +329,85 @@ def grid(result, rows):
 
 
 
+DUR_NUM = (64, 0, 1, 2, 4, 8, 16, 32)   # by length class: muDurNum
+
+
+def layout(result, trace, count):
+    """The editor's display lines: a time row, or one structural command.
+
+    A grid line is one of two things. A **time row** carries every voice's note that
+    starts on it, so the three lanes line up. A **structural command** -- `TEM`,
+    `UTL`, `UTV`, `HED`, `TAL`, `END`, `HLT`, `DEF`, `CALL` -- moves no time at all,
+    so it gets a line of its own and the other two lanes are empty on it. A row's
+    commands are drawn above it and its notes on the row's own line, which is the
+    line the playhead stops on.
+
+    The lanes are MU_LANE_W (11) cells: the pitch in 0-2, a space, the duration in
+    4-5, and the command mark in the last cell. A command line has its mnemonic from
+    cell 0 and nothing else.
+    """
+    model = timing()
+    unit, per_bar = model.unit_and_rows(result["tempo"])
+    notes = {}
+    starred = {}
+    cmds = []
+    out = []
+    row = 0
+
+    def lane(voice):
+        text, cmd_byte = notes[voice]
+        cells = [" "] * 11
+        cells[0:3] = list(text)
+        number = DUR_NUM[(cmd_byte >> 2) & 7]
+        if number:
+            digits = str(number)
+            cells[4:4 + len(digits)] = list(digits)
+        if starred.get(voice):
+            cells[10] = "*"
+        return "".join(cells)
+
+    def flush():
+        for voice, text in cmds:
+            cells = (text + " " * 11)[:11]
+            out.append((None, [(voice, cells)]))
+        lanes = [(voice, lane(voice)) for voice in range(3) if voice in notes]
+        out.append((row, lanes))
+        del cmds[:]
+        notes.clear()
+        starred.clear()
+
+    for clock, voice, at, cmd, opt in trace:
+        here = clock // unit
+        while row < here:
+            flush()
+            row += 1
+        if cmd & 3:
+            name = command_name(cmd, opt)
+            if not name.startswith("cmd "):
+                cmds.append((voice, name))
+            starred[voice] = True
+        else:
+            notes[voice] = (pitch_name(opt) or "...", cmd)
+    flush()
+
+    print("lines: unit %d jiffies, %d rows per bar, %d lines" % (unit, per_bar, len(out)))
+    for at, lanes in out[:count]:
+        cells = [" " * 11] * 3
+        for voice, text in lanes:
+            cells[voice] = text
+        label = "  " if at is None else "%02d" % ((at % per_bar) + 1)
+        print("  %s |%s|%s|%s|" % (label, cells[0], cells[1], cells[2]))
+
+
 def main(argv):
     if len(argv) < 2:
-        print("usage: mus-sim.py <file.mus> [--trace N] [--cmd] [--grid N]")
+        print("usage: mus-sim.py <file.mus> [--trace N] [--cmd] [--grid N] [--lines N]")
         return 2
     path = argv[1]
     limit = 0
     trace_cmd = False
     grid_rows = 0
+    line_rows = 0
     index = 2
     while index < len(argv):
         if argv[index] == "--trace":
@@ -347,16 +418,24 @@ def main(argv):
         elif argv[index] == "--grid":
             index += 1
             grid_rows = int(argv[index])
+        elif argv[index] == "--lines":
+            index += 1
+            line_rows = int(argv[index])
         else:
             raise SystemExit("mus-sim: unknown option %s" % argv[index])
         index += 1
     image = open(path, "rb").read()
     if len(image) < 8:
         raise SystemExit("mus-sim: %s is too short to be a tune" % path)
+    if line_rows:
+        #  The layout needs every event, not a trace excerpt: notes and commands.
+        limit, trace_cmd = 1000000, True
     result, trace = simulate(image, limit, trace_cmd)
     report(path, result, trace, trace_cmd)
     if grid_rows:
         grid(result, grid_rows)
+    if line_rows:
+        layout(result, trace, line_rows)
     return 0
 
 
