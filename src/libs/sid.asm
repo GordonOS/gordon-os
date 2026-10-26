@@ -341,6 +341,11 @@ sidRepeats:  .byte 1             // 0 = forever, else plays remaining
 // reader that walks the image itself holds addresses, and must subtract the image
 // base before comparing -- see musedit's muHistAdd.
 .const SID_POS_BLOCK = $54A2
+// The player's own clock, published for a reader's playhead: a 16-bit count of the
+// jiffies it has played in this pass, cleared by sidInitSong. The editor's grid row
+// is a fixed number of jiffies (its row unit), so a reader's row is simply
+// songTicks / unit -- exact, with no clock of its own and no map from offsets.
+.const SID_SONG_TICK = $54A9
 
 .import source "sidplay.inc"
 

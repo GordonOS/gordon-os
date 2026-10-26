@@ -6329,72 +6329,37 @@ muPtRts:
 //  divided by that unit. Nothing is looked up and nothing can jump: the cursor
 //  walks down one row at a time, and the window follows it a line at a time.
 muPlayhead:
-    jsr muPhStep
-    jsr muPhSync                // anchor where the player starts an event
+    jsr muPhSync                // the row is the player's own song tick / the unit
     jsr muPhFollow
     jmp muPhCursor
 
-// --- muPhSync -- anchor the clock where the player starts an event ---
-//  The pointer the player publishes is the next command it will run, so a change
-//  of it means an event has just begun and the playhead is exactly on that
-//  event's row. The walker recorded (pointer -> row) as it drew the line, so the
-//  row is a lookup, not a second walk. On a pass where the pointer has not
-//  changed the clock keeps its own tempo: anchoring on a standing match would
-//  drag the cursor back onto the event's onset on every frame.
+// --- muPhSync -- the playhead row, read from the player's own clock ---
+//  The player publishes a 16-bit count of the jiffies it has played in this pass, and
+//  a grid row is a fixed number of jiffies (muUnitVal), so the row is that count
+//  divided by the unit -- the same division the walk makes when it draws a span.
+//  Nothing is predicted and nothing is cached, so there is no rate to drift and no
+//  window to fall outside of, and a loop restarts the count with the music.
+//  Clobbers A, X, Y, kArg and kResult (kArg+4..).
 muPhSync:
-    ldy #MU_VOICE
-    lda (dataPtr),y
-    sta muHistV
-    tax
-    lda MU_POS_BLOCK,x
-    cmp muPhPtrLo
-    beq muPsHi
-    jmp muPsNew
-muPsHi:
-    lda MU_POS_BLOCK+3,x
-    cmp muPhPtrHi
-    bne muPsNew
-    rts                         // same event: the clock carries on
-muPsNew:
-    //  The player publishes the pointer to its NEXT command, so the pair it is
-    //  sounding is the one two bytes behind it -- the same convention the dots use
-    //  when they read a note's option byte. The ring is keyed on the event's own
-    //  offset, so the lookup is against the published pointer minus 2.
-    lda MU_POS_BLOCK,x
-    sta muPhPtrLo
-    sec
-    sbc #2
-    sta muPhTgtLo,x
-    lda MU_POS_BLOCK+3,x
-    sta muPhPtrHi
-    sbc #0
-    sta muPhTgtHi,x
-    jsr muHistFind              // C=1 -> muValLo/muValHi = the row it is on
-    bcs muPsFound
-    rts
-muPsFound:
-    //  WARNING: an anchor may only move the clock FORWARD. Taking one that names
-    //  the row it is already on restarts the fraction and the row never advances,
-    //  which pins R for as long as the note lasts; taking one that is behind drags
-    //  the view back. So the row is compared first, and only a later row is taken.
-    lda muValHi
-    cmp muPhCurLo+1
-    bcc muPsRts                 // behind the clock: leave it alone
-    bne muPsTake
-    lda muValLo
-    cmp muPhCurLo
-    bcc muPsRts                 // behind the clock: leave it alone
-    beq muPsRts                 // the row it is already on
-muPsTake:
-    lda muValLo
+    lda muTempo                 // the row unit in force NOW, not whatever a previous
+    sta muJifTem                //   draw or readout left behind: the divisor and the
+    jsr muUnit                  //   grid must agree or the row rate is wrong
+    sta muUnitVal
+    bne muPsHaveUnit
+    lda #1                      // a tempo with no unit: one row per jiffy
+muPsHaveUnit:
+    sta kArg+2
+    lda #0
+    sta kArg+3
+    lda MU_POS_BLOCK+8          // SID_SONG_TICK is $54A9 = MU_POS_BLOCK + 7, so the
+    sta kArg+1                  //   high byte is +8 (NOT +7: +6 is tickCount)
+    lda MU_POS_BLOCK+7
+    sta kArg
+    jsr kDiv16
+    lda kArg+4                  // the quotient is the row
     sta muPhCurLo
-    lda muValHi
+    lda kArg+5
     sta muPhCurLo+1
-    lda #0                      // a real anchor: the partial tick count belongs to
-    sta muPhAcc                 //   the event that just ended, so it is dropped
-    sta muPhAcc+1
-    lda tickCount
-    sta muPhLast
 muPsRts:
     rts
 

@@ -66,6 +66,7 @@ WorkUTVValues:          .byte 0,0,0
 WorkCiaTimerA:          .byte 0,0                       // Lo/Hi of adjusted CIA Timer A countdown clock. See DATA_CIA_TIMER_A for more info.
 WorkCurrentVoice:       .byte 0                         // Is set once, but doesn't appear to be referenced after being set
 WorkNoteJiffiesLeft:    .byte 0,0,0                     // Jiffys remaining until this note is done playing. See chart on Page 122 of Compute Book
+WorkSongTicks:          .fill 2,0                       // jiffies played in this pass, published to SID_SONG_TICK
 WorkVoiceForCallPhrase: .byte 0,0,0
 WorkVoiceNoteTie:       .byte 0,0,0
 WorkReleasePoint:       .byte 0,0,0
@@ -550,6 +551,13 @@ sidTick:                lda SID_STATUS
                         tay                             // Store above in y
                         and #%00000111                  // Test if any voice is on (bit 0-2)
                         beq sidTickRts                  // No voices on -- nothing to do
+                        inc WorkSongTicks               // one jiffy of the song, published
+                        bne sidJifPub                   //   for a reader's playhead
+                        inc WorkSongTicks+1
+sidJifPub:              lda WorkSongTicks
+                        sta SID_SONG_TICK
+                        lda WorkSongTicks+1
+                        sta SID_SONG_TICK+1
                         cld
                         sty SID_STATUS                  // bit 7 on + whatever voices are already on
                         lda WorkFilterSweepState
