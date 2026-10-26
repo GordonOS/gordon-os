@@ -1247,13 +1247,15 @@ the editor currently treats every one of them as an opaque "this event has comma
 (`*`). In order:
 
 - **a. Show it.** *Done.* A `DEF n`, `CALL n`, `END`, `HLT`, `TAL`, `HED n`, `TEM`, `UTL` or `UTV`
-  event draws its mnemonic on a **line of its own**, above the row it belongs to, with the other
-  lanes empty and no row number (it is not a point in time). The band is therefore a list of lines
-  rather than of time rows: the command handlers log what they consume (`muLogAdd`), the producer
-  (`muLnNext`/`muGrpOpen`) emits a row's commands first and then the row's own line, and
-  `muLnTbLo/Hi` records which row each visible line holds so the cursor, the header's `BAR`/`R`, the
-  seek and the click path still read a time row. Playback skips a command line: the follow scrolls
-  while the bottom line is behind the playhead's row, so one tick of music may move the band several
+  event draws its mnemonic on a **line of its own**, above the row it belongs to, with no row number
+  (it is not a point in time). A line carries **one command from each lane**, so voices that fire on
+  the same row share it and a voice with more commands continues on the lines below. The band is
+  therefore a list of lines rather than of time rows: the command handlers log what they consume
+  (`muLogAdd`, one block per voice), the producer (`muLnNext`/`muGrpOpen`) emits a row's command
+  lines and then the row's own line, and `muLnTbLo/Hi` records which row each visible line holds
+  (with `muLnKind` marking the row's own line) so the cursor, the header's `BAR`/`R`, the seek and
+  the click path still read a time row. Playback skips a command line: the follow holds the
+  playhead's line at `MU_FOLLOW_CENTER`, in LINES, so one tick of music may move the band several
   lines. `tools/mus-sim.py --lines N` is the host reference for the layout.
 - **b. Move through it.** `D` on a call row moves the cursor to that phrase's `DEF` (the walk
   already holds the address); `D` on a definition lists its call sites, nearest first.

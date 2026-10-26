@@ -115,15 +115,18 @@ holding.
 Most commands only change how the voice sounds — `ATK`, `WAV`, `PNT` and the rest — and they are
 shown as a `*` in the lane's last cell of the note they belong to. A few are **structural**: they
 move the music rather than colour it, and they take no time at all. Those get a line of their own,
-above the row they belong to, with the other two lanes empty:
+above the row they belong to:
 
 ```
-      |TEM $80    |           |           |
-      |           |HED 7      |           |
+      |TEM $80    |HED 7      |HED 15     |
       |           |           |DEF 0      |
  01   |C-4 16     |... 16     |F#2 8      |
  02   |           |           |           |
 ```
+
+A line carries **one command from each lane**, exactly as a row line carries one note from each, so
+three voices that fire a command on the same row take one line and not three. A voice with more
+commands than the others carries on down the lines below, with the other lanes empty.
 
 | command | what its line says |
 |---|---|
@@ -135,9 +138,7 @@ above the row they belong to, with the other two lanes empty:
 
 A command line has **no row number**, because it is not a point in time — it belongs to the row
 below it. And because it takes no time, playback does not stop on it: the cursor passes straight
-over it to the row's own line, scrolling as many lines as it takes to get there.
-
-### The keys
+over it to the row's own line, scrolling as many lines as it takes to get there.### The keys
 
 | action | how |
 |---|---|

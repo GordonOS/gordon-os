@@ -100,8 +100,8 @@
 .const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
 .const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
-.const MU_LOG_N     = 24      // structural commands one grid row may hold (three
-                              //   voices of the longest run a tune has shown)
+.const MU_LOG_SLOTS = 8       // structural commands one voice may log for one row,
+                              //   so a row's command lines are three lanes wide
 .const MU_MN_TEM    = 1       // the ids the command log stores. The mnemonic table
 .const MU_MN_UTL    = 2       //   is one five-character field per id, in this order;
 .const MU_MN_UTV    = 3       //   TAL, HLT and END take no operand so they are last
@@ -1971,27 +1971,29 @@ muSimStop:
 //  In: A = the mnemonic id (MU_MN_*), X = its operand. The voice is MU_SV, the one
 //  the walker just read -- every event between two notes belongs to the row the
 //  next note starts on, so the log is drained one row's worth at a time.
+//  The log is PER VOICE, because a line carries one command from each lane: the
+//  k-th command of every voice goes on the row's k-th command line.
 //  A logged command is shown on a line of its own, so it comes back out of the
 //  note's mark count (muCmdN): the '*' on a note, and the MU_CMD_CH it draws, say
 //  "there are commands here that are shown nowhere else".
 //  A full log drops the extra and leaves the count alone, so the '*' still reports
-//  the command it could not draw: MU_LOG_N holds three voices of the longest run
-//  any bundled tune has, and a lost line costs a line, not a wrong grid.
+//  the command it could not draw.
 muLogAdd:
-    tay                         // the id, while the write index is fetched
-    lda muLogN
-    cmp #MU_LOG_N
-    bcs mlaRts
-    sta muTmpL
-    tya
-    ldy muTmpL
-    sta muLogId,y
-    txa
-    sta muLogVal,y
-    lda muSv
-    sta muLogV,y
-    inc muLogN
+    sta muTmpH                  // the id
+    stx muTmpL                  // the operand
     ldx muSv
+    lda muLogN,x
+    cmp #MU_LOG_SLOTS
+    bcs mlaRts
+    clc
+    adc muLogBase,x             // slot = this voice's block + how many it has
+    tay
+    lda muTmpH
+    sta muLogId,y
+    lda muTmpL
+    sta muLogVal,y
+    ldx muSv
+    inc muLogN,x
     dec muCmdN,x
 mlaRts:
     rts
@@ -6208,7 +6210,7 @@ muLnNext:
     bcs muLnNone
 muLnHave:
     lda muLogIx
-    cmp muLogN
+    cmp muLogLns
     bcs muLnRowLine
     jsr muLnCmdDraw
     inc muLogIx
@@ -6236,8 +6238,10 @@ muGrpOpen:
     inc muGrpRow+1
 mgpFresh:
     lda #0
-    sta muLogN
     sta muLogIx
+    sta muLogN
+    sta muLogN+1
+    sta muLogN+2
     sta muPendOn
     sta muPendOn+1
     sta muPendOn+2
@@ -6286,6 +6290,16 @@ mgpOff:
     jsr muGdAdv
     jmp mgpLoop
 mgpDone:
+    lda muLogN                  // the row's command lines: as many as the busiest
+    cmp muLogN+1                //   voice has, because each line carries one
+    bcs mgpMax2                 //   command from every lane at once
+    lda muLogN+1
+mgpMax2:
+    cmp muLogN+2
+    bcs mgpMax3
+    lda muLogN+2
+mgpMax3:
+    sta muLogLns
     clc
     rts
 
@@ -6336,10 +6350,11 @@ mlsNoDraw:
     sta muLnDraw
     rts
 
-// --- muLnCmdDraw -- one structural command on a line of its own ---
-//  The mnemonic and its operand sit in the voice's lane, in the voice's colour;
-//  the other lanes stay empty and the row column stays blank, because the line is
-//  not a point in time. The row's own line, below it, is the one with a number.
+// --- muLnCmdDraw -- the row's k-th command line: one command per lane ---
+//  A lane can hold one command, so the line carries every voice's k-th command at
+//  once, in the voice's own colour: three commands on the same row take one line,
+//  not three. The row column stays blank -- the line is not a point in time -- and
+//  the row's own line, below, is the one with a number.
 muLnCmdDraw:
     lda #0                      // a command's line: the playhead passes over it
     jsr muLnSpot
@@ -6347,16 +6362,24 @@ muLnCmdDraw:
     bne mlcGo
     rts
 mlcGo:
-    ldy muLogIx
-    ldx muLogV,y
+    lda #0
+    sta muLnV
+mlcVoices:
+    ldx muLnV
+    lda muLogIx
+    cmp muLogN,x
+    bcs mlcNext                 // this voice has no command this deep
+    lda muLogBase,x
+    clc
+    adc muLogIx
+    sta muTmp2                  // the slot, while the lane is drawn
     lda muVoiceCol,x
     jsr kSetTextColor
-    ldy muLogIx
-    ldx muLogV,y
+    ldx muLnV
     lda muLaneCol,x
     sta muGdCol
     jsr muGdAtCell
-    ldy muLogIx                 // the mnemonic: one five-character field per id
+    ldy muTmp2                  // the mnemonic: one five-character field per id
     lda muLogId,y
     sec
     sbc #1
@@ -6379,22 +6402,28 @@ mlcChars:
     lda muTmpH
     cmp #5
     bcc mlcChars
-    ldy muLogIx                 // TAL, HLT and END take no operand
+    ldy muTmp2                  // TAL, HLT and END take no operand
     lda muLogId,y
     cmp #MU_MN_TAL
-    bcs mlcDone
+    bcs mlcNext
     cmp #MU_MN_TEM
     bne mlcDec
     lda #'$'
     jsr muPutC
-    ldy muLogIx
+    ldy muTmp2
     lda muLogVal,y
     jsr muHex2
-    jmp mlcDone
+    jmp mlcNext
 mlcDec:
-    ldy muLogIx
+    ldy muTmp2
     lda muLogVal,y
     jsr muLnVal
+mlcNext:
+    inc muLnV
+    lda muLnV
+    cmp #3
+    bcs mlcDone
+    jmp mlcVoices
 mlcDone:
     lda #MU_C_TEXT
     jmp kSetTextColor
@@ -7082,6 +7111,7 @@ muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a ut
 //  multiply by five and a command line prints exactly one field. The order is
 //  MU_MN_TEM..MU_MN_END; the three that take no operand are last.
 muMnTab:    .text "TEM  UTL  UTV  HED  DEF  CALL TAL  HLT  END  "
+muLogBase:  .byte 0, MU_LOG_SLOTS, 2*MU_LOG_SLOTS  // each voice's block in the log
 muDurByte:  .byte 0
 muJifCls:   .byte 0
 muJifSt:    .byte 0
@@ -7107,11 +7137,11 @@ muGdHi:     .fill 2, 0          //   (the end exclusive)
 // --- the line producer: a time row, or one structural command ---
 muGrpRow:   .fill 2, 0          // the row the open group belongs to
 muGrpSt:    .byte 0             // 1 = a group is open, 0 = the next line opens one
-muLogId:    .fill MU_LOG_N, 0   // the mnemonic of each logged command
-muLogVal:   .fill MU_LOG_N, 0   // its operand
-muLogV:     .fill MU_LOG_N, 0   // the voice it belongs to
-muLogN:     .byte 0             // how many commands the open group holds
-muLogIx:    .byte 0             // the next one to draw
+muLogId:    .fill MU_LOG_SLOTS*3, 0  // each voice's commands for the open row,
+muLogVal:   .fill MU_LOG_SLOTS*3, 0  //   one block per voice (MU_LOGBASE)
+muLogN:     .fill 3, 0               // how many that voice has logged
+muLogLns:   .byte 0             // the busiest voice's count: the row's command lines
+muLogIx:    .byte 0             // the command line being drawn
 muPendOn:   .fill 3, 0          // that voice has a note on the open group's row
 muPendOpt:  .fill 3, 0          // its option byte
 muPendDur:  .fill 3, 0          // its duration byte

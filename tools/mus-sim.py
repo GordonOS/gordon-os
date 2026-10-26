@@ -357,7 +357,7 @@ def layout(result, trace, count):
     unit, per_bar = model.unit_and_rows(result["tempo"])
     notes = {}
     starred = {}
-    cmds = []
+    cmds = [[], [], []]         # one queue per voice: a line carries one of each
     out = []
     row = 0
 
@@ -374,12 +374,14 @@ def layout(result, trace, count):
         return "".join(cells)
 
     def flush():
-        for voice, text in cmds:
-            cells = (text + " " * 11)[:11]
-            out.append((None, [(voice, cells)]))
+        depth = max(len(cmds[0]), len(cmds[1]), len(cmds[2]))
+        for k in range(depth):
+            lanes = [(voice, cmds[voice][k]) for voice in range(3) if k < len(cmds[voice])]
+            out.append((None, [(voice, (text + " " * 11)[:11]) for voice, text in lanes]))
         lanes = [(voice, lane(voice)) for voice in range(3) if voice in notes]
         out.append((row, lanes))
-        del cmds[:]
+        for queue in cmds:
+            del queue[:]
         notes.clear()
         starred.clear()
 
@@ -391,7 +393,7 @@ def layout(result, trace, count):
         if cmd & 3:
             name = command_name(cmd, opt)
             if not name.startswith("cmd "):
-                cmds.append((voice, name))
+                cmds[voice].append(name)
             starred[voice] = True
         else:
             notes[voice] = (pitch_name(opt) or "...", cmd)
