@@ -1254,7 +1254,10 @@ order:
   from each lane**, so voices that fire on the same row share it and a voice with more commands
   continues on the lines below, and the two classes never share a line: each voice keeps a queue
   per class (`muLogBase` is indexed by `voice * 2 + class`), the sound commands are drawn first and
-  the structural nine last, nearest the row's own line. The band is therefore a list of lines
+  the structural nine last, nearest the row's own line. The operand is a count, so it prints in
+  decimal through `muDec16` (which covers the widest one, a portamento's 14 bits); the three
+  commands that take no operand — `TAL`, `HLT`, `END` — print none. The band is therefore a list of
+  lines
   rather than of time rows: the walk decodes each pair once (`muLnDec`, which mirrors the player's
   own routing) instead of each handler logging what it consumed, the producer
   (`muLnNext`/`muGrpOpen`) emits a row's command lines and then the row's own line, and

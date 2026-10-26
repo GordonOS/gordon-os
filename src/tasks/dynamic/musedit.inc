@@ -6645,34 +6645,11 @@ mlcChars:
     beq mlcNext
     cmp #MU_MN_END
     beq mlcNext
-    cmp #MU_MN_TEM
-    beq mlcHex2v                // the tempo is always two hex digits
-    cmp #7
-    bcs mlcHexVal               // 10 and up: a hex value, high byte first
-    lda muLogLo,y               // 2..6: a whole byte, so decimal
-    jsr muLnVal
-    jmp mlcNext
-mlcHex2v:
-    lda #'$'
-    jsr muPutC
-    ldy muTmp2
-    lda muLogLo,y
-    jsr muHex2
-    jmp mlcNext
-mlcHexVal:
-    lda #'$'
-    jsr muPutC
-    ldy muTmp2
+    lda muLogLo,y               // every operand is a count, so it prints in decimal
+    sta muDecLo
     lda muLogHi,y
-    beq mlcHexLo
-    jsr muHexBare
-    ldy muTmp2
-    lda muLogLo,y
-    jsr muHex2
-    jmp mlcNext
-mlcHexLo:
-    lda muLogLo,y
-    jsr muHexBare
+    sta muDecHi
+    jsr muDec16
 mlcNext:
     inc muLnV
     lda muLnV
@@ -6683,58 +6660,51 @@ mlcDone:
     lda #MU_C_TEXT
     jmp kSetTextColor
 
-// --- muLnVal -- print A (0..255) in decimal, without leading zeroes ---
-//  A length or a repeat count is a whole byte, so the hundreds digit is its own
-//  step: muNumDur stops at 64, which is every duration but not every operand.
-muLnVal:
-    cmp #100
-    bcs mlvBig
-    jmp muNumDur
-mlvBig:
+// --- muDec16 -- print MU_DECHI:MU_DECLO in decimal, without leading zeroes ---
+//  Repeated subtraction over the decimal weights: a 6502 has no divide, and the
+//  widest operand this task shows is a portamento's 14 bits, so five weights
+//  cover it. A value that is entirely zero prints one '0'.
+muDec16:
+    lda #0
+    sta muDecAny                // 0 = nothing has been printed yet
     ldx #0
-mlvHundreds:
-    cmp #100
-    bcc mlvRest
+mdLp:
+    lda #0
+    sta muDecDig
+mdTry:
+    lda muDecLo
     sec
-    sbc #100
-    inx
-    jmp mlvHundreds
-mlvRest:
-    pha
-    txa
-    clc
-    adc #'0'
+    sbc muDecWLo,x
+    tay
+    lda muDecHi
+    sbc muDecWHi,x
+    bcc mdNext                  // the weight does not fit: the digit is done
+    sta muDecHi
+    sty muDecLo
+    inc muDecDig
+    jmp mdTry
+mdNext:
+    lda muDecDig
+    ora muDecAny
+    beq mdSkip                  // a leading zero prints nothing
+    lda #1
+    sta muDecAny
+    lda muDecDig
+    ora #'0'
     jsr muPutC
-    pla
-    jmp muNum2
-
-// --- muHex2 -- print A as two hex digits and advance ---
-//  A letter is a SCREEN CODE here, so $0A..$0F are $01..$06, not $41..$46.
-muHex2:
-    pha
-    lsr
-    lsr
-    lsr
-    lsr
-    jsr muHex1
-    pla
-    and #$0f
-muHex1:
-    cmp #10
-    bcs mhxAlpha
-    clc
-    adc #'0'
+mdSkip:
+    inx
+    cpx #5
+    bne mdLp
+    lda muDecAny
+    bne mdRts
+    lda #'0'
     jmp muPutC
-mhxAlpha:
-    sec
-    sbc #9
-    jmp muPutC
+mdRts:
+    rts
 
-// --- muHexBare -- print A as hex with no leading zero (one or two digits) ---
-muHexBare:
-    cmp #$10
-    bcs muHex2
-    jmp muHex1
+muDecWLo:   .byte <10000, <1000, <100, <10, <1
+muDecWHi:   .byte >10000, >1000, >100, >10, >1
 
 // --- muLnRowDraw -- the row's own line: every lane's note, then its number ---
 muLnRowDraw:
@@ -7427,6 +7397,10 @@ muLogLo:    .fill MU_LOG_SLOTS*6, 0  //   one block per voice and class
 muLogHi:    .fill MU_LOG_SLOTS*6, 0  //   (MU_LOGBASE); the value is its operands
 muLnVLo:    .byte 0, 0       // the value muLnDec rebuilt for the line being drawn
 muLnVHi:    .byte 0
+muDecLo:    .byte 0             // muDec16's operand and its running remainder
+muDecHi:    .byte 0
+muDecDig:   .byte 0             // the digit being built
+muDecAny:   .byte 0             // 1 once a digit has been printed
 muLogN:     .fill 6, 0               // how many that voice and class has logged
 muLogSnd:   .byte 0             // the row's sound lines: the structural ones follow
 muLogLns:   .byte 0             // the sound lines plus the structural, command lines

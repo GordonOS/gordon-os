@@ -140,13 +140,16 @@ comparable events:
 
 | command | what its line says |
 |---|---|
-| `TEM $80` | the tempo, always two hex digits |
+| `TEM 128` | the tempo |
 | `UTL 12` / `UTV 3` | a utility length, for all voices or this one |
 | `HED 7` | the head of a repeat section, seven times |
 | `DEF 3` / `CALL 3` | a phrase definition, or a call to one |
 | `TAL` / `HLT` / `END` | back to the head, this voice stops, the tune's end |
-| `ATK $2` / `VOL $F` / `DCY $9` | an envelope step or a volume — a nibble, in hex |
-| `F-C $FE` / `PNT $32` / `P-W $5DC` | a filter cutoff, a release point, a pulse width — in hex |
+| `ATK 2` / `VOL 15` / `DCY 9` | an envelope step or a volume |
+| `F-C 254` / `P-W 1850` / `POR 4095` | a filter cutoff, a pulse width, a portamento |
+
+Every operand is a count, so every one prints in **decimal** — nothing on a command
+line is hex.
 
 Four commands are **not** drawn: `MS#` and `FLG` are the first two bytes of a phrase rather than
 notes, and `AUX` and `JIF` change nothing at all. A note that carries one of them shows a `*` in
