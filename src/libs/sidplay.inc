@@ -342,6 +342,9 @@ clearWorkMemLoop2:      sta WorkPhraseCallStack + 2,y
 
                         sta SID.filterCutoffLo          // Clear Filter Cutoff Frequency lo
                         sta SID.filterCutoffHi          // Clear Filter Cutoff Frequency hi
+                        sta WorkSongTicks               // A is 0 here: the published jiffy count
+                        sta WorkSongTicks+1             //   restarts with the pass, so a
+                                                        //   repeat begins at row 0
                         lda #%00001000
                         sta WorkFilterControl
                         sta SID.filterResonanceControl  // Filters off on all voices.   Enable processing an external audio signal which is brought in through pin 5 of the Audio/Video P6rt.
@@ -555,9 +558,9 @@ sidTick:                lda SID_STATUS
                         bne sidJifPub                   //   for a reader's playhead
                         inc WorkSongTicks+1
 sidJifPub:              lda WorkSongTicks
-                        sta SID_SONG_TICK
+                        sta SID_POS_TICK
                         lda WorkSongTicks+1
-                        sta SID_SONG_TICK+1
+                        sta SID_POS_TICK+1
                         cld
                         sty SID_STATUS                  // bit 7 on + whatever voices are already on
                         lda WorkFilterSweepState

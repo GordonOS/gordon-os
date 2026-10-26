@@ -6351,9 +6351,9 @@ muPsHaveUnit:
     sta kArg+2
     lda #0
     sta kArg+3
-    lda MU_POS_BLOCK+8          // SID_SONG_TICK is $54A9 = MU_POS_BLOCK + 7, so the
-    sta kArg+1                  //   high byte is +8 (NOT +7: +6 is tickCount)
-    lda MU_POS_BLOCK+7
+    lda MU_POS_BLOCK+7          // SID_POS_TICK = MU_POS_BLOCK + 6: the block is
+    sta kArg+1                  //   contiguous, so the high byte is +7 and the low is +6
+    lda MU_POS_BLOCK+6          //   (the kernel's tickCount follows at +8)
     sta kArg
     jsr kDiv16
     lda kArg+4                  // the quotient is the row
