@@ -1,7 +1,7 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: the editor is built, wired and shipped.** `musedit.asm`, `musedit.inc` and the
-> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **104 pages of 109** (5 of
+> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **105 pages of 109** (4 of
 > margin, with `sprite`/`mouse`/`filesys`/`sid` counted by `tools/check-pool-budget.ps1`).
 >
 > **`main`'s streamed player is merged in.** A tune no longer has to be in RAM: `kSidPlay` takes a
@@ -640,8 +640,8 @@ saves again.
 | pointer | `mouse.lib` + `sprite.lib` + the existing `pointer.spr` (already seeded by `build-reu.ps1`); `mouseKind` required — 0 is the `? no mouse` refusal; two sprites resolved once, **before** anything is drawn; `sprOn(0)` and `MOUSE_DISABLE` before exit |
 | exit | `kSwitchView` to the parent **before** `kFreeScreen`, then `SYS_EXIT`; drain the key queue by capacity (16 reads) first |
 
-Footprint, as `tools/check-pool-budget.ps1` measures it: code **70** pages + mouse 2 + sprite 1 +
-filesys 10 + sid 15 + malloc 6 = **104 of 109 pages**, margin 5. The six malloc pages are the
+Footprint, as `tools/check-pool-budget.ps1` measures it: code **71** pages + mouse 2 + sprite 1 +
+filesys 10 + sid 15 + malloc 6 = **105 of 109 pages**, margin 4. The six malloc pages are the
 window service — three page-aligned 256-byte read windows for the editor and three more handed to
 the music child in `kSidPlay`'s mode-1 config — so the tune's own length costs nothing: it is paged
 out of `<base>.wrk` (step 12).
@@ -1250,10 +1250,13 @@ order:
   has such a line — all 46 ids, the nine structural ones and the 37 that colour the sound (only
   `MS#`, `FLG`, `AUX` and `JIF` are hidden, and they keep the `*`). A line carries **one command
   from each lane**, so voices that fire on the same row share it and a voice with more commands
-  continues on the lines below. The band is therefore a list of lines rather than of time rows: the
-  walk decodes each pair once (`muLnDec`, which mirrors the player's own routing) instead of each
-  handler logging what it consumed, the producer (`muLnNext`/`muGrpOpen`) emits a row's command
-  lines and then the row's own line, and `muLnTbLo/Hi` records which row each visible line holds
+  continues on the lines below, and the two classes never share a line: each voice keeps a queue
+  per class (`muLogBase` is indexed by `voice * 2 + class`), the sound commands are drawn first and
+  the structural nine last, nearest the row's own line. The band is therefore a list of lines
+  rather than of time rows: the walk decodes each pair once (`muLnDec`, which mirrors the player's
+  own routing) instead of each handler logging what it consumed, the producer
+  (`muLnNext`/`muGrpOpen`) emits a row's command lines and then the row's own line, and
+  `muLnTbLo/Hi` records which row each visible line holds
   (with `muLnKind` marking the row's own line) so the cursor, the header's `BAR`/`R`, the seek and
   the click path still read a time row. Playback skips a command line: the follow holds the
   playhead's line at `MU_FOLLOW_CENTER`, in LINES, so one tick of music may move the band several
@@ -1269,10 +1272,10 @@ order:
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 5 pages; b and d are the ones that
-  need them (a used 3: the 46-field mnemonic table, the two decode tables and the ladder that
-  formats each class of value). `check-pool-budget.ps1` is the gate, and `basic`-style
-  exact fits are refused rather than warned about.
+- **e. Keep the accounting.** Budget: musedit's margin is 4 pages; b and d are the ones that
+  need them (a used 4: the 46-field mnemonic table, the two decode tables, the ladder that
+  formats each class of value, and the per-class queues). `check-pool-budget.ps1` is the gate,
+  and `basic`-style exact fits are refused rather than warned about.
 
 Order matters: 13.1-13.3 before 13.4, because a phrase editor built on a walk that is not
 proven will hide the next defect behind a new feature.

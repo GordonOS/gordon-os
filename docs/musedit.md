@@ -117,10 +117,11 @@ and the rest. Each one gets a line of its own, above the row it belongs to, so t
 row does is visible and nothing hides behind a mark:
 
 ```
-      |TEM  $80   |ATK  $1    |ATK  $0    |
-      |ATK  $1    |WAV  $4    |WAV  $5    |
-      |WAV  $4    |SUS  $B    |SUS  $A    |
-      |F-C  $FE   |P-W  $5DC  |DEF  0     |
+      |ATK  $1    |ATK  $1    |ATK  $0    |
+      |SUS  $C    |SUS  $B    |SUS  $A    |
+      |F-C  $FE   |P-W  $5DC  |P-W  $708  |
+      |TEM  $80   |HED  7     |HED  15    |
+      |           |           |DEF  0     |
  01   |C-4 16     |... 16     |F#2 8      |
  02   |           |           |           |
 ```
@@ -128,6 +129,14 @@ row does is visible and nothing hides behind a mark:
 A line carries **one command from each lane**, exactly as a row line carries one note from each, so
 three voices that fire a command on the same row take one line and not three. A voice with more
 commands than the others carries on down the lines below, with the other lanes empty.
+
+The two kinds of command never share a line, because a tempo and an envelope step are not
+comparable events:
+
+- the **sound** commands — `ATK`, `WAV`, `P-S`, `P-W` and the rest — take the lines at the top of
+  the block;
+- the **structural** ones — `TEM`, `UTL`, `UTV`, `HED`, `TAL`, `DEF`, `CALL`, `END`, `HLT` — take
+  the lines nearest the row, immediately above its own line.
 
 | command | what its line says |
 |---|---|

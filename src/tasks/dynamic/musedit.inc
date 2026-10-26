@@ -2000,7 +2000,16 @@ muLnLog:
     jsr muLnDec                 // A = the id, value in MU_LNVLO/HI; 0 = not shown
     beq muLlRts
     sta muTmpH                  // the id
-    ldx muSv
+    cmp #MU_MN_FC               // ids 1..9 are the structural nine
+    lda muSv
+    bcs mlbSound
+    asl                         // block = voice * 2 + class: the two classes never
+    jmp mlbHave                 //   share a line, so each voice has two queues
+mlbSound:
+    asl
+    ora #1
+mlbHave:
+    tax
     lda muLogN,x
     cmp #MU_LOG_SLOTS
     bcs muLlRts                 // full: the '*' still reports it
@@ -2013,8 +2022,8 @@ muLnLog:
     sta muLogLo,y
     lda muLnVHi
     sta muLogHi,y
-    ldx muSv
     inc muLogN,x
+    ldx muSv
     dec muCmdN,x
 muLlRts:
     rts
@@ -6516,6 +6525,9 @@ mgpFresh:
     sta muLogN
     sta muLogN+1
     sta muLogN+2
+    sta muLogN+3
+    sta muLogN+4
+    sta muLogN+5
     sta muPendOn
     sta muPendOn+1
     sta muPendOn+2
@@ -6564,15 +6576,27 @@ mgpOff:
     jsr muGdAdv
     jmp mgpLoop
 mgpDone:
-    lda muLogN                  // the row's command lines: as many as the busiest
-    cmp muLogN+1                //   voice has, because each line carries one
-    bcs mgpMax2                 //   command from every lane at once
-    lda muLogN+1
-mgpMax2:
-    cmp muLogN+2
-    bcs mgpMax3
-    lda muLogN+2
-mgpMax3:
+    lda muLogN                  // the sound commands are drawn first, then the
+    cmp muLogN+2                //   structural nine: a line carries one class only,
+    bcs mgpSnd2                 //   because a tempo and an envelope step are not
+    lda muLogN+2                //   comparable events
+mgpSnd2:
+    cmp muLogN+4
+    bcs mgpSnd3
+    lda muLogN+4
+mgpSnd3:
+    sta muLogSnd                // the row's sound lines, from the top
+    lda muLogN+1                // ...and the structural lines sit nearest the row,
+    cmp muLogN+3                //   where they were before the sound commands had
+    bcs mgpStr2                 //   lines of their own
+    lda muLogN+3
+mgpStr2:
+    cmp muLogN+5
+    bcs mgpStr3
+    lda muLogN+5
+mgpStr3:
+    clc
+    adc muLogSnd
     sta muLogLns
     clc
     rts
@@ -6627,8 +6651,10 @@ mlsNoDraw:
 // --- muLnCmdDraw -- the row's k-th command line: one command per lane ---
 //  A lane can hold one command, so the line carries every voice's k-th command at
 //  once, in the voice's own colour: three commands on the same row take one line,
-//  not three. The row column stays blank -- the line is not a point in time -- and
-//  the row's own line, below, is the one with a number.
+//  not three. The two classes never share a line -- the row's sound commands take
+//  the lines above MU_LOGSND and the structural nine the lines below it, nearest
+//  the row's own line. The row column stays blank -- the line is not a point in
+//  time -- and the row's own line, below, is the one with a number.
 muLnCmdDraw:
     lda #0                      // a command's line: the playhead passes over it
     jsr muLnSpot
@@ -6639,16 +6665,32 @@ mlcGo:
     lda #0
     sta muLnV
 mlcVoices:
-    ldx muLnV
+    lda #1                      // a sound line: its depth is the line index
+    sta muTmpL
     lda muLogIx
+    cmp muLogSnd
+    bcc mlcHave                 // ix < the row's sound lines: this is a sound one
+    lda #0
+    sta muTmpL                  // a structural line, counted from the row upwards
+    lda muLogIx
+    sec
+    sbc muLogSnd
+mlcHave:
+    sta muTmpH
+    lda muLnV
+    asl
+    ora muTmpL
+    tax                         // the block: voice * 2 + class
+    lda muTmpH
     cmp muLogN,x
     bcc mlcHasCmd               // this voice has a command this deep
     jmp mlcNext
 mlcHasCmd:
     lda muLogBase,x
     clc
-    adc muLogIx
+    adc muTmpH
     sta muTmp2                  // the slot, while the lane is drawn
+    ldx muLnV
     lda muVoiceCol,x
     jsr kSetTextColor
     ldx muLnV
@@ -7411,7 +7453,7 @@ muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
 muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a utility, then whole..32nd
 //  One five-character field per mnemonic id, so the id indexes the table with a
 //  multiply by five and a command line prints exactly one field. The order is
-//  MU_MN_TEM..MU_MN_END; the three that take no operand are last.
+//  MU_MN_TEM..MU_MN_DST; ids 1..9 are the structural nine.
 muMnTab:    .text "TEM  UTL  UTV  HED  DEF  CALL TAL  HLT  END  "
             .text "F-C  PNT  RTP  HLD  P-S  F-S  SCA  VDP  VRT  AUT  "
             .text "TPS  PVD  PVR  MAX  P-W  DTN  POR  "
@@ -7433,7 +7475,10 @@ muDecTab:   .byte MU_MN_TEM, MU_MN_FC,  MU_MN_UTL, 0
 //  even though its comment at the source reads 0101n011.
 muDecSm:    .byte MU_MN_BMP, MU_MN_FLT, MU_MN_RNG, MU_MN_SNC
             .byte MU_MN_FX,  MU_MN_3O,  MU_MN_LFO, MU_MN_PNV
-muLogBase:  .byte 0, MU_LOG_SLOTS, 2*MU_LOG_SLOTS  // each voice's block in the log
+//  Each voice has a block per class of command, so a line never mixes a structural
+//  command with a sound one: block = voice * 2 + class, class 0 = structural.
+muLogBase:  .byte 0, MU_LOG_SLOTS, 2*MU_LOG_SLOTS
+            .byte 3*MU_LOG_SLOTS, 4*MU_LOG_SLOTS, 5*MU_LOG_SLOTS
 muDurByte:  .byte 0
 muJifCls:   .byte 0
 muJifSt:    .byte 0
@@ -7459,13 +7504,14 @@ muGdHi:     .fill 2, 0          //   (the end exclusive)
 // --- the line producer: a time row, or one structural command ---
 muGrpRow:   .fill 2, 0          // the row the open group belongs to
 muGrpSt:    .byte 0             // 1 = a group is open, 0 = the next line opens one
-muLogId:    .fill MU_LOG_SLOTS*3, 0  // each voice's commands for the open row,
-muLogLo:    .fill MU_LOG_SLOTS*3, 0  //   one block per voice (MU_LOGBASE); the
-muLogHi:    .fill MU_LOG_SLOTS*3, 0  //   value is the command's operands
+muLogId:    .fill MU_LOG_SLOTS*6, 0  // each voice's commands for the open row,
+muLogLo:    .fill MU_LOG_SLOTS*6, 0  //   one block per voice and class
+muLogHi:    .fill MU_LOG_SLOTS*6, 0  //   (MU_LOGBASE); the value is its operands
 muLnVLo:    .byte 0, 0       // the value muLnDec rebuilt for the line being drawn
 muLnVHi:    .byte 0
-muLogN:     .fill 3, 0               // how many that voice has logged
-muLogLns:   .byte 0             // the busiest voice's count: the row's command lines
+muLogN:     .fill 6, 0               // how many that voice and class has logged
+muLogSnd:   .byte 0             // the row's sound lines: the structural ones follow
+muLogLns:   .byte 0             // the sound lines plus the structural, command lines
 muLogIx:    .byte 0             // the command line being drawn
 muPendOn:   .fill 3, 0          // that voice has a note on the open group's row
 muPendOpt:  .fill 3, 0          // its option byte

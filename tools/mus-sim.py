@@ -418,7 +418,7 @@ def layout(result, trace, count):
     unit, per_bar = model.unit_and_rows(result["tempo"])
     notes = {}
     starred = {}
-    cmds = [[], [], []]         # one queue per voice: a line carries one of each
+    cmds = [[[], []], [[], []], [[], []]]   # [voice][class]: the two never share a line
     out = []
     row = 0
 
@@ -435,14 +435,17 @@ def layout(result, trace, count):
         return "".join(cells)
 
     def flush():
-        depth = max(len(cmds[0]), len(cmds[1]), len(cmds[2]))
-        for k in range(depth):
-            lanes = [(voice, cmds[voice][k]) for voice in range(3) if k < len(cmds[voice])]
-            out.append((None, [(voice, (text + " " * 11)[:11]) for voice, text in lanes]))
+        for cls in (1, 0):          # the sound commands first, then the structural
+            depth = max(len(cmds[voice][cls]) for voice in range(3))
+            for k in range(depth):
+                lanes = [(voice, cmds[voice][cls][k])
+                         for voice in range(3) if k < len(cmds[voice][cls])]
+                out.append((None, [(voice, (text + " " * 11)[:11]) for voice, text in lanes]))
         lanes = [(voice, lane(voice)) for voice in range(3) if voice in notes]
         out.append((row, lanes))
-        for queue in cmds:
-            del queue[:]
+        for voice in range(3):
+            for cls in (0, 1):
+                del cmds[voice][cls][:]
         notes.clear()
         starred.clear()
 
@@ -452,10 +455,11 @@ def layout(result, trace, count):
             flush()
             row += 1
         if cmd & 3:
-            name = command_name(cmd, opt)
-            if name:
-                if len(cmds[voice]) < 16:
-                    cmds[voice].append(name)
+            ident, value = decode_cmd(cmd, opt)
+            if ident:
+                cls = 0 if ident < 10 else 1
+                if len(cmds[voice][cls]) < 16:
+                    cmds[voice][cls].append(command_name(cmd, opt))
             else:
                 starred[voice] = True
         else:
