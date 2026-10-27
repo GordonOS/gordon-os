@@ -3510,6 +3510,10 @@ muSeekKPtr:
 //  The hover has already put the clicked key's linear note in MU_HOV. The armed
 //  length is checked against the tempo in force at that row first, so an entry
 //  the player could not express writes nothing.
+//  A command has a line of its own above the row it belongs to, and that line shares
+//  the row without holding a note: a note belongs on the row's OWN line, so a key
+//  pressed on a command line is refused rather than rewriting the event below it,
+//  which would change a length the cursor is not pointing at.
 muNoteClick:
     jsr muPlaying               // a mouse click must not edit while playing
     bcc muNcGo
@@ -3521,6 +3525,13 @@ muNcGo:
     beq muNcRts                 // nothing under the pointer
     cmp #$fe
     beq muNcRts
+    ldy #MU_ROW                // the kind of line the cursor stands on
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    tay
+    lda muLnKind,y
+    beq muNcNoEvt
     jsr muNoteOpt               // A = the note option byte for that key
     jsr muSeek
     lda muSekTem                // the tempo in force at the cursor's row
@@ -3562,6 +3573,10 @@ muNcReplace:
     jmp muRedrawRows            // tail: its rts balances the jsr that entered
 muNcIllegal:
     lda #M_ILLEGAL
+    jsr muMsgSet
+    jmp muStatus
+muNcNoEvt:
+    lda #M_NO_EVENT             // a command's line holds no note to write
     jsr muMsgSet
     jmp muStatus
 muNcRts:

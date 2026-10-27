@@ -187,6 +187,11 @@ The piano at the bottom of the screen is how notes go in.
    split; past the last event (or in an empty voice) rests are filled in so the note lands on
    the cursor's row — see *Editing* below.
 
+A command has a line of its own above the row it belongs to, and that line holds no note: with
+the cursor on a command's line a note key is refused (`? no event here`), so an entry can never
+rewrite the row below the one the cursor is on. Move down to the row's own line — the one with
+the row number — and the note goes in there.
+
 The keys are narrow — about 5.7 pixels per white key — because all eight octaves share the
 320-pixel width. The black keys are short bars on the boundaries: C# between C and D, D#
 between D and E, F# between F and G, G# between G and A, A# between A and B. The B–C boundary
