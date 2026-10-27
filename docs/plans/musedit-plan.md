@@ -790,11 +790,11 @@ frame so its body plays inline, `CALL` pushes a frame and jumps, `END` pops and 
 the outermost frame, `HLT` clears the voice. `TEM`/`UTL`/`UTV` set the lengths later notes get,
 and a class-1 note takes `muUl` or the voice's `muUtv`. An error — a length the tempo cannot
 express, a command run with no note behind it, a full stack, an undefined phrase, a `TAL` in
-another phrase — stops all three voices and leaves a code in `muErr`, which the `V` line prints.
+another phrase — stops all three voices and leaves a code in `muErr`.
 `muNoteJiffies` reads `muJifTem` (the running tempo) rather than `muTempo` (the tune's opening
-tempo), which is what lets a mid-tune `TEM` reach every voice. Debug keys: `B` the timing line,
-`V` the walk's totals, `X` the first eighteen events, one per grid row, in the same shape
-`tools/mus-sim.py --trace` prints.
+tempo), which is what lets a mid-tune `TEM` reach every voice. The editor carries no readout of
+its own: the walk is checked against `tools/mus-sim.py`, whose `--trace` is the reference the
+checklist rows below were compared with.
 
 - [x] **4.1 A linear tune.** `tetris`: `SIM T=2304 E=86/86/192 … HLT` against the model's 2304 ticks and 86/86/192 events.
 - [x] **4.2 Loops.** `immig`: the model's and the C64's traces agree event for event over the first two sections (`t=0 v3 o=$0204`, back to `$0204` at `t=64`), and both report 7632 ticks with 231/215/663 events.
@@ -811,7 +811,7 @@ Read-only rendering of the window, the cursor, the readout, and scrolling.
 
 Landed: the header carries the tune's tempo, the cursor's bar and its absolute row (`TEM$xx
 BAR n Rnnn`), the row unit comes from `muUnitNow` (the plain unit for the tune's tempo, refined
-by `SHIFT+U`), and `muDrawGrid` walks the same simulator the `V`/`X` pages use, drawing each
+by `SHIFT+U`), and `muDrawGrid` walks the same simulator, drawing each
 event as its onset (a three-character pitch, or `...` for a rest) followed by a `=` run as long
 as the length's rows. A rest shows only its onset, so silence stays visibly silent; the lane's last
 cell says `?` when the event's onset fell between rows. The row numbers are counted from each
@@ -845,7 +845,7 @@ then `MU_GRID_STEPS` is what keeps a pathological tune from spinning.
 - [ ] **5.5 `SHIFT+U` refines.** Needs a look on `fsonata` (it has triplets): the off-grid `?` should appear, and `SHIFT+U` should move every onset onto a row.
 - [x] **5.6 Command markers.** A note's lane carries no command marker: step 13.4a draws every
   command on a line of its own.
-- [x] **5.7 Nothing else is drawn.** `kClearScreen` at start-up and `muGridClear` on every redraw leave nothing behind; the debug pages (`B`/`V`/`X`) overwrite rows the next redraw restores.
+- [x] **5.7 Nothing else is drawn.** `kClearScreen` at start-up and `muGridClear` on every redraw leave nothing behind.
 
 ### Step 6 — Editing algebra and undo
 
@@ -1192,7 +1192,7 @@ it was drawn on and its option byte -- that ring is *exactly* what the lanes wer
   fault is in the playhead's anchor, so 13.2 is the fix;
 - **a row jumps much further than the file's length** -- a length was read or decoded wrong,
   and the offset on that line is the byte to look at;
-- **nothing at all** -- the walk stopped for that voice, and `V`'s `ERRn` names why.
+- **nothing at all** -- the walk stopped for that voice, and `muErr` names why.
 
 ### 13.2 The playhead: publish the position, do not infer it
 

@@ -239,21 +239,6 @@ editor starts with a plain 16th armed.
 current tempo cannot express them as whole jiffies — a dotted note needs an even base length,
 a double-dotted one a base divisible by four.
 
-### The timing line
-
-`B` prints what the tempo in force can express, using the player's own arithmetic: `W`, `H`,
-`Q`, `8`, `16`, `32` and `64` in jiffies, with `-` for a length that tempo cannot express, and
-under it the tempo byte the tune's `TEM` command set, the triplet quarter, the row unit in
-jiffies and the rows a bar has. Those numbers are what the grid is measured in, so a question
-about how many rows a length takes is answered there.
-
-Two more keys read the simulation the grid is built from. `V` walks the whole tune and prints
-the tick the last event plays on, how many events each voice played, and whether the walk ended
-by every voice halting or by a refusal — a `TEM`, the utility lengths and the number of voices
-still playing follow on the second row. `SHIFT+X` prints the first eighteen events, one per grid
-row, as `t=` the tick, `v` the voice, `o=` the event's offset in the file and the two bytes found
-there, which is how the walk is compared against `tools/mus-sim.py`'s own trace.
-
 ### Utility lengths
 
 `8` arms the **UTL** length and `9` the **UTV** length. A note entered with one of these takes

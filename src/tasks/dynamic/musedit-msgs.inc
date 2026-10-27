@@ -6,7 +6,7 @@
 //  holds it as `msgs`, one MU_MSG_SLOT-byte record per index, in this order,
 //  each NUL terminated. muMsg DMAs a record into its buffer and points the
 //  text at it, so a string costs no code page at all.
-.const MU_MSG_COUNT = 40
+.const MU_MSG_COUNT = 25
 .const MU_MSG_SLOT = 64
 .const M_LANES      = 0
 .const M_TEM2       = 1
@@ -33,21 +33,6 @@
 .const M_NO_TUNE    = 22
 .const M_NO_SCR     = 23
 .const M_DIR_FULL   = 24
-.const M_TEM        = 25
-.const M_TQ         = 26
-.const M_UNIT       = 27
-.const M_ROW_BAR    = 28
-.const M_SIM        = 29
-.const M_SIM_E      = 30
-.const M_SIM_T      = 31
-.const M_SIM_U      = 32
-.const M_SIM_ON     = 33
-.const M_SIM_HLT    = 34
-.const M_SIM_CAP    = 35
-.const M_SIM_ERR    = 36
-.const M_TRK        = 37
-.const M_VC         = 38
-.const M_OFF        = 39
 
 // The length of each message, for a layout that depends on it: the bar's
 // labels sit in fixed cells, so their width is not decoration.
@@ -76,18 +61,3 @@
 .const M_NO_TUNE_LEN = 12
 .const M_NO_SCR_LEN = 12
 .const M_DIR_FULL_LEN = 10
-.const M_TEM_LEN    = 5
-.const M_TQ_LEN     = 4
-.const M_UNIT_LEN   = 6
-.const M_ROW_BAR_LEN = 9
-.const M_SIM_LEN    = 6
-.const M_SIM_E_LEN  = 3
-.const M_SIM_T_LEN  = 5
-.const M_SIM_U_LEN  = 5
-.const M_SIM_ON_LEN = 4
-.const M_SIM_HLT_LEN = 4
-.const M_SIM_CAP_LEN = 4
-.const M_SIM_ERR_LEN = 4
-.const M_TRK_LEN    = 2
-.const M_VC_LEN     = 2
-.const M_OFF_LEN    = 4

@@ -80,8 +80,6 @@
 .const MU_OPT_HLT   = $4f     // HLT: this voice stops
 .const MU_FRAMES    = 5       // call-stack frames per voice
 .const MU_SPIN      = 255     // commands one step may run before it gives up
-.const MU_SIM_CAP   = 6000    // events a whole run may execute
-.const MU_TRACE_N   = 18      // events the trace key prints, one per grid row
 .const MU_GRID_ROWS = 19      // the rows a window shows
 .const MU_REST_CH   = '.'     // a rest
 .const MU_OFF_CH    = '?'     // its onset fell between rows
@@ -164,7 +162,6 @@
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
 .const MU_STAT_FRAMES = 50    // about a second of displayed frames
-.const MU_DUR_COLS = 7        // the duration columns the timing line prints
 .const MU_UNIT_N   = 7        // the row unit's candidates, shortest first
 .const MU_BAR_Q     = 2       // hit-map code: this one quits
 .const MU_BAR_SAVE  = 3       // ...and this one writes the image back
@@ -1393,102 +1390,6 @@ muScanSeat:
     rts
 
 // ==========================================
-//  The timing line (a development aid)
-// ==========================================
-// --- muTimingShow -- B: the durations and the row unit for the tempo in force ---
-//  Printed in the same form tools/check-mus-timing.py prints them, so the two
-//  can be compared line for line: a `-` is a length this tempo cannot express.
-muTimingShow:
-    lda muTempo
-    sta muJifTem                // the tune's tempo, not the simulator's
-    jsr muClearRow0
-    lda #0
-    sta muTimIdx
-muTsLp:
-    ldx muTimIdx
-    lda muDurTagLo,x
-    ldy #MU_STRLO
-    sta (dataPtr),y
-    lda muDurTagHi,x
-    ldy #MU_STRHI
-    sta (dataPtr),y
-    jsr muTextAt                // the tag, at the cursor
-    lda #':'
-    jsr muPutC
-    ldx muTimIdx
-    lda muDurTab,x
-    jsr muNoteJiffies
-    bcs muTsDash
-    ldx #0
-    jsr muNum16                 // A/X = the length
-    jmp muTsNext
-muTsDash:
-    lda #'-'
-    jsr muPutC
-muTsNext:
-    inc muTimIdx
-    lda muTimIdx
-    cmp #MU_DUR_COLS
-    beq muTsRow1
-    lda #' '
-    jsr muPutC
-    jmp muTsLp
-muTsRow1:
-    lda #1
-    sta muClrRow
-    jsr muClearRow
-    muSet(MU_CURCOL, 0)
-    muSet(MU_CURROW, 1)
-    lda #M_TEM
-    jsr muMsg
-    lda muTempo
-    jsr muHex8
-    lda #M_TQ
-    jsr muMsg
-    lda #$90                    // class 4 (a quarter) + bit 7: the triplet
-    jsr muNoteJiffies
-    bcs muTsTqDash
-    ldx #0
-    jsr muNum16
-    jmp muTsUnit
-muTsTqDash:
-    lda #'-'
-    jsr muPutC
-muTsUnit:
-    lda #M_UNIT
-    jsr muMsg
-    jsr muUnit                 // A = the unit, X = the rows a bar has
-    sta muUnitVal
-    stx muUnitBar
-    ldx #0
-    jsr muNum16
-    lda #M_ROW_BAR
-    jsr muMsg
-    lda muUnitBar
-    ldx #0
-    jsr muNum16
-    jsr muStatArm
-    rts
-
-// --- muHex8 -- print A as two hex digits ---
-muHex8:
-    pha
-    lsr
-    lsr
-    lsr
-    lsr
-    jsr muHexDig
-    pla
-    and #$0f
-muHexDig:
-    cmp #10
-    bcc muHexNum
-    adc #6                      // carry is set here: 10..15 -> 'A'..'F'
-muHexNum:
-    adc #'0'
-    jmp muPutC
-
-// ==========================================
 //  The simulator
 // ==========================================
 //  The player's control flow, resumed rather than restarted: every voice has a
@@ -2292,184 +2193,6 @@ moTop3:                     // A = the id; value = the option's top three bits
     lsr
     lsr
     jmp moNibV
-//  Out: C=1 when the cap stopped it rather than the voices stopping.
-muSimRun:
-    lda #<MU_SIM_CAP
-    sta muCapLo
-    lda #>MU_SIM_CAP
-    sta muCapHi
-muRunLp:
-    jsr muStep
-    bcs muRunEnd
-    lda muNoteOut               // a voice that halted is not an event
-    beq muRunLp
-    lda muCapLo
-    sec
-    sbc #1
-    sta muCapLo
-    lda muCapHi
-    sbc #0
-    sta muCapHi
-    lda muCapLo
-    ora muCapHi
-    bne muRunLp
-    sec
-    rts
-muRunEnd:
-    clc
-    rts
-
-// --- muSimShow -- V: what the walk totals, from tick 0 ---
-//  Printed in the form tools/mus-sim.py reports, so the two are compared line
-//  for line, and the run stops at MU_SIM_CAP so a looping tune still answers.
-muSimShow:
-    jsr muClearRow0
-    muSet(MU_CURROW, 0)
-    muSet(MU_CURCOL, 0)
-    lda #M_SIM
-    jsr muMsg                   // the label goes up before the walk, which is a
-    jsr muSimInit               // second or two of work on a long tune
-    jsr muSimRun
-    php
-    lda muClkLo
-    ldx muClkHi
-    jsr muNum16
-    lda #M_SIM_E
-    jsr muMsg
-    jsr muSimCounts
-    muSet(MU_CURROW, 1)
-    muSet(MU_CURCOL, 0)
-    lda #M_SIM_T
-    jsr muMsg
-    lda muSimT
-    jsr muHex8
-    lda #M_SIM_U
-    jsr muMsg
-    lda muUl
-    ldx #0
-    jsr muNum16
-    lda #M_SIM_ON
-    jsr muMsg
-    lda muOn
-    clc
-    adc muOn+1
-    adc muOn+2
-    ldx #0
-    jsr muNum16
-    plp
-    bcc muShowStopped
-    lda #M_SIM_CAP
-    jsr muMsg
-    jmp muShowFrame
-muShowStopped:
-    lda muErr
-    beq muShowHlt
-    pha
-    lda #M_SIM_ERR
-    jsr muMsg
-    pla
-    clc
-    adc #'0'
-    jsr muPutC                  // the code says which stop it was
-    jmp muShowFrame
-muShowHlt:
-    lda #M_SIM_HLT
-    jsr muMsg
-muShowFrame:
-    jsr muStatArm
-    rts
-
-// --- muSimCounts -- the three event counts, separated by '/' ---
-//  Unrolled over exactly three voices: muNum16 wants the voice's bytes in A
-//  and X, and muPutC owns both, so an index byte would have to be reloaded
-//  around every digit anyway.
-muSimCounts:
-    lda muEvLo
-    ldx muEvHi
-    jsr muNum16
-    lda #'/'
-    jsr muPutC
-    lda muEvLo+1
-    ldx muEvHi+1
-    jsr muNum16
-    lda #'/'
-    jsr muPutC
-    lda muEvLo+2
-    ldx muEvHi+2
-    jmp muNum16
-
-// --- muSimTrace -- X: the first events, in the order the walk plays them ---
-//  One row each, in the shape tools/mus-sim.py's --trace prints.
-muSimTrace:
-    jsr muSimInit
-    lda #0
-    sta muSidx
-muTrLp:
-    jsr muStep
-    bcc muTrNote
-    jmp muTrDone
-muTrNote:
-    lda muNoteOut               // a voice that halted has no event to print
-    beq muTrLp
-muTrGo:
-    lda muSidx
-    clc
-    adc #MU_GRID_TOP
-    sta muClrRow
-    jsr muClearRow
-    //  The pair is read out of the voice's window and copied to muTmp2, because
-    //  muNum16 borrows muTmpL while it divides down the digits.
-    ldx muSv
-    lda muPtrLo,x               // the event is the pair behind the pointer, and an
-    sec                         //   offset minus 2 is still an offset
-    sbc #2
-    sta muWinOfs
-    sta muAccLo                 // the printed offset, kept because muWinSeat owns muWinOfs
-    lda muPtrHi,x
-    sbc #0
-    sta muWinOfs+1
-    sta muAccHi
-    jsr muWinSeat               // kPtr = the event's own bytes
-    ldy #0
-    lda (kPtr),y
-    sta muTmp2
-    ldy #1
-    lda (kPtr),y
-    sta muTmp2+1
-    //  ...and MU_ACC is already an image offset, which is how tools/mus-sim.py names it
-    lda #M_TRK
-    jsr muMsg
-    lda muClkLo
-    ldx muClkHi
-    jsr muNum16
-    lda #M_VC
-    jsr muMsg
-    lda muSv
-    clc
-    adc #'1'
-    jsr muPutC
-    lda #M_OFF
-    jsr muMsg
-    lda muAccHi
-    jsr muHex8
-    lda muAccLo
-    jsr muHex8
-    lda #MU_SPACE
-    jsr muPutC
-    lda muTmp2
-    jsr muHex8
-    lda #MU_SPACE
-    jsr muPutC
-    lda muTmp2+1
-    jsr muHex8
-    inc muSidx
-    lda muSidx
-    cmp #MU_TRACE_N
-    bcs muTrDone
-    jmp muTrLp
-muTrDone:
-    jsr muStatArm
-    rts
 
 // ==========================================
 //  Drawing
@@ -3414,21 +3137,6 @@ muKeyNotQ:
     jsr muSaveTry
     jmp muKeyIdle
 muKeyNotSave:
-    cmp #'b'                    // B: the timing line (a development aid)
-    bne muKeyNotB
-    jsr muTimingShow
-    jmp muKeyIdle
-muKeyNotB:
-    cmp #'v'                    // V: what the simulated walk totals
-    bne muKeyNotV
-    jsr muSimShow
-    jmp muKeyIdle
-muKeyNotV:
-    cmp #$58                    // SHIFT+X: the first events, as the walk plays them
-    bne muKeyNotU
-    jsr muSimTrace
-    jmp muKeyIdle
-muKeyNotU:
     cmp #$55                    // SHIFT+U: a finer row unit
     bne muKeyNotU2
     jsr muUnitCycle
@@ -7291,35 +6999,19 @@ muDirName:  .fill 12, 0         // kReuDirEntry's name buffer (slot 0 only)
 muPowLo:    .byte <10000, <1000, <100, <10, <1
 muPowHi:    .byte >10000, >1000, >100, >10, >1
 
-// The duration columns the timing line prints, W .. 64th, and the class each
-// one wears. The 64th last: it is the shortest, but it is only a length at the
-// tempos whose whole note is a few jiffies.
+// The duration columns, W .. 64th, and the class each one wears. The 64th last: it is
+// the shortest, but it is only a length at the tempos whose whole note is a few
+// jiffies.
 muDurTab:   .byte $08, $0c, $10, $14, $18, $1c, $00   // W H Q 8 16 32 64
 // The DUR field's value cells, by class 0-7 (class 1 is UL/UV, drawn apart).
 muArmCh1:   .byte '6', 0, 'W', 'H', 'Q', '8', '1', '3'
 muArmCh2:   .byte '4', 0, ' ', ' ', ' ', ' ', '6', '2'
 // The dot cell by (dur & $a0) >> 5: plain, dotted, -, -, triplet, double-dotted.
 muDotCh:    .byte ' ', '.', 0, 0, '3', ':'
-muDurTagLo: .byte <muT0, <muT1, <muT2, <muT3, <muT4, <muT5, <muT6
-muDurTagHi: .byte >muT0, >muT1, >muT2, >muT3, >muT4, >muT5, >muT6
-muT0:       .text "W"
-            .byte 0
-muT1:       .text "H"
-            .byte 0
-muT2:       .text "Q"
-            .byte 0
-muT3:       .text "8"
-            .byte 0
-muT4:       .text "16"
-            .byte 0
-muT5:       .text "32"
-            .byte 0
-muT6:       .text "64"
-            .byte 0
 // The same seven, as the row unit's candidates, shortest first.
 muUnitTab:  .byte $00, $1c, $18, $14, $10, $0c, $08
 muUnitRows: .byte 64, 32, 16, 8, 4, 2, 1
-// The simulator's debug pages, in the shape tools/mus-sim.py prints.
+// The bar painter's own bytes: the column, this task's id, and the items
 muBarC:     .byte 0             // the column the bar painter is on
 muTid:      .byte 0             // this task's id, for the display-owner test
 muBarHov:   .byte 0             // the item under the pointer, 0 = none
@@ -7433,7 +7125,6 @@ muJifCls:   .byte 0
 muJifSt:    .byte 0
 muJifBase:  .byte 0
 muJifT:     .byte 0
-muTimIdx:   .byte 0
 muUnIdx:    .byte 0
 muUnitVal:  .byte 0
 muUnitBar:  .byte 0
@@ -7593,7 +7284,6 @@ muErr:      .byte 1
 muErrV:     .byte 0             // the voice whose length the tempo refused...
 muErrRow:   .word 0             // ...and the onset row it died on
 muSv:       .byte 0
-muSidx:     .byte 0
 muScmd:     .byte 0
 muSopt:     .byte 0
 muSph:      .byte 0
@@ -7602,8 +7292,6 @@ muAccLo:    .byte 0
 muAccHi:    .byte 0
 muBestLo:   .byte 0
 muBestHi:   .byte 0
-muCapLo:    .byte 0
-muCapHi:    .byte 0
 muTmp2:     .byte 0, 0
 
 // --- playback: the parent and its music child share these code bytes ---
