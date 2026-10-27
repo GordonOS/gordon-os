@@ -6282,8 +6282,9 @@ muPlayhead:
 
 // --- muPhSync -- the playhead row, read from the player's own clock ---
 //  The player publishes a 16-bit count of the jiffies it has played in this pass, and
-//  a grid row is a fixed number of jiffies (muUnitVal), so the row is that count
-//  divided by the unit -- the same division the walk makes when it draws a span.
+//  a grid row is a fixed number of jiffies (muUnitVal), so the row is that count,
+//  less the jiffy the player is already counting as it fetches row 0, divided by the
+//  unit -- the same division the walk makes when it draws a span.
 //  Nothing is predicted and nothing is cached, so there is no rate to drift and no
 //  window to fall outside of, and a loop restarts the count with the music.
 //  Clobbers A, X, Y, kArg and kResult (kArg+4..).
@@ -6298,10 +6299,18 @@ muPsHaveUnit:
     sta kArg+2
     lda #0
     sta kArg+3
-    lda MU_POS_BLOCK+7          // SID_POS_TICK = MU_POS_BLOCK + 6: the block is
-    sta kArg+1                  //   contiguous, so the high byte is +7 and the low is +6
-    lda MU_POS_BLOCK+6          //   (the kernel's tickCount follows at +8)
+    lda MU_POS_BLOCK+6          // SID_POS_TICK = MU_POS_BLOCK + 6: the block is
+    sec                         //   contiguous, so the low byte is +6, the high +7 and
+    sbc #1                      //   the kernel's tickCount follows at +8.
+    sta kArg                    // The player starts every voice's counter at 1 and
+    lda MU_POS_BLOCK+7          //   increments the count before it processes, so row 0
+    sbc #0                      //   is fetched with the count already at 1: the count is
+    cmp #$ff                    //   one boundary ahead of the row being played, and
+    bne muPsPub                 //   that jiffy comes off before the division
+    lda #0                      // a count of zero wraps: no jiffy has played yet
     sta kArg
+muPsPub:
+    sta kArg+1
     jsr kDiv16
     lda kArg+4                  // the quotient is the row
     sta muPhCurLo
