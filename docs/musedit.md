@@ -473,6 +473,9 @@ gives that space back when you run `compact`.
 that split a longer one undoes as a single step, not three. A long run of recent actions is
 held; opening a tune resets the history.
 
+The history lives in a 2 KB file called `musedit.und`, made on the first run and reused from
+then on, so `dir` shows it and it costs the same space however much you edit.
+
 ## Troubleshooting
 
 | message | meaning |

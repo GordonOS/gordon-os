@@ -16,14 +16,8 @@
 .const MU_CURCOL    = 14      // text cursor column (transient)
 .const MU_CURROW    = 15      // text cursor row (transient)
 .const MU_TMPIDX    = 16      // string walker (transient)
-.const MU_INK       = 17
 .const MU_STRLO     = 18      // the string muTextAt is printing: muMsgBuf, or
 .const MU_STRHI     = 19      //   muSFallback before muMsgOpen has run
-.const MU_DUR       = 20
-.const MU_DOT       = 21
-.const MU_TIE       = 22
-.const MU_DIRTY     = 23
-.const MU_WARN      = 24
 .const MU_POS       = 25      // pointer x lo/hi, y lo/hi (16-bit each)
 .const MU_WX        = 29
 .const MU_WY        = 30
@@ -43,7 +37,6 @@
 .const MU_GRID_BOT  = 20
 .const MU_PIANO_ROWS = 3      // keyboard rows (the glyphs are generated for this many)
 .const MU_PIANO_TOP = 21
-.const MU_PIANO_BOT = 23
 .const MU_BAR_ROW   = 24
 .const MU_PIANO_COLS = 40
 // The three lanes are one width and one column apart, and the first starts at
@@ -64,13 +57,11 @@
 .const MU_WIN_Y     = 50      // sprite y = screen y + 50
 .const MU_BTN_LEFT  = %00010000 // PA4 of $DC00: the fire line, active low
 .const MU_READOUT_COL = 36    // row 0, the top-right corner: the pitch under the pointer
-.const MU_C_DIM     = 15      // light grey
 
 // --- the simulator ---
 .const MU_INIT_TEM  = $90     // sidplay.inc's sidInitSong starts here
 .const MU_LEN_MAX   = 100     // the most events one written length may take
 .const MU_INIT_UL   = 12      // ...and its WorkUTLValue
-.const MU_INIT_UV   = 1       // ...and WorkUTVValues
 .const MU_CMD_TEM   = $06     // TEM: the global tempo
 .const MU_CMD_UTL   = $16     // UTL: the global utility length
 .const MU_CMD_UTV   = $F6     // UTV: this voice's utility length
@@ -83,13 +74,13 @@
 .const MU_GRID_ROWS = 19      // the rows a window shows
 .const MU_REST_CH   = '.'     // a rest
 .const MU_OFF_CH    = '?'     // its onset fell between rows
-.const MU_GRID_STEPS = 3000    // events one redraw may walk
 .const MU_ERR_SPIN  = 1       // a run of commands with no note behind it
 .const MU_ERR_LEN   = 2       // a length this tempo cannot express
 .const MU_ERR_STK   = 3       // the call stack is full
 .const MU_ERR_PHR   = 4       // a call to a phrase that was never defined
 .const MU_ERR_TAL   = 5       // a TAL whose HED belongs to another phrase
 .const MU_UNDO_SIZE = 2048    // the undo stack, in bytes (many small actions)
+.const MU_UNDO_PAGES = MU_UNDO_SIZE / 256   // ...and the REU file's size, one page each
 .const MU_MUS_DELAY = 1       // one player tick per jiffy
 .const MU_MUS_REPEATS = 1     // one pass through the tune: the end stops it
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
@@ -128,7 +119,6 @@
 .const MU_MN_ATK    = 27
 .const MU_MN_DCY    = 28
 .const MU_MN_SUS    = 29
-.const MU_MN_REL    = 30
 .const MU_MN_VOL    = 31
 .const MU_MN_RES    = 32
 .const MU_MN_WAV    = 33
@@ -189,6 +179,7 @@ museditMain:
     muSet(MU_STRHI, >muSFallback)
     jmp muFatal                 // with no file there is nothing else to say
 muMsgReady:
+    jsr muUndoOpen              // the undo stack's pages, in the REU as well
     jsr muSidCheck              // C=1: another task is using sid.lib -- report it
     bcc muSidFree               //   on OUR screen, before any library is touched
     lda #M_NO_PLAYER
@@ -4291,14 +4282,168 @@ muRecKPtr:
     tax
     rts
 
-// --- muUndoKPtr -- srcPtr = muUndoBuf + A/X (lo/hi offset) ---
-muUndoKPtr:
-    clc
-    adc #<muUndoBuf
-    sta srcPtr
+// ==========================================
+//  The stack's window: one page of the REU file at a time
+// ==========================================
+//  The stack is MU_UNDO_SIZE bytes of the REU file `musedit.und`, and ONE page of it
+//  is resident in muUndoBuf -- the window. The cursor (muUcPg, muUcOf) is the virtual
+//  offset of the byte being written or read, and every byte goes through
+//  muUndoPut/muUndoGet, which seat the window when the cursor enters a new page. The
+//  page being left is flushed on the way out, so the file and the window only differ
+//  for the page in hand.
+//  A record is 6 + oldN + newN bytes and cannot exceed 255 -- the total is stored in
+//  one byte -- so it spans at most two pages. The accessors cross that boundary a
+//  byte at a time, which is why no caller has to know where a page ends.
+
+// --- muUndoIo -- A = page: kArg..kArg+7 and kPtr set for a 256-byte transfer ---
+//  kReuReadAt/kReuWriteAt take the record pointer, the position, the length and the
+//  C64 end in the kArg block with kPtr; the position is page * 256 and the C64 end is
+//  the window.
+muUndoIo:
+    sta kArg+3                  // pos = page * 256
+    lda #0
+    sta kArg+2
+    sta kArg+6
+    lda #1
+    sta kArg+7                  // len = 256
+    ldx #<muUndoRec
+    ldy #>muUndoRec
+    stx kArg
+    sty kArg+1
+    ldx #<muUndoBuf
+    ldy #>muUndoBuf
+    stx kPtr
+    sty kPtr+1
+    rts
+
+// --- muUndoFlush -- write the window back to the page it came from ---
+//  Clobbers A, X, Y, kArg..kArg+7, kPtr.
+muUndoFlush:
+    lda muUcDirty
+    beq muUfRts
+    lda muUcWin
+    cmp #$ff
+    beq muUfRts
+    jsr muUndoIo
+    jsr kReuWriteAt
+    lda #0
+    sta muUcDirty
+muUfRts:
+    rts
+
+// --- muUndoWind -- the window holds the cursor's page ---
+//  kPtr and Y survive. A caller copying a record through the cursor holds the image
+//  pointer in kPtr, and the seat's own DMA would otherwise eat it.
+muUndoWind:
+    lda muUcPg
+    cmp muUcWin
+    beq muUwRts
+    tya
+    pha
+    lda kPtr
+    pha
+    lda kPtr+1
+    pha
+    jsr muUndoFlush
+    lda muUcPg
+    sta muUcWin
+    jsr muUndoIo
+    jsr kReuReadAt
+    lda #0
+    sta muUcDirty
+    pla
+    sta kPtr+1
+    pla
+    sta kPtr
+    pla
+    tay
+muUwRts:
+    rts
+
+// --- muUndoSet -- the stack cursor := A/X (lo/hi of the virtual offset) ---
+muUndoSet:
+    sta muUcOf
+    stx muUcPg
+    rts
+
+// --- muUndoGet -- A = the stack byte at the cursor; the cursor advances ---
+//  X and Y survive, so a copy loop can index with them across the call.
+muUndoGet:
     txa
-    adc #>muUndoBuf
-    sta srcPtr+1
+    pha
+    jsr muUndoWind
+    ldx muUcOf
+    lda muUndoBuf,x
+    inc muUcOf
+    bne muUgDone
+    inc muUcPg
+muUgDone:
+    sta muUcTmp
+    pla
+    tax
+    lda muUcTmp
+    rts
+
+// --- muUndoPut -- the stack byte at the cursor := A; the cursor advances ---
+//  X and Y survive.
+muUndoPut:
+    sta muUcTmp                 // the value: the seat below clobbers A
+    txa
+    pha
+    jsr muUndoWind
+    lda #1
+    sta muUcDirty
+    ldx muUcOf
+    lda muUcTmp
+    sta muUndoBuf,x
+    inc muUcOf
+    bne muUpDone
+    inc muUcPg
+muUpDone:
+    pla
+    tax
+    rts
+
+// --- muUndoArg -- kArg/kArg+1 = the stack file's name ---
+muUndoArg:
+    lda #<muUndoName
+    sta kArg
+    lda #>muUndoName
+    sta kArg+1
+    rts
+
+// --- muUndoOpen -- the stack's file, made the first time ---
+//  Out: C=0 muUndoRec holds it and muUndoOk is 1. C=1 there is no stack: the editor
+//  still runs and still edits, and undo reports that there is nothing to undo.
+muUndoOpen:
+    jsr muUndoArg
+    ldx #<muUndoRec
+    ldy #>muUndoRec
+    stx kPtr
+    sty kPtr+1
+    jsr kReuOpen
+    bcc muUoYes
+    jsr muUndoArg               // not there yet: make it, zeroed
+    lda #0
+    sta kArg+2
+    lda #MU_UNDO_PAGES
+    sta kArg+3
+    jsr kReuCreate
+    bcs muUoNo
+    jsr muUndoArg               // kReuCreate hands back no record, so open it again
+    ldx #<muUndoRec
+    ldy #>muUndoRec
+    stx kPtr
+    sty kPtr+1
+    jsr kReuOpen
+    bcs muUoNo
+muUoYes:
+    lda #1
+    sta muUndoOk
+    clc
+    rts
+muUoNo:
+    sec
     rts
 
 // --- muPushEdit -- append the record the fields describe, mark the tune dirty ---
@@ -4338,44 +4483,39 @@ muPeReset:
     sta muUndoTop
     sta muUndoTop+1
 muPeFit:
-    lda muUndoTop               // srcPtr = muUndoBuf + muUndoTop
+    lda muUndoOk                // no stack file: the edit still happens, undo cannot
+    bne muPeGo
+    lda #0
+    sta muRecCont
+    rts
+muPeGo:
+    lda muUndoTop
     ldx muUndoTop+1
-    jsr muUndoKPtr
-    ldy #0
+    jsr muUndoSet
     lda muRecOff
-    sta (srcPtr),y
-    iny
+    jsr muUndoPut
     lda muRecOff+1
-    sta (srcPtr),y
-    iny
+    jsr muUndoPut
     lda muRecV                  // the voice, with bit 7 = group start
     ldx muRecCont
     bne muPeVCont
     ora #$80
 muPeVCont:
-    sta (srcPtr),y
-    iny
+    jsr muUndoPut
     lda muRecOldN
-    sta (srcPtr),y
-    iny
+    jsr muUndoPut
     lda muRecNewN
-    sta (srcPtr),y
-    iny
+    jsr muUndoPut
     ldx #0                      // the old bytes
 muPeOld:
     cpx muRecOldN
     bcs muPeOldDone
     lda muRecOld,x
-    sta (srcPtr),y
-    iny
+    jsr muUndoPut
     inx
     bne muPeOld
 muPeOldDone:
-    sty muRecTmp                // save the write cursor: muRecKPtr clobbers Y
-    jsr muRecKPtr               // the new bytes, from the image -- and this SEAT
-    lda muUndoTop               //   destroys srcPtr, so it is derived again here
-    ldx muUndoTop+1
-    jsr muUndoKPtr
+    jsr muRecKPtr               // the new bytes, from the image
     ldx #0
 muPeNew:
     cpx muRecNewN
@@ -4383,15 +4523,12 @@ muPeNew:
     txa
     tay
     lda (kPtr),y                // image[off + x]
-    ldy muRecTmp
-    sta (srcPtr),y
-    inc muRecTmp
+    jsr muUndoPut
     inx
     bne muPeNew
 muPeNewDone:
-    ldy muRecTmp                // the trailing total
-    lda muRecTot
-    sta (srcPtr),y
+    lda muRecTot                // the trailing total
+    jsr muUndoPut
     //  advance the top past the record
     lda muUndoTop
     clc
@@ -4412,26 +4549,21 @@ muPeNewDone:
 //  Sets MU_RECOFF/V/OLDN/NEWN and muRecGrpStart (bit 7 of the voice byte, set on
 //  an action's first record). muRecTot = its total length; muRecV is 0..2.
 muRecLoad:
-    jsr muUndoKPtr
-    ldy #0
-    lda (srcPtr),y
+    jsr muUndoSet
+    jsr muUndoGet
     sta muRecOff
-    iny
-    lda (srcPtr),y
+    jsr muUndoGet
     sta muRecOff+1
-    iny
-    lda (srcPtr),y              // the voice byte carries the group-start flag
+    jsr muUndoGet
     pha
     and #$7f
     sta muRecV
     pla
     and #$80
     sta muRecGrpStart
-    iny
-    lda (srcPtr),y
+    jsr muUndoGet
     sta muRecOldN
-    iny
-    lda (srcPtr),y
+    jsr muUndoGet
     sta muRecNewN
     lda muRecOldN
     clc
@@ -4442,8 +4574,8 @@ muRecLoad:
 
 // --- muRangeReplace -- the image at MU_RECOFF: haveN bytes become wantN ---
 //  In: muRrHave, muRrWant, muRecV set, and muRrSrc = the wantN source bytes'
-//  offset in muUndoBuf. Opens or closes the difference (which clobbers srcPtr),
-//  then copies the source in -- so srcPtr is set only after the gap op.
+//  offset in the stack. Opens or closes the difference first, because that moves the
+//  image under kPtr, and only then reads the source in.
 muRangeReplace:
     lda muRrWant
     cmp muRrHave
@@ -4480,12 +4612,12 @@ muRrWrite:
     jsr muRecKPtr               // kPtr = image + off
     lda muRrSrc
     ldx muRrSrc+1
-    jsr muUndoKPtr              // srcPtr = muUndoBuf + muRrSrc
+    jsr muUndoSet               // the stack cursor := the record's new bytes
     ldy #0
 muRrLp:
     cpy muRrWant
     bcs muRrDone
-    lda (srcPtr),y
+    jsr muUndoGet
     sta (kPtr),y
     iny
     bne muRrLp
@@ -4501,7 +4633,7 @@ muUndo:
     jsr muMsgSet
     jmp muStatus
 muUzLoop:
-    lda muUndoTop               // srcPtr = &buf[top-1]: the trailing length
+    lda muUndoTop               // the byte below the top: the trailing length
     sec
     sbc #1
     tay
@@ -4509,9 +4641,8 @@ muUzLoop:
     sbc #0
     tax
     tya
-    jsr muUndoKPtr
-    ldy #0
-    lda (srcPtr),y
+    jsr muUndoSet
+    jsr muUndoGet
     sta muRecTot
     lda muUndoTop               // start = top - total
     sec
@@ -5126,7 +5257,6 @@ muDcRts:
 .const MU_DOT_SLOT0 = 5           // slots 0 and 1 are the pointer
 .const MU_DOT_Y     = 216         // on a black key: the upper three key rows
 .const MU_DOT_YN    = 226         // a natural sits in the white-key row below them
-.const MU_DOT_KEYS  = $e3         // slots 5, 6, 7 (and the pointer's two)
 
 // --- muDotInit -- resolve the dot art, once ---
 muDotInit:
@@ -7054,7 +7184,6 @@ muSlot:     .byte 0
 muName:     .fill 9, 0          // base name + NUL (never more than 7 + 1)
 muNameLen:  .byte 0
 muNameIdx:  .byte 0
-muGRow:     .byte 0
 muPRow:     .byte 0
 muPCell:    .byte 0
 muPCol:     .byte 0
@@ -7198,11 +7327,7 @@ muVRowHi:   .fill 3,0
 muVRem:     .fill 3,0          // jiffies carried into that voice's next row
 muSpan:     .word 0            // rows the current event covers
 muJifOut:   .word 0            // the length muStep just consumed
-muGdRowLo:  .byte 0
-muGdRowHi:  .byte 0
 muGdCol:    .byte 0
-muGdEnd:    .byte 0
-muGdFirst:  .byte 0
 
 // --- editing state ---
 muDurArm:   .byte 0             // the length a new note is written with
@@ -7224,8 +7349,6 @@ muLenJ2:    .word 0             // the event's whole length, for a split
 muN1:       .byte 0             // the events a split writes before the cursor
 muN2:       .byte 0             // ...and from the cursor on
 muSekTem:   .byte 0             // the tempo in force at the recorded event
-muPrtLo:    .byte 0             // a recorded event's pointer, mid-computation
-muPrtHi:    .byte 0
 muJ2Lo:     .byte 0             // a split's second half, kept across the first run
 muSkV:      .byte 0
 muValLo:    .byte 0
@@ -7326,7 +7449,6 @@ muRecOldN:  .byte 0             // ...bytes it replaces...
 muRecNewN:  .byte 0             // ...bytes it writes...
 muRecOld:   .byte 0, 0          // ...and the old bytes (oldN is 0 or 2)
 muRecTot:   .byte 0             // the record's total length
-muRecTmp:   .byte 0             // a write cursor while a record is built
 muRecStart: .word 0             // the record being undone starts here
 muRecCont:  .byte 0             // 1 = the next push appends to the action in flight
 muRecGrpStart: .byte 0          // bit 7 of the loaded record's voice byte
@@ -7347,6 +7469,20 @@ muInsMode:  .byte 0             // 0 overwrite, 1 insert (note entry pushes down
 muRrHave:   .byte 0             // range replace: bytes there now...
 muRrWant:   .byte 0             // ...and bytes wanted
 muRrSrc:    .word 0             // ...from this offset in muUndoBuf
-muUndoBuf:  .fill MU_UNDO_SIZE, 0
+muUndoBuf:  .fill 256, 0            // the window: the one page of the stack that is here
+muUcOf:     .byte 0             // the stack cursor's offset inside its page
+muUcPg:     .byte 0             // ...and its page
+muUcWin:    .byte $ff           // the page the window holds, $ff = none read yet
+muUcDirty:  .byte 0             // the window has writes the file has not seen
+muUcTmp:    .byte 0             // the byte muUndoGet carries across its own restore
+muUndoOk:   .byte 0             // the stack file resolved (0 = edits are not undoable)
+muUndoRec:  .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
+muUndoName: .text "musedit.und"
+muUndoNameEnd:
+            .byte 0
+// The FS holds a 1-11 character name and the kernel compares at most that many: a
+// longer one is stored but never found, so the editor would make a new one every run.
+.assert "the stack file's name fits the FS", (muUndoNameEnd - muUndoName) == 11 ? 1 : 0, 1
+.assert "the undo stack is whole pages", (MU_UNDO_SIZE / 256) * 256 == MU_UNDO_SIZE ? 1 : 0, 1
 
 

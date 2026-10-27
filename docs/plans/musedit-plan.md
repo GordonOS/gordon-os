@@ -1286,9 +1286,13 @@ order:
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 8 pages, and the printed text is
+- **e. Keep the accounting.** Budget: musedit's margin is 17 pages, and the printed text is
   already out of the code -- every string it prints is a record in the REU file `msgs`, so
-  adding a message costs no page (see `tools/gen-musedit-msgs.py`). b and d are the ones that
+  adding a message costs no page (see `tools/gen-musedit-msgs.py`). The editor's own
+  readout pages went with the timing line once the walk was proven, which is where the
+  last three of those pages came from, and the undo stack (2 KB, the largest single item the
+  task held) is 8 pages of the REU file `musedit.und` behind a 256-byte window rather than 8
+  pages of code. b and d are the ones that
   need the pages (a and the command-line pass used 6 between them: the
   46-field mnemonic table, the
   two decode tables, the ladder that formats each class of value, the per-class queues — and
