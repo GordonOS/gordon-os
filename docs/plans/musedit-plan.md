@@ -1286,8 +1286,11 @@ order:
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 6 pages; b and d are the ones that
-  need them (a and the command-line pass used 6 between them: the 46-field mnemonic table, the
+- **e. Keep the accounting.** Budget: musedit's margin is 8 pages, and the printed text is
+  already out of the code -- every string it prints is a record in the REU file `msgs`, so
+  adding a message costs no page (see `tools/gen-musedit-msgs.py`). b and d are the ones that
+  need the pages (a and the command-line pass used 6 between them: the
+  46-field mnemonic table, the
   two decode tables, the ladder that formats each class of value, the per-class queues — and
   then gave 412 bytes back by folding six repeated idioms into helpers). `check-pool-budget.ps1`
   is the gate, and `basic`-style exact fits are refused rather than warned about.

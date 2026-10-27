@@ -634,6 +634,7 @@ generator lives in `tools/`:
 | Banners `src/banners/*.bnr` | an image file | `img2bnr.py` (Pillow) | every `src/banners/*.bnr` |
 | Pictures `assets/pics/*.pic` | the source image `assets/pics/*-src.png`, which names its own conversion: `-mc-` before `-src` (or a leading `mc-`) is multicolour, `-dither-` error-diffuses (optionally `-dither45-` for 45%) | `img2pic.py` (Pillow) | `$assets` in `build-reu.ps1` |
 | UI band `assets/ui/gpui.bin`, `gpui_mc.bin` | the ASCII art `assets/ui/gpui.txt`: one 16x16 picture a tool, the last two being the MODE tile's two faces | `gen-ui.py --mode std` / `--mode mc` | `$assets` in `build-reu.ps1` |
+| musedit's text `assets/ui/musedit-msgs.bin` + `src/tasks/dynamic/musedit-msgs.inc` | `assets/ui/musedit-msgs.txt`: one quoted string a line, in slot order | `gen-musedit-msgs.py` | `$assets` in `build-reu.ps1`, and `-Check` in `build-tasks.ps1` |
 | Animation `assets/anim/<film>/*.anm` + `<film>.inf` | a video that is **not** in the tree — see below | `gen-anim.py` (Pillow; the frames are extracted with an FFmpeg first), which is also where the colour / greyscale / tone-curve choice lives | every `assets/anim/*/` `*.anm` and `*.inf` |
 | Batch scripts `src/batch/*.bat` | the script itself, one command per line | — | every `src/batch/*.bat` |
 

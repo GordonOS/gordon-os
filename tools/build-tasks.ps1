@@ -88,6 +88,12 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-tables.py') -Check
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# musedit's printed strings: the .inc holds the indices and the REU file `msgs` holds
+# the text, both from assets/ui/musedit-msgs.txt. A stale pair would print one
+# message where another was meant.
+& $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-msgs.py') -Check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # The duration arithmetic: the tool re-implements the player's routine, checks it
 # against the published tempo table and against the generated copy above, and
 # sweeps all 8,192 tempo/class/state combinations.

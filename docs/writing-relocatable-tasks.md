@@ -621,6 +621,17 @@ when it never takes the display and never pins its pages: `clock` (an overlay th
 shares its parent's surface and allocates none) is that shape, and so is `sidplay`
 with `repeats = 0` (no screen, one tune buffer, `kill`able from the prompt).
 
+**Text is the most expensive kind of data.** A pool page is 256 bytes and a
+`.text` literal costs one byte a character -- plus, for a message a caller points
+at, the two-instruction store that addresses it. A screen full of chrome and
+messages is easily two or three pages. Long or numerous strings belong in a file
+instead: `musedit` keeps every string it prints in the REU-FS file `msgs`, one
+fixed 64-byte record per message, so the offset is `index * 64`, one `kReuReadAt`
+brings a message in and the code holds nothing but the index
+(`docs/development.md`, and `tools/gen-musedit-msgs.py` which emits both the file
+and the `.inc` of indices). A caller needs no copy: point the printer at the
+read buffer, and remember that the buffer holds one message at a time.
+
 **You are in a multitasking system.** No unbounded blocking without yielding
 or sleeping, no writing outside your granted memory, no assuming you are the
 only writer of a global. Screen output during your timeslice is fine; the

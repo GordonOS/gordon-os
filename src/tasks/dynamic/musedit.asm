@@ -1,7 +1,7 @@
 // ==========================================
 //  musedit.asm -- tracker-style editor for COMPUTE!'s Sidplayer (.mus) tunes
 // ==========================================
-//  Wraps musedit.inc -- the task body, its strings and the generated piano glyphs.
+//  Wraps musedit.inc -- the task body, its generated tables and the piano glyphs.
 //  Nominal origin $5000 (page-aligned; delta_lo=0 for any pool page).
 
 .encoding "screencode_mixed"
@@ -29,6 +29,7 @@ museditNameEnd:
     .word 0                      // fixup_offset (written by the build)
     .fill 256 - (* - museditBinStart), 0
 
+.import source "musedit-msgs.inc"
 .import source "musedit.inc"
 .import source "musedit-glyphs.inc"
 .import source "musedit-tables.inc"

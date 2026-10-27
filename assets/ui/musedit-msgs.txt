@@ -1,0 +1,51 @@
+// ==========================================
+//  musedit-msgs.txt -- every string musedit prints, one per slot
+// ==========================================
+//  Read by tools/gen-musedit-msgs.py, which emits assets/ui/musedit-msgs.bin
+//  (64-byte slots, shipped in the REU image as `msgs`) and
+//  src/tasks/dynamic/musedit-msgs.inc (one M_* index per line).
+//
+//  The text is quoted so a trailing space survives an editor. The line order
+//  IS the slot order: a message sits at offset index*64 in the .bin, NUL
+//  terminated, so a slot is 63 characters at most.
+
+M_LANES        "ROW VOICE 1     VOICE 2     VOICE 3"
+M_TEM2         " TEM "
+M_BAR2         " BAR "
+M_ROW2         " R"
+M_BAR          "DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q"
+M_USAGE        "? name - run musedit <name>"
+M_USAGE2       "  up to 7 characters"
+M_NO_ART       "? no pointer art"
+M_NO_MOUSE     "? no mouse - mouse 1351 first"
+M_NOT_YET      "? not yet"
+M_ILLEGAL      "? illegal duration"
+M_NO_EVENT     "? no event here"
+M_NO_UNDO      "? nothing to undo"
+M_NO_REDO      "? nothing to redo"
+M_NO_PLAYER    "? no player"
+M_STOP_FIRST   "? stop first"
+M_UNSAVED      "? unsaved - q again"
+M_SAVED        "? saved"
+M_NO_ROOM      "? no space"
+M_NO_WIN       "? no windows"
+M_NO_FS        "? no fs"
+M_NO_WRITE     "? write failed"
+M_NO_TUNE      "? not a tune"
+M_NO_SCR       "? no scratch"
+M_DIR_FULL     "? dir full"
+M_TEM          "TEM $"
+M_TQ           " TQ="
+M_UNIT         " UNIT="
+M_ROW_BAR      " ROW/BAR="
+M_SIM          "SIM T="
+M_SIM_E        " E="
+M_SIM_T        "TEM $"
+M_SIM_U        " UTL="
+M_SIM_ON       " ON="
+M_SIM_HLT      " HLT"
+M_SIM_CAP      " CAP"
+M_SIM_ERR      " ERR"
+M_TRK          "t="
+M_VC           " v"
+M_OFF          " o=$"

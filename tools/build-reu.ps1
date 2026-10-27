@@ -133,7 +133,11 @@ $assets = @(
     # the MODE tile's face differs between them, and only the MC band carries the
     # four palette-slot chips.
     @{ name = "gpui.bin";    file = "assets/ui/gpui.bin" },
-    @{ name = "gpui_mc.bin"; file = "assets/ui/gpui_mc.bin" }
+    @{ name = "gpui_mc.bin"; file = "assets/ui/gpui_mc.bin" },
+    # musedit's printed text, written by tools/gen-musedit-msgs.py from
+    # assets/ui/musedit-msgs.txt: one 64-byte record per message, so the task reads
+    # a string instead of holding it, and its messages cost it no code page.
+    @{ name = "msgs";        file = "assets/ui/musedit-msgs.bin" }
 )
 
 # --- regenerate the generated artefacts from the sources on disk ---

@@ -17,8 +17,8 @@
 .const MU_CURROW    = 15      // text cursor row (transient)
 .const MU_TMPIDX    = 16      // string walker (transient)
 .const MU_INK       = 17
-.const MU_STRLO     = 18
-.const MU_STRHI     = 19
+.const MU_STRLO     = 18      // the string muTextAt is printing: muMsgBuf, or
+.const MU_STRHI     = 19      //   muSFallback before muMsgOpen has run
 .const MU_DUR       = 20
 .const MU_DOT       = 21
 .const MU_TIE       = 22
@@ -176,10 +176,6 @@
     lda #value
     sta (dataPtr),y
 }
-.macro muStr(label) {
-    muSet(MU_STRLO, <label)
-    muSet(MU_STRHI, >label)
-}
 .macro muAt(col, row) {
     muSet(MU_CURCOL, col)
     muSet(MU_CURROW, row)
@@ -190,9 +186,16 @@
 // ==========================================
 museditMain:
     jsr muScreen                // allocate, take the display, clear, zero state
+    jsr muMsgOpen               // the printed text is the REU file `msgs`, not code
+    bcc muMsgReady
+    muSet(MU_STRLO, <muSFallback)
+    muSet(MU_STRHI, >muSFallback)
+    jmp muFatal                 // with no file there is nothing else to say
+muMsgReady:
     jsr muSidCheck              // C=1: another task is using sid.lib -- report it
     bcc muSidFree               //   on OUR screen, before any library is touched
-    muStr(muSNoPlayer)
+    lda #M_NO_PLAYER
+    jsr muMsgSet
     jmp muFatal
 muSidFree:
     jsr muParseName             // C=1: no name, or longer than 7 characters
@@ -201,7 +204,8 @@ muSidFree:
     jsr muPtrInit               // the pointer, or a refusal when there is no mouse
     jsr muWinInit               // the three read windows, taken once for the session
     bcc muWinTaken
-    muStr(muSNoWin)             // no pool room for them: without windows the grid
+    lda #M_NO_WIN               // no pool room for them: without windows the grid
+    jsr muMsgSet
     jmp muPtrRefuse             //   cannot read the image at all
 muWinTaken:
     jsr muLoad                  // the tune, or a refusal when it cannot be had
@@ -627,7 +631,8 @@ muLoad:
     lda reuFsEnabled            // kReuOpen's code 6 means not found OR no FS, so
     cmp #REU_FS_SIGNATURE       // presence has to be its own test -- otherwise every
     beq muLdTry                 // new tune would be refused as a missing filesystem
-    muStr(muSNoFs)
+    lda #M_NO_FS
+    jsr muMsgSet
     sec
     rts
 muLdTry:
@@ -662,7 +667,8 @@ muLdOpen:
     bcs muLdNoScr
     jmp muLdCheck
 muLdNoScr:
-    muStr(muSNoScr)
+    lda #M_NO_SCR
+    jsr muMsgSet
     sec
     rts
 
@@ -780,7 +786,8 @@ muLdCheck:
     lda (dataPtr),y
     cmp #8
     bcs muLdGood
-    muStr(muSNoTune)
+    lda #M_NO_TUNE
+    jsr muMsgSet
     sec
     rts
 muLdGood:
@@ -881,7 +888,8 @@ muSvInPlace:
     clc
     rts
 muSvWriteBad:
-    muStr(muSNoWrite)
+    lda #M_NO_WRITE
+    jsr muMsgSet
     sec
     rts
 
@@ -939,19 +947,23 @@ muSvCreateBad:
     beq muSvNoRoom
     cmp #2
     beq muSvDirFull
-    muStr(muSNoWrite)
+    lda #M_NO_WRITE
+    jsr muMsgSet
     sec
     rts
 muSvNoFs:
-    muStr(muSNoFs)
+    lda #M_NO_FS
+    jsr muMsgSet
     sec
     rts
 muSvNoRoom:
-    muStr(muSNoRoom)
+    lda #M_NO_ROOM
+    jsr muMsgSet
     sec
     rts
 muSvDirFull:
-    muStr(muSDirFull)
+    lda #M_DIR_FULL
+    jsr muMsgSet
     sec
     rts
 
@@ -995,7 +1007,8 @@ muSvTold:
     lda #0                      // a saved tune is clean again
     sta muDirty
     sta muWarn
-    muStr(muSSaved)
+    lda #M_SAVED
+    jsr muMsgSet
     jmp muStatus
 
 // ==========================================
@@ -1426,12 +1439,12 @@ muTsRow1:
     jsr muClearRow
     muSet(MU_CURCOL, 0)
     muSet(MU_CURROW, 1)
-    muStr(muSTem)
-    jsr muTextAt
+    lda #M_TEM
+    jsr muMsg
     lda muTempo
     jsr muHex8
-    muStr(muSTq)
-    jsr muTextAt
+    lda #M_TQ
+    jsr muMsg
     lda #$90                    // class 4 (a quarter) + bit 7: the triplet
     jsr muNoteJiffies
     bcs muTsTqDash
@@ -1442,15 +1455,15 @@ muTsTqDash:
     lda #'-'
     jsr muPutC
 muTsUnit:
-    muStr(muSUnit)
-    jsr muTextAt
+    lda #M_UNIT
+    jsr muMsg
     jsr muUnit                 // A = the unit, X = the rows a bar has
     sta muUnitVal
     stx muUnitBar
     ldx #0
     jsr muNum16
-    muStr(muSRowBar)
-    jsr muTextAt
+    lda #M_ROW_BAR
+    jsr muMsg
     lda muUnitBar
     ldx #0
     jsr muNum16
@@ -2313,30 +2326,30 @@ muSimShow:
     jsr muClearRow0
     muSet(MU_CURROW, 0)
     muSet(MU_CURCOL, 0)
-    muStr(muSSim)
-    jsr muTextAt                // the label goes up before the walk, which is a
+    lda #M_SIM
+    jsr muMsg                   // the label goes up before the walk, which is a
     jsr muSimInit               // second or two of work on a long tune
     jsr muSimRun
     php
     lda muClkLo
     ldx muClkHi
     jsr muNum16
-    muStr(muSSimE)
-    jsr muTextAt
+    lda #M_SIM_E
+    jsr muMsg
     jsr muSimCounts
     muSet(MU_CURROW, 1)
     muSet(MU_CURCOL, 0)
-    muStr(muSSimT)
-    jsr muTextAt
+    lda #M_SIM_T
+    jsr muMsg
     lda muSimT
     jsr muHex8
-    muStr(muSSimU)
-    jsr muTextAt
+    lda #M_SIM_U
+    jsr muMsg
     lda muUl
     ldx #0
     jsr muNum16
-    muStr(muSSimOn)
-    jsr muTextAt
+    lda #M_SIM_ON
+    jsr muMsg
     lda muOn
     clc
     adc muOn+1
@@ -2345,23 +2358,23 @@ muSimShow:
     jsr muNum16
     plp
     bcc muShowStopped
-    muStr(muSSimCap)
-    jsr muTextAt
+    lda #M_SIM_CAP
+    jsr muMsg
     jmp muShowFrame
 muShowStopped:
     lda muErr
     beq muShowHlt
     pha
-    muStr(muSSimErr)
-    jsr muTextAt
+    lda #M_SIM_ERR
+    jsr muMsg
     pla
     clc
     adc #'0'
     jsr muPutC                  // the code says which stop it was
     jmp muShowFrame
 muShowHlt:
-    muStr(muSSimHlt)
-    jsr muTextAt
+    lda #M_SIM_HLT
+    jsr muMsg
 muShowFrame:
     jsr muStatArm
     rts
@@ -2424,19 +2437,19 @@ muTrGo:
     lda (kPtr),y
     sta muTmp2+1
     //  ...and MU_ACC is already an image offset, which is how tools/mus-sim.py names it
-    muStr(muSTrk)
-    jsr muTextAt
+    lda #M_TRK
+    jsr muMsg
     lda muClkLo
     ldx muClkHi
     jsr muNum16
-    muStr(muSVc)
-    jsr muTextAt
+    lda #M_VC
+    jsr muMsg
     lda muSv
     clc
     adc #'1'
     jsr muPutC
-    muStr(muSOff)
-    jsr muTextAt
+    lda #M_OFF
+    jsr muMsg
     lda muAccHi
     jsr muHex8
     lda muAccLo
@@ -2479,23 +2492,23 @@ muDrawAll:
 muDrawHead:
     jsr muClearRow0
     jsr muNameAt
-    muStr(muSTem2)
-    jsr muTextAt
+    lda #M_TEM2
+    jsr muMsg
     lda muTempo
     ldx #0
     jsr muNum16
     ldy #MU_CURCOL              // the tail -- BAR, the bar, R, the row -- starts here,
     lda (dataPtr),y             //   and the playhead rewrites it from here
     sta muHeadBarCol
-    muStr(muSBar2)
-    jsr muTextAt
+    lda #M_BAR2
+    jsr muMsg
     jsr muCursorAbs             // A/X = the cursor's absolute row
     jsr muBarOf                 // A/X = that row's bar, 1-based
     sta muHeadBar
     stx muHeadBar+1
     jsr muNum16
-    muStr(muSRow2)
-    jsr muTextAt
+    lda #M_ROW2
+    jsr muMsg
     ldy #MU_CURCOL              // where the row number goes, for the row update
     lda (dataPtr),y
     sta muHeadRowCol
@@ -2538,13 +2551,13 @@ muPhBar:
     ldy #MU_CURCOL
     lda muHeadBarCol
     sta (dataPtr),y
-    muStr(muSBar2)
-    jsr muTextAt
+    lda #M_BAR2
+    jsr muMsg
     jsr muCursorAbs
     jsr muBarOf
     jsr muNum16
-    muStr(muSRow2)              // R and the row, laid out as the head draw does
-    jsr muTextAt
+    lda #M_ROW2                 // R and the row, laid out as the head draw does
+    jsr muMsg
     ldy #MU_CURCOL              // the row field moved with the bar's width
     lda (dataPtr),y
     sta muHeadRowCol
@@ -2590,8 +2603,8 @@ muBarOf:
 
 muDrawLanes:
     muAt(0, 1)
-    muStr(muSLanes)
-    jmp muTextAt
+    lda #M_LANES
+    jmp muMsg
 
 // --- muDrawMode -- OVR or INS at the right of row 1 (outside the scroll area) ---
 muDrawMode:
@@ -2948,6 +2961,8 @@ muBarPaint:
     beq muBpGo
     jmp muBpKeep
 muBpGo:
+    lda #M_BAR                  // the bar's text, read back out of the message file
+    jsr muMsgSet
     lda #0
     sta muBarC
 muBpLp:
@@ -2965,13 +2980,13 @@ muBpLp:
     cmp muBarActP
     bne muBpNx
 muBpNorm:
-    lda muSBar,y
+    lda muMsgBuf,y
     ldx muBarC
     ldy #MU_BAR_ROW
     jsr kBlitChar
     jmp muBpNx
 muBpRev:
-    lda muSBar,y                // the character at this column
+    lda muMsgBuf,y              // the character at this column
     ldx muBarC
     ldy #MU_BAR_ROW
     jsr kBlitCharRev
@@ -3007,8 +3022,8 @@ muBaRts:
 
 muDrawBar:
     muAt(0, MU_BAR_ROW)
-    muStr(muSBar)
-    jmp muTextAt
+    lda #M_BAR
+    jmp muMsg
 
 // --- muDrawArm -- the bar's DUR field: the value cells and the dot cell ---
 //  Columns 4-6 of the bar row, through kPrintCharAt -- the fixed-cell writer,
@@ -3061,11 +3076,11 @@ muDaC1:
 
 muDrawRefuse:
     muAt(0, 0)
-    muStr(muSUsage)
-    jsr muTextAt
+    lda #M_USAGE
+    jsr muMsg
     muAt(0, 1)
-    muStr(muSUsage2)
-    jmp muTextAt
+    lda #M_USAGE2
+    jmp muMsg
 
 // ==========================================
 //  Text helpers
@@ -3199,6 +3214,69 @@ muTextLp:
     jmp muTextLp
 muTextDone:
     rts
+
+// --- muMsg -- load one message and print it at the text cursor ---
+//  In: A = a M_* index (musedit-msgs.inc). What most sites want: the message goes
+//  where the cursor is, exactly as muTextAt would put it.
+muMsg:
+    jsr muMsgSet
+    jmp muTextAt
+
+// --- muMsgSet -- load one message and point MU_STR at it, without printing ---
+//  In: A = a M_* index. The file is one MU_MSG_SLOT-byte record per index, so the
+//  offset is index * 64 and needs no table; ONE kReuReadAt brings the whole message
+//  in, and MU_STR points at that buffer -- the text is never copied. The buffer holds
+//  the message until the next one is read, so a caller prints before it reports
+//  another message.
+//  Clobbers kArg..kArg+7, kPtr and srcPtr (kReuReadAt), so it must not be called
+//  where a kernel argument is already in hand.
+muMsgSet:
+    pha
+    lsr
+    lsr                         // the offset's high byte: index / 4
+    sta kArg+3
+    pla
+    and #$03
+    asl
+    asl
+    asl
+    asl
+    asl
+    asl                         // ...and its low byte: (index AND 3) * 64
+    sta kArg+2
+    ldx #<muMsgRec
+    ldy #>muMsgRec
+    stx kArg
+    sty kArg+1
+    ldx #<muMsgBuf
+    ldy #>muMsgBuf
+    stx kPtr
+    sty kPtr+1
+    lda #MU_MSG_SLOT
+    sta kArg+6
+    lda #0
+    sta kArg+7                  // len = one record
+    jsr kReuReadAt
+    lda #0
+    sta muMsgBuf+MU_MSG_SLOT-1  // a read clamped by the end of the file must still
+                                //   terminate the message
+    muSet(MU_STRLO, <muMsgBuf)
+    muSet(MU_STRHI, >muMsgBuf)
+    rts
+
+// --- muMsgOpen -- resolve the message file, once, before anything is printed ---
+//  Out: C=0 muMsgRec holds its record. C=1 there is no file, or no filesystem: the
+//  caller can only leave, because there is then no text to say why.
+muMsgOpen:
+    lda #<muMsgName
+    sta kArg
+    lda #>muMsgName
+    sta kArg+1
+    ldx #<muMsgRec
+    ldy #>muMsgRec
+    stx kPtr
+    sty kPtr+1
+    jmp kReuOpen
 
 // --- muNameAt -- print the copied base name at the text cursor ---
 muNameAt:
@@ -3784,7 +3862,8 @@ muNcReplace:
     inx
     jmp muRedrawRows            // tail: its rts balances the jsr that entered
 muNcIllegal:
-    muStr(muSIllegal)
+    lda #M_ILLEGAL
+    jsr muMsgSet
     jmp muStatus
 muNcRts:
     rts
@@ -4129,7 +4208,8 @@ muItVDo:
     bcc muItVLoop
     jmp muRedrawNoHead
 muItIllegal:
-    muStr(muSIllegal)
+    lda #M_ILLEGAL
+    jsr muMsgSet
     jmp muStatus
 
 // --- muNoteInsMode -- insert mode: open the note in all voices, note in ours ---
@@ -4381,7 +4461,8 @@ muRestKey:
     jsr muSeek
     lda muSekKind
     beq muRkGo
-    muStr(muSNoEvent)
+    lda #M_NO_EVENT
+    jsr muMsgSet
     jmp muStatus
 muRkGo:
     jsr muRecAtSek  // the undo record: 2 bytes at the onset
@@ -4412,7 +4493,8 @@ muDelKey:
     jsr muSeek
     lda muSekKind
     beq muDkGo
-    muStr(muSNoEvent)
+    lda #M_NO_EVENT
+    jsr muMsgSet
     jmp muStatus
 muDkGo:
     jsr muRecAtSek  // the undo record: 2 bytes at the onset go away
@@ -4707,7 +4789,8 @@ muUndo:
     lda muUndoTop
     ora muUndoTop+1
     bne muUzLoop
-    muStr(muSNoUndo)
+    lda #M_NO_UNDO
+    jsr muMsgSet
     jmp muStatus
 muUzLoop:
     lda muUndoTop               // srcPtr = &buf[top-1]: the trailing length
@@ -4764,7 +4847,8 @@ muRedo:
     lda muUndoTop+1
     cmp muUndoLim+1
     bne muUxLoop
-    muStr(muSNoRedo)
+    lda #M_NO_REDO
+    jsr muMsgSet
     jmp muStatus
 muUxLoop:
     lda muUndoTop
@@ -4974,7 +5058,8 @@ muImgRoom:
     lda muNeedLo
     beq muIrOk              // exactly to the end of the file
 muIrBad:
-    muStr(muSNoRoom)
+    lda #M_NO_ROOM
+    jsr muMsgSet
     sec
     rts
 muIrOk:
@@ -5499,7 +5584,8 @@ muDotsOff:
 muPtrInit:
     lda mouseKind
     bne muPtrGo
-    muStr(muSNoMouse)
+    lda #M_NO_MOUSE
+    jsr muMsgSet
     jmp muPtrRefuse             // out of branch range: invert and jump
 muPtrGo:
     muSet(MU_HOV, $fe)          // no pitch yet: the first hover must redraw
@@ -5548,7 +5634,8 @@ muPtrZero:
     jmp muPlace                 // show it before the first sample
 
 muNoArt:
-    muStr(muSNoArt)
+    lda #M_NO_ART
+    jsr muMsgSet
 // --- muPtrRefuse -- say why the editor cannot run, wait for a key, leave ---
 //  In: MU_STRLO/MU_STRHI point at the message. The screen is blank at this point:
 //  the pointer comes up before anything is drawn.
@@ -6013,7 +6100,8 @@ muClickAct:
     bne muClkNotBarQ
     jmp muQuit                  // out of branch range: invert and jump
 muClkNotBarQ:
-    muStr(muSNotYet)            // a labelled cell with nothing behind it yet
+    lda #M_NOT_YET              // a labelled cell with nothing behind it yet
+    jsr muMsgSet
     jmp muStatus
 muBarSave:
     jsr muSaveTry
@@ -6138,7 +6226,8 @@ muPtStart:
     sta muPlayOn                // the music starts here, the view ready
     rts
 muPtNoChild:
-    muStr(muSNoPlayer)
+    lda #M_NO_PLAYER
+    jsr muMsgSet
     jmp muStatus
 
 // --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
@@ -6250,7 +6339,8 @@ muPtLost:
 muPtNoPlayer:
     lda #0                      // nothing is playing: the redraw below drops it
     sta muBarAct
-    muStr(muSNoPlayer)
+    lda #M_NO_PLAYER
+    jsr muMsgSet
     jsr muStatus
     jmp muRedrawAll             // the kernel's load-failure text landed in our grid
 muPtPlaying:
@@ -6951,7 +7041,8 @@ muHistAdd:
 // --- muPlaying -- C=1 and a "? stop first" status when the player is on ---
 muPlaying:    lda muPlayOn
     beq muPlNo
-    muStr(muSStopFirst)
+    lda #M_STOP_FIRST
+    jsr muMsgSet
     jsr muStatus
     sec
     rts
@@ -7046,7 +7137,8 @@ muQuit:
     lda muWarn
     bne muQuitGo
     inc muWarn
-    muStr(muSUnsaved)
+    lda #M_UNSAVED
+    jsr muMsgSet
     jmp muStatus
 muQuitGo:
     lda #16                     // drain by CAPACITY: a release folds to 0
@@ -7101,15 +7193,21 @@ muGdRts:
     rts
 
 // ==========================================
-//  Strings and code-image state
+//  The message file, and the rest of the code-image state
 // ==========================================
-muSLanes:   .text "ROW VOICE 1     VOICE 2     VOICE 3"
+//  Every printed string lives in ONE file in the REU filesystem, not in here: a
+//  character of text in a relocatable task costs a pool byte, and a site that
+//  pointed MU_STR at a literal cost twelve code bytes. The file holds fixed
+//  MU_MSG_SLOT-byte records, one per M_* index (musedit-msgs.inc, generated from
+//  assets/ui/musedit-msgs.txt), so a message's offset is index * 64 and one read
+//  brings the whole message in.
+muMsgName:  .text "msgs"
             .byte 0
-muSTem2:    .text " TEM "
-            .byte 0
-muSBar2:    .text " BAR "
-            .byte 0
-muSRow2:    .text " R"
+muMsgRec:   .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
+muMsgBuf:   .fill MU_MSG_SLOT, 0  // one message, printed before the next is read
+// The one string that cannot move: with no file there is nothing to print, not even
+// an error, so this is what the editor leaves on the screen.
+muSFallback: .text "? no msgs"
             .byte 0
 // One letter per note index 1..7 (C D E F G A B), in semitones from C.
 muLetterSem: .byte 0, 0, 2, 4, 5, 7, 9, 11
@@ -7159,54 +7257,10 @@ muDotTabHi: // ...and its ninth bit, which kSpritePos takes in C
 muLaneCol:  .byte MU_LANE1_COL, MU_LANE1_COL+MU_LANE_STEP, MU_LANE1_COL+2*MU_LANE_STEP
 muLaneW:    .byte MU_LANE_W, MU_LANE_W, MU_LANE_W
 muVoiceCol: .byte 2, 7, 3       // red, yellow, cyan -- the dot colours, voice 1..3
-muSBar:     .text "DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q"
-muSBarEnd:  .byte 0
-muSUsage:   .text "? name - run musedit <name>"
-            .byte 0
-muSUsage2:  .text "  up to 7 characters"
-            .byte 0
-muSNoArt:   .text "? no pointer art"
-            .byte 0
-muSNoMouse: .text "? no mouse - mouse 1351 first"
-            .byte 0
-muSNotYet:  .text "? not yet"
-            .byte 0
-muSIllegal: .text "? illegal duration"
-            .byte 0
-muSNoEvent: .text "? no event here"
-            .byte 0
-muSNoUndo:  .text "? nothing to undo"
-            .byte 0
-muSNoRedo:  .text "? nothing to redo"
-            .byte 0
-muSNoPlayer: .text "? no player"
-            .byte 0
-muSStopFirst: .text "? stop first"
-            .byte 0
-muSUnsaved: .text "? unsaved - q again"
-            .byte 0
 // A black key is written as the sharp of the letter below it: one letter and a
 // sharp flag per semitone, indexed by the semitone inside the octave.
 muSemLetter: .byte 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6, 7
 muSemSharp:  .byte 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0
-muSSaved:   .text "? saved"
-            .byte 0
-muSNoRoom:  .text "? no space"
-            .byte 0
-muSNoWin:   .text "? no windows"
-            .byte 0
-muSNoFs:    .text "? no fs"
-            .byte 0
-muSNoRead:  .text "? unreadable"
-            .byte 0
-muSNoWrite: .text "? write failed"
-            .byte 0
-muSNoTune:  .text "? not a tune"
-            .byte 0
-muSNoScr:   .text "? no scratch"
-            .byte 0
-muSDirFull: .text "? dir full"
-            .byte 0
 
 // The image a name with no file stands for: load address, the three voice
 // lengths, three one-event streams (HLT each) and an empty description.
@@ -7265,37 +7319,7 @@ muT6:       .text "64"
 // The same seven, as the row unit's candidates, shortest first.
 muUnitTab:  .byte $00, $1c, $18, $14, $10, $0c, $08
 muUnitRows: .byte 64, 32, 16, 8, 4, 2, 1
-muSTem:     .text "TEM $"
-            .byte 0
-muSTq:      .text " TQ="
-            .byte 0
-muSUnit:    .text " UNIT="
-            .byte 0
-muSRowBar:  .text " ROW/BAR="
-            .byte 0
 // The simulator's debug pages, in the shape tools/mus-sim.py prints.
-muSSim:     .text "SIM T="
-            .byte 0
-muSSimE:    .text " E="
-            .byte 0
-muSSimT:    .text "TEM $"
-            .byte 0
-muSSimU:    .text " UTL="
-            .byte 0
-muSSimOn:   .text " ON="
-            .byte 0
-muSSimHlt:  .text " HLT"
-            .byte 0
-muSSimCap:  .text " CAP"
-            .byte 0
-muSSimErr:  .text " ERR"
-            .byte 0
-muSTrk:     .text "t="
-            .byte 0
-muSVc:      .text " v"
-            .byte 0
-muSOff:     .text " o=$"
-            .byte 0
 muBarC:     .byte 0             // the column the bar painter is on
 muTid:      .byte 0             // this task's id, for the display-owner test
 muBarHov:   .byte 0             // the item under the pointer, 0 = none
@@ -7317,7 +7341,7 @@ muBarMapEnd:
 // map's last entry, where Q is -- so an edit to either has to keep up with the
 // other or the build stops.
 .assert "bar map covers the row", (muBarMapEnd - muBarMap) == MU_SCREEN_COLS ? 1 : 0, 1
-.assert "bar text ends at the Q column", (muSBarEnd - muSBar) == 38 ? 1 : 0, 1
+.assert "bar text ends at the Q column", M_BAR_LEN == 38 ? 1 : 0, 1
 // The three lane headers in row 1 are "ROW VOICE 1     VOICE 2     VOICE 3", so
 // the lanes start at 4, 16 and 28: a note always sits under its own header.
 .assert "voice 1 lane starts under its header", (MU_LANE1_COL == 4) ? 1 : 0, 1
