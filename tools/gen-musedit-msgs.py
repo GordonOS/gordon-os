@@ -13,6 +13,12 @@ message's offset is `index * 64` and there is no offset table to read first.
 `muMsg` reads one whole slot in a single DMA and points MU_STR at the buffer, so a
 message needs no copy and no terminator hunt beyond the NUL the slot carries.
 
+The .bin holds SCREEN CODES, not ASCII -- the editor prints it straight to the
+screen, and the two differ for every letter. A lower-case letter is $01-$1A; an
+upper-case one is its ASCII code ($41-$5A); everything else passes through. That is
+exactly what `.text` under `.encoding "screencode_mixed"` emits, which is what
+these strings used to be, so the screen shows what it always showed.
+
 Output, both from assets/ui/musedit-msgs.txt:
 
     assets/ui/musedit-msgs.bin      the slots, shipped in the REU image as `msgs`
@@ -35,6 +41,22 @@ INC = os.path.join(ROOT, "src", "tasks", "dynamic", "musedit-msgs.inc")
 SLOT = 64                       # bytes per message: longest is 38 + NUL
 
 LINE = re.compile(r'^([A-Z][A-Z0-9_]*)\s+"(.*)"$')
+
+
+def screencode(text):
+    """The bytes the screen wants, exactly as `.text` under `screencode_mixed`
+    emits them: a lower-case letter is $01-$1A, and every other character --
+    upper-case letters included -- is its own ASCII code ($20-$3F and $41-$5A).
+
+    The file has to hold these rather than ASCII: the editor prints it straight to
+    the screen, and ASCII $52 for 'R' is a graphics character.
+    """
+    return bytes((ord(c) - 96) if "a" <= c <= "z" else ord(c) for c in text)
+
+
+# The mapping above is the assembler's, so it is checked against the values
+# KickAssembler gives for the same text rather than trusted.
+assert screencode("aZ") == b"\x01\x5a", "screencode does not match screencode_mixed"
 
 
 def parse():
@@ -89,19 +111,24 @@ def build_inc(msgs):
     return "\n".join(out)
 
 
+def build(msgs):
+    """The 64-byte records, each message in screen codes, NUL padded."""
+    blob = bytearray()
+    for _, text in msgs:
+        rec = screencode(text) + b"\0"
+        blob += rec + b"\0" * (SLOT - len(rec))
+    return bytes(blob)
+
+
 def main():
     msgs = parse()
     inc = build_inc(msgs)
-    blob = bytearray()
-    for _, text in msgs:
-        rec = text.encode("ascii") + b"\0"
-        blob += rec + b"\0" * (SLOT - len(rec))
+    blob = build(msgs)
 
     check = "-Check" in sys.argv
     if check:
         bad = False
-        for path, want, binary in ((INC, inc.encode("ascii"), False),
-                                   (BIN, bytes(blob), True)):
+        for path, want in ((INC, inc.encode("ascii")), (BIN, blob)):
             try:
                 with open(path, "rb") as fh:
                     have = fh.read()

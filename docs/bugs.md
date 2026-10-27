@@ -21,6 +21,41 @@
 
 ---
 
+## Bug #184 — `musedit`'s messages came up as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes 🟠 ✅ FIXED (2026-10-27)
+
+**Symptom.** With the printed text moved out of the code and into the REU-FS file
+`msgs`, every message displayed as a `?` followed by graphics characters — the `?`
+itself was right and nothing after it was. Reported as *"error messages show as ?
+<some graphics characters>"*.
+
+**Root cause.** `muTextAt` prints the file's bytes **straight to the screen**, so a
+slot has to hold screen codes. `tools/gen-musedit-msgs.py` wrote ASCII
+(`text.encode("ascii")`): `?` is `$3F` in both encodings, which is why it survived,
+and every letter differs — `R` is `$52` in ASCII, and in the screen-code set
+`$41-$5A` is upper-case text while `$20-$3F` is punctuation and digits. So an
+ASCII letter is a graphics character. Measured with a one-line probe assembled by
+KickAssembler: `.text "MS# TEM ? aZ"` under `.encoding "screencode_mixed"` emits
+`4D 53 23 20 54 45 4D 20 3F 20 01 5A` — upper-case letters and everything in
+`$20-$3F` pass through **unchanged**, and only a lower-case letter is folded
+(`a` -> `$01`), because `screencode_mixed` is the mixed-case screen set, not a
+case-insensitive one.
+
+**Fix.** `screencode()` in the generator: `ord(c) - 96` for `a`-`z`, otherwise
+`ord(c)` — and an `assert` on the probe value (`"aZ"` -> `$01 $5A`) so the rule is
+checked rather than trusted. Verified by **assembling the same 40 strings** — each
+as `.text`, then `.byte 0`, then zero fill to 64 — and diffing the 2,560 assembled
+bytes against the generated `.bin`: identical. The images were reseeded and the
+seeded `msgs` compared with the file, so what a boot reads is what was checked.
+
+**Transferable:** an asset that the machine prints **is** screen codes, not ASCII,
+and `screencode_mixed` is not ASCII either — the two agree only in `$20-$3F`, so a
+message that starts with `?` prints that character correctly and disguises the
+fault behind it. Verify a generated text asset by assembling the same text with the
+assembler the firmware is built with and diffing the bytes; a visual check hides
+exactly this class of error.
+
+---
+
 ## Bug #183 — `grpaint`'s flood fill ran on the press that dismissed the UI band, so a click on the palette filled the canvas 🟠 ✅ FIXED (2026-10-11)
 
 **Symptom.** In fill mode, with the palette band up, a left click on the band ran the
@@ -7576,6 +7611,7 @@ The AM/PM suffix is written in non-sequential order (`timeBuf+9` before `timeBuf
 
 | ID | Severity | Status | Title |
 |---|---|---|---|
+| #184 | 🟠 High | ✅ Fixed | **`musedit`'s messages printed as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes.** `muTextAt` prints the REU file's bytes straight to the screen, so a slot must hold screen codes; `gen-musedit-msgs.py` wrote ASCII, which differs for every letter (`?` is `$3F` in both, which is why that one character looked right). `screencode()` now reproduces `.text` under `screencode_mixed` — `ord(c) - 96` for `a`-`z`, otherwise `ord(c)` — with an assert on the probe value, and the bytes were verified by assembling the same 40 strings with KickAssembler and diffing all 2,560 of them |
 | #183 | 🟠 High | ✅ Fixed | **In fill mode, the left press that dismissed the palette band also ran the flood fill.** `gpDraw`'s band guard reads `GP_MENU`, but `gpPicker` runs first in the same frame and `gpPickAway` clears `GP_MENU` as the band goes down — so the dismissal press reached `gpShapeFlood` as a canvas press and filled from a click made while the UI was up (deliberate for the pencil/shapes, #164b; wrong for a fill that reads its region from the canvas's pixels). `GP_MENU0` now records `GP_MENU` at the top of each displayed frame, before the picker can put the band away, and `gpShapeFlood` refuses when it is set: the dismissal only dismisses and the next press fills. `grpaint` 7729 -> 7743 bytes, 71 pool pages (unchanged), 64 asserts. Rule: **a guard that must tell "the UI was up when the press landed" from "the UI is up now" reads the frame's STARTING state — the flag that means "is up now" is cleared by the very dismissal it must detect.** |
 | #182 | 🔴 Critical | ✅ Fixed | **`allocFromPool` promised X and clobbered it, so every `kMalloc` recorded a wrong page count — pages stranded in the bitmap, or another owner's pages freed.** `kMallocImpl`'s `kmSlotFound` took the count from X with `txa` (commented "from X, not kArg: `kmEvictAlloc`'s `dlEvict` clobbers `kArg..+7`" — right about `kArg`, wrong about X), and `allocFromPool`'s own `poolBitCheck`/`poolBitSet` candidates each end in `tax`, so the value that stuck was `startPage + pages - 1`: `mallocPages = (startPage + pages - 1) & 7`, an arbitrary 0-7. `kFreeImpl`/`freeMallocBlocks` then freed exactly that many pages — too few strands used pages with no owner, too many clears the pages *above* the block, and the next allocation hands those to a new owner, which writes code over a live task's code: a JAM, and VICE falls back to the KERNAL READY prompt. Found from two save-states of the reported repro (`run sidplay`, `run edit`, quit, let the tune finish, `run sidplay` again): `edit`'s 4-page chunk at 55-58 was freed as 2 pages from 55, stranding **57-58** and splitting the free run at 56/59 — with **no owner table row for either page**, which is why `pool` looked clean, and why `run sidplay` then died in the load path while a second `run edit` was silently refused (the shell sacrificed itself). Fix: read the count from `allocFromPool`'s `kArg+4` echo (2 bytes). Same false `Clobbers:` line corrected in `freeFromPool`, `markPagesUsed`, `dlAllocCode`, `setTextColor`, `setCursorColor` and `spriteCollide`; `shareScreen`/`takeScreenOwnership` gained their (true) X contract. Free total 127 → **125 B / 22 pockets**; the code chain's growth tail `$FC3B-$FC3E` → `$FC3D-$FC3E`. Left behind: **`tools/audit-clobbers.py`** (path-sensitive X-contract screener with a 17-routine `--selftest`) and **`tools/vsf-pool-audit.py`** (reads a VICE save-state's pool bitmap and cross-checks it against the owner tables, reporting STOLEN and STRANDED pages). Rule: **a clobber list is a contract, and the outermost one is the only one a caller reads — a routine that calls a `tax`ing primitive has already clobbered X.** |
 | #181 | 🟠 High | ✅ Fixed | **The first of the four MC slot chips always showed black, however the picture had been saved.** On a load `gpPicPalMc` fills the task's four palette entries (`GP_MB+0..+3` -- what the chips draw, what a swatch press for slot 0 assigns to, what `gpCells`/`gpCram` refills the canvas from, and what value 0's marks are matched against) and it took `bg0` from `GP_HDR + GPIC_PAL_OFF` -- **+12, the border** -- instead of `+13`. `GPIC_PAL_OFF` is the palette's FIRST byte and the order is `border, bg0, bg1, bg2`, so the one MC colour the header carries (`$D021`, the value-0 source) was overwritten with the border's. Measured on the seed: `assets/pics/mc.pic` holds border 0, **bg0 6 (blue)**, bg1 0, bg2 1, with cell 0's matrix `$01` and its colour RAM `2`, so its four chip colours are blue, black, white, red -- the task drew black, black, white, red. Only the FIRST of those two blacks was wrong: the file's c1 really is 0 (613 of its 1000 cells carry a 0 high nibble), which is what the second chip is showing. The picture on screen was never affected, because `$D021` is written by `gpPicPal`'s selector loop, which does use +13 -- so the fault showed as a chip and nothing else, and the picture looking right is exactly why 4.13.5's verification passed it. Fix: `ldy #GP_HDR + GPIC_PAL_OFF + 1`. Rule: **an offset constant that names a STRUCTURE's start is not a field index** -- `GPIC_PAL_OFF + n` is a different colour per mode (hires: paper, ink; MC: bg0, c1, c2), so a read of it has to name the field it means rather than count from the block's base. `grpaint` 6762 bytes, 53 asserts. |
