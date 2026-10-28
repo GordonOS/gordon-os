@@ -2479,6 +2479,11 @@ mfcNone:
 //  Out: C=0 with A = its mnemonic id, MU_CMDVAL = the operand and MU_CMDROW = the
 //      row the line belongs to; C=1 when the cursor is not on a command line, or
 //      its lane has no command on that line -- a line carries one per lane.
+//  The line's index inside its row's group is taken from the group's LENGTH and the
+//  lines BELOW it, which are the ones that are certainly on screen: the row's own
+//  line is always below a command line. Counting the lines above instead reads
+//  whatever the window happens to start on -- scroll three lines into a row of ten
+//  commands and three of them are gone, so the index comes out three short.
 muCmdHere:
     ldy #MU_ROW
     lda (dataPtr),y
@@ -2499,23 +2504,6 @@ mchCmd:
     sta muCmdRow
     lda muLnTbHi,y
     sta muCmdRow+1
-    sty muTmpL                  // where the line is in the band
-    ldy #0                      // the command's index: the command lines above it
-mchCount:
-    lda muTmpL
-    beq mchHave                 // the cursor stands on the band's top line
-    dec muTmpL
-    ldx muTmpL
-    lda muLnTbHi,x              // an earlier row's line starts the group above
-    cmp muCmdRow+1
-    bne mchHave
-    lda muLnTbLo,x
-    cmp muCmdRow
-    bne mchHave
-    iny                         // another command line of the same row
-    jmp mchCount
-mchHave:
-    sty muCmdK                  // its own byte: the walk below clobbers MU_TMPH
     lda #1
     sta muLinkW                 // the producer is about to move: a refusal must
     jsr muWalkStart             //   put it back (muBandRebuild)
@@ -2536,6 +2524,30 @@ mchNext:
     sec
     rts
 mchFound:
+    ldy #MU_ROW                 // where the line is in the band again: the walk
+    lda (dataPtr),y             //   clobbers every temp it was in
+    sec
+    sbc #MU_GRID_TOP
+    tay
+    ldx #0                      // the group's command lines below it
+mchDown:
+    iny
+    cpy #MU_GRID_ROWS
+    bcs mchDepth                // the band ends first: take what is on screen
+    lda muLnKind,y
+    bne mchDepth                // the row's own line ends the group
+    inx
+    jmp mchDown
+mchDepth:
+    stx muTmp2
+    lda muLogLns                // k = the group's command lines - 1 - those below
+    sec
+    sbc muTmp2
+    bcc mchNone
+    beq mchNone
+    sec
+    sbc #1
+    sta muCmdK
     ldy #MU_VOICE               // the lane the cursor stands in
     lda (dataPtr),y
     asl                         // block = voice * 2 + class
@@ -2688,6 +2700,13 @@ mwtRts:
 muDrawGrid:
     lda muGdClip
     bne muDgWalk
+    lda #0
+    sta muWinTop                // a full draw starts at MU_TOP's FIRST line, so the
+    lda muTop                   //   tune's first line is at the top only from row 0
+    ora muTop+1
+    bne muDgClr
+    inc muWinTop
+muDgClr:
     jsr muGridClear
     ldx #MU_GRID_ROWS-1         // a line the walk never reaches is not a row
     lda #$ff
@@ -3618,13 +3637,18 @@ muCurUp:
     lda (dataPtr),y
     cmp #MU_GRID_TOP
     bne muCurUpIn
-    lda muTop
-    ora muTop+1
-    beq muCurDone               // already at the tune's first row
+    lda muWinTop
+    bne muCurDone               // the tune's first line is already at the top
     //  at the top: the window moves a whole page, so the grid is walked again
     //  once per page rather than once per row. The line above the window has
     //  never been walked -- the interpreter only runs forward -- so a repaint is
     //  the only way to see it, and a page amortises it over MU_GRID_ROWS rows.
+    //  WARNING: MU_TOP is a ROW and the window is a LINE, and one row can be many
+    //  lines (a row's commands each take one), so MU_TOP == 0 does NOT mean the
+    //  first line is at the top: the window can sit several lines inside row 0 and
+    //  still report row 0. MU_WINTOP is the flag that does mean it -- set by a draw
+    //  that starts at row 0, cleared by every scroll -- so the page up below is not
+    //  repeated once it has arrived.
     lda muTop
     sec
     sbc #MU_GRID_ROWS
@@ -7201,7 +7225,11 @@ msbGot:
     sta muTop
     lda muLnTbHi
     sta muTop+1
-    rts
+    lda #0
+    sta muWinTop                // a line moved, so whatever was at the top is not
+    rts                         //   the tune's first line any more -- even when the
+                                //   top line's row is still 0, which a row of ten
+                                //   command lines makes ordinary
 
 // --- muHistAdd -- remember the event the walk just took: its row and pitch ---
 //  In: X = the voice (muSv), muVRow = the onset row of the event just stepped.
@@ -7637,6 +7665,7 @@ muCmdVal:   .byte 0             // the operand of the command under the cursor
 muCmdRow:   .fill 2, 0          // ...and the row its line belongs to
 muCmdK:     .byte 0             // ...and its index in that row's command lines
 muLinkW:    .byte 0             // 1 while a search has walked the producer
+muWinTop:   .byte 0             // 1 while the band's top line is the tune's first
 // --- the line producer: a time row, or one structural command ---
 muGrpRow:   .fill 2, 0          // the row the open group belongs to
 muGrpSt:    .byte 0             // 1 = a group is open, 0 = the next line opens one

@@ -973,6 +973,24 @@ not rediscovered from scratch.
   drops below the row last drawn is a restart — and run `muRewindView` (which now only has to
   zero `muHistN`, `muTop` and the cursor's row and repaint) before continuing. Not wanted today;
   a tracker that loops in the editor would need it.
+- [ ] **10.4 The window position is a ROW, not a LINE.** `MU_TOP` names the row the window starts
+  at, but a row is drawn as **one line per command plus its own line** — `immig`'s row 0 is ten
+  command lines — so the window can sit several lines inside a row and still report that row.
+  Three consequences, all live today: (a) a **full repaint** (`muDrawGrid`, and so an edit, undo,
+  `SHIFT+U`) starts at `MU_TOP`'s *first* line, so the view **snaps back** to the top of a row it
+  was scrolled into; (b) a **partial repaint** (`muRedrawRows`) rewrites the band's line table
+  from that first line while the screen still shows the scrolled band, so the cursor's row and a
+  click's row can be off by the offset; (c) `MU_TOP == 0` does not mean the tune's first line is
+  at the top — the page up at the top of the band used that as its "already there" test and
+  refused to move, which is what made scrolling back to the beginning stick (see 13.4b).
+  *Fix:* carry the window as **(row, line offset)** — one byte, `MU_TOFF`: `muWalkToTop` skips
+  that many lines of the group it lands on, `muScrollBand` maintains it (same row -> +1, new row
+  -> 0), a page jump and a full draw zero it, and `mlkJump` sets it to the found line instead of
+  moving the cursor down the band. Roughly 50 bytes. Until then it is worked around rather than
+  fixed: `MU_WINTOP` is a flag meaning "the band's top line is the tune's first line" (set by a
+  draw that starts at row 0, cleared by every scroll) and the page up uses it for its early out.
+  Deferred until the features are in and the pages are known: (a) and (c) are cosmetic-to-annoying,
+  but **(b) is a correctness bug**, so if room runs out it is (b) that must be revisited first.
 
 ### Step 11 — The polish pass after the first sitting (done)
 
