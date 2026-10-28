@@ -183,9 +183,10 @@ The piano at the bottom of the screen is how notes go in.
 2. **Point at a key.** Row 0 names the pitch under the pointer (`C-4`, `C#4`) and the key is
    highlighted, so you always know what a click will enter.
 3. **Click.** With the cursor on a row where a note starts, the event's pitch becomes the
-   key's and its length is kept, so nothing below it moves. Inside a longer note the note is
-   split; past the last event (or in an empty voice) rests are filled in so the note lands on
-   the cursor's row — see *Editing* below.
+   key's and its length is kept, so nothing below it moves. A rest is the exception: it has
+   no length worth keeping, so the new note takes the armed duration. Inside a longer note the
+   note is split; past the last event (or in an empty voice) rests are filled in so the note
+   lands on the cursor's row — see *Editing* below.
 
 A command has a line of its own above the row it belongs to, and that line holds no note: with
 the cursor on a command's line a note key is refused (`? no event here`), so an entry can never
@@ -202,9 +203,11 @@ Every pitch the format allows is on screen at once — there is nothing to page 
 
 ### Duration, dots and tie
 
-The armed duration applies to a **new** note — one entered where no note starts, or inside a
-longer one. An event that already starts on the row keeps its own length, so typing a pitch
-over it never re-times the voice. Set the armed value with the number keys `1`–`7`
+The armed duration applies to a **new** note — one entered where no note starts, where a rest
+stands, or inside a longer one. A rest is silence with no length worth keeping, so a pitch
+typed over it takes the armed value and the events below move up into the space the rest gave
+back. An event that already starts on the row as a **note** keeps its own length, so typing a
+pitch over it never re-times the voice. Set the armed value with the number keys `1`–`7`
 (whole … 64th) or `8`/`9` (the utility lengths UTL/UTV). `.` cycles the dots (none, dotted,
 double-dotted, triplet). The armed value is shown in the control bar's `DUR` field — the dot
 cell shows `.` dotted, `:` double-dotted, `3` triplet.
@@ -265,6 +268,8 @@ The grid is time, and a note's length is the distance to the next note or rest i
 That gives four behaviours worth knowing:
 
 - **Entering on a note** replaces it. The rows below do not move.
+- **Entering on a rest** replaces it and takes the armed duration, so the rows below come up by
+  the difference.
 - **Entering inside a longer note** splits it: the long note is shortened to end where your new
   note begins, and the new note lands on the row you clicked. The rest of the tune does not
   shift.

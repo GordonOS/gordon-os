@@ -3519,12 +3519,6 @@ muNoteClick:
     bcc muNcGo
     rts
 muNcGo:
-    ldy #MU_HOV
-    lda (dataPtr),y
-    cmp #$ff
-    beq muNcRts                 // nothing under the pointer
-    cmp #$fe
-    beq muNcRts
     ldy #MU_ROW                // the kind of line the cursor stands on
     lda (dataPtr),y
     sec
@@ -3532,6 +3526,10 @@ muNcGo:
     tay
     lda muLnKind,y
     beq muNcNoEvt
+    ldy #MU_HOV
+    lda (dataPtr),y
+    cmp #$fe
+    bcs muNcRts                 // nothing under the pointer
     jsr muNoteOpt               // A = the note option byte for that key
     jsr muSeek
     lda muSekTem                // the tempo in force at the cursor's row
@@ -3559,8 +3557,15 @@ muNcReplace:
     jsr muCapOld
     jsr muSeekKPtr
     ldy #0
-    lda muRecOld                // the event keeps its own length and dots, so the
-    sta (kPtr),y                //   rows below it do not move
+    lda muRecOld+1              // the pitch that was there: letter 0 means a rest
+    and #$07
+    beq muNcArm
+    lda muRecOld                // a note: it keeps its own length and dots, so the
+    jmp muNcStore               //   rows below it do not move
+muNcArm:
+    lda muDurArm                // silence: nothing to keep, so the note is new and
+muNcStore:                      //   takes the armed length
+    sta (kPtr),y
     iny
     lda muNewOpt
     sta (kPtr),y
