@@ -2317,8 +2317,13 @@ muBarOf:
 
 muDrawLanes:
     muAt(0, 1)
+    lda #1                      // the lane headers read as one bar
+    sta muRevText
     lda #M_LANES
-    jmp muMsg
+    jsr muMsg
+    lda #0
+    sta muRevText
+    rts
 
 // --- muDrawMode -- OVR or INS at the right of row 1 (outside the scroll area) ---
 muDrawMode:
@@ -3131,6 +3136,12 @@ muDrawRefuse:
 //  kPrintCharAt clobbers A, X and Y, so the character rides the task's stack and
 //  the column is re-read afterwards. The cell is always written: whether a line is
 //  drawn at all is decided once, when the line is produced (muLnSpot).
+// --- muPutC -- print A at the text cursor and advance one cell ---
+//  MU_REVTEXT draws the cell reversed (a solid bar in the text colour with the
+//  glyph in bg0): the command lines and the lane header read as bars, so they
+//  cannot be mistaken for notes. The reverse blit writes the FRAMEBUFFER only, so
+//  it is used only while this task owns the display -- a background task keeps the
+//  routed writer and lands in its own surface, unreversed, until it is back.
 muPutC:
     pha
     ldy #MU_CURCOL
@@ -3139,8 +3150,18 @@ muPutC:
     ldy #MU_CURROW
     lda (dataPtr),y
     tay
+    lda muRevText
+    beq muPcPlain
+    lda muTid
+    cmp kbFocus
+    bne muPcPlain
+    pla
+    jsr kBlitCharRev
+    jmp muPcAdv
+muPcPlain:
     pla
     jsr kPrintCharAt
+muPcAdv:
     ldy #MU_CURCOL
     lda (dataPtr),y
     clc
@@ -3218,6 +3239,10 @@ muN16Next:
 // --- muTextAt -- print the NUL-terminated string at (MU_STRLO/MU_STRHI) ---
 //  srcPtr is reloaded before every character because kPrintCharAt clobbers it,
 //  and the index lives in the instance because it clobbers Y as well.
+// --- muTextAt -- print MU_STR at the text cursor ---
+//  One cell at a time through muPutC, so a caller that wants the text reversed
+//  (the lane header) gets it without a second writer. srcPtr is re-derived every
+//  pass because muPutC's kPrintCharAt clobbers it.
 muTextAt:
     muSet(MU_TMPIDX, 0)
     lda #MU_C_TEXT
@@ -3234,21 +3259,8 @@ muTextLp:
     tay
     lda (srcPtr),y
     beq muTextDone
-    pha
-    ldy #MU_CURCOL
-    lda (dataPtr),y
-    tax
-    ldy #MU_CURROW
-    lda (dataPtr),y
-    tay
-    pla
-    jsr kPrintCharAt
+    jsr muPutC
     ldy #MU_TMPIDX
-    lda (dataPtr),y
-    clc
-    adc #1
-    sta (dataPtr),y
-    ldy #MU_CURCOL
     lda (dataPtr),y
     clc
     adc #1
@@ -6949,6 +6961,8 @@ mlcHasCmd:
     clc
     adc muTmpL
     sta muTmpL                  // (id - 1) * 5
+    lda #1                      // the MNEMONIC reads as a bar; the operand below
+    sta muRevText               //   stays plain so the value is easy to read
     lda #0
     sta muTmpH
 mlcChars:
@@ -6962,6 +6976,8 @@ mlcChars:
     lda muTmpH
     cmp #5
     bcc mlcChars
+    lda #0                      // the operand is plain text
+    sta muRevText
     ldy muTmp2                  // TAL, HLT and END take no operand
     lda muLogId,y
     cmp #MU_MN_TAL
@@ -7674,6 +7690,7 @@ muCmdRow:   .fill 2, 0          // ...and the row its line belongs to
 muCmdK:     .byte 0             // ...and its index in that row's command lines
 muLinkW:    .byte 0             // 1 while a search has walked the producer
 muWinTop:   .byte 0             // 1 while the band's top line is the tune's first
+muRevText:  .byte 0             // 1 while muPutC draws reversed (command lines)
 // --- the line producer: a time row, or one structural command ---
 muGrpRow:   .fill 2, 0          // the row the open group belongs to
 muGrpSt:    .byte 0             // 1 = a group is open, 0 = the next line opens one
