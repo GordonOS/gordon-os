@@ -2427,7 +2427,9 @@ muDgDraw:
     cmp #MU_GRID_BOT+1
     bcc muDgDraw
 muDgEnd:
-    rts
+    lda #0                      // the clip lasts exactly one draw: the lines the
+    sta muGdClip                //   next scroll pulls in are outside it and must be
+    rts                         //   drawn
 
 // --- muGdFlag -- '?' on the row whose length the tempo in force refused ---
 // --- muRedrawRows -- draw the grid for a band of screen rows only ---
@@ -3337,8 +3339,6 @@ muRedrawAll:
 //  Undo and redo repaint through this: the header shows the cursor's bar and
 //  row, which an undo never moves, so only the grid and the cursor are redrawn.
 muRedrawNoHead:
-    lda #0
-    sta muGdClip
     jsr muDrawGrid
     jmp muCursorShow
 
@@ -3571,10 +3571,9 @@ muNcStore:                      //   takes the armed length
     sta (kPtr),y
     jsr muWinFlush0             // the pair reaches its page before the record reads it
     jsr muPushEdit             // ...become 2 new bytes there
-    ldy #MU_ROW                 // the pitch is the only thing that moved
-    lda (dataPtr),y
-    tax
-    inx
+    ldy #MU_ROW                 // the length changed with the pitch, so every row
+    lda (dataPtr),y             //   below moves: redraw from the cursor down
+    ldx #MU_GRID_BOT+1
     jmp muRedrawRows            // tail: its rts balances the jsr that entered
 muNcIllegal:
     lda #M_ILLEGAL

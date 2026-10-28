@@ -21,6 +21,41 @@
 
 ---
 
+## Bug #185 — after any edit, `musedit`'s grid stopped drawing beyond the window: the partial repaint's clip was never cleared 🟠 ✅ FIXED (2026-10-28)
+
+**Symptom.** Enter a note, move the cursor to the bottom of the grid and keep
+pressing CRSR-DOWN: the band shifted and the head's `R` field advanced, but every
+line that arrived was blank and **unnumbered** — the rest of the tune never came
+into view. Reported as *"I enter a note then scroll down with cursor, and once the
+cursor reaches the bottom, if I keep scrolling down I do not see anything
+appear"*. Loading the same tune and scrolling without editing it showed the tune
+normally, so the edit was the trigger.
+
+**Root cause.** `muRedrawRows` — the band-limited repaint an edit uses — opens with
+`lda #1 / sta muGdClip` and never clears it. `muGdClip` is what `muDrawGrid` reads
+to decide whether it may clear the grid and its line table, and what `muLnSpot`
+reads to decide whether a line falls inside the repainted band
+(`MU_GDLo..MU_GDHi`, the screen rows the edit touched). So from the first edit on,
+the editor stayed permanently in partial-repaint mode: every line the scroll pulled
+in was outside that stale band, so `muLnSpot` recorded its table entry and then
+**declined to draw it** — which is why the walk and the row numbering state
+advanced while the screen stayed blank. `muRedrawNoHead` (undo/redo) carried its own
+`lda #0 / sta muGdClip` before repainting, which is what proved the clip was known
+to be sticky and only remembered at one of the call sites.
+
+**Fix.** The clip belongs to the draw that reads it, so `muDrawGrid` **consumes**
+it: `muDgEnd` clears `muGdClip` on the way out, and `muRedrawNoHead`'s private clear
+went away (net 0 bytes). Same commit: the note-replace path now repaints from the
+cursor's row down instead of one row (`ldx #MU_GRID_BOT+1`), because a pitch typed
+over a **rest** takes the armed length, so every row below it can move.
+
+**Transferable:** a mode flag set by one routine and cleared by another is a
+one-shot that *will* be forgotten — clear it in the routine that consumes it, so the
+next caller cannot inherit it. The tell here is a blank-but-advancing display: the
+walk, the table and the head were all correct, and only the drawing was gated.
+
+---
+
 ## Bug #184 — `musedit`'s messages came up as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes 🟠 ✅ FIXED (2026-10-27)
 
 **Symptom.** With the printed text moved out of the code and into the REU-FS file
@@ -7611,6 +7646,7 @@ The AM/PM suffix is written in non-sequential order (`timeBuf+9` before `timeBuf
 
 | ID | Severity | Status | Title |
 |---|---|---|---|
+| #185 | 🟠 High | ✅ Fixed | **After any edit, `musedit`'s grid stopped drawing beyond the window.** `muRedrawRows` (the band-limited repaint an edit uses) set `muGdClip` and never cleared it, so from the first edit on the editor stayed in partial-repaint mode: every line the scroll pulled in fell outside the stale `MU_GDLo..MU_GDHi` band, `muLnSpot` recorded its table entry and declined to draw it, and the arriving lines were blank **and unnumbered** while the head's `R` advanced. `muDrawGrid` now consumes the clip at `muDgEnd`, `muRedrawNoHead`'s private clear is gone (net 0 bytes), and the note-replace path repaints from the cursor's row down, because a pitch typed over a rest takes the armed length and moves every row below. Rule: **a mode flag set by one routine and cleared by another is a one-shot that will be forgotten — clear it in the routine that consumes it.** The tell is a blank-but-advancing display |
 | #184 | 🟠 High | ✅ Fixed | **`musedit`'s messages printed as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes.** `muTextAt` prints the REU file's bytes straight to the screen, so a slot must hold screen codes; `gen-musedit-msgs.py` wrote ASCII, which differs for every letter (`?` is `$3F` in both, which is why that one character looked right). `screencode()` now reproduces `.text` under `screencode_mixed` — `ord(c) - 96` for `a`-`z`, otherwise `ord(c)` — with an assert on the probe value, and the bytes were verified by assembling the same 40 strings with KickAssembler and diffing all 2,560 of them |
 | #183 | 🟠 High | ✅ Fixed | **In fill mode, the left press that dismissed the palette band also ran the flood fill.** `gpDraw`'s band guard reads `GP_MENU`, but `gpPicker` runs first in the same frame and `gpPickAway` clears `GP_MENU` as the band goes down — so the dismissal press reached `gpShapeFlood` as a canvas press and filled from a click made while the UI was up (deliberate for the pencil/shapes, #164b; wrong for a fill that reads its region from the canvas's pixels). `GP_MENU0` now records `GP_MENU` at the top of each displayed frame, before the picker can put the band away, and `gpShapeFlood` refuses when it is set: the dismissal only dismisses and the next press fills. `grpaint` 7729 -> 7743 bytes, 71 pool pages (unchanged), 64 asserts. Rule: **a guard that must tell "the UI was up when the press landed" from "the UI is up now" reads the frame's STARTING state — the flag that means "is up now" is cleared by the very dismissal it must detect.** |
 | #182 | 🔴 Critical | ✅ Fixed | **`allocFromPool` promised X and clobbered it, so every `kMalloc` recorded a wrong page count — pages stranded in the bitmap, or another owner's pages freed.** `kMallocImpl`'s `kmSlotFound` took the count from X with `txa` (commented "from X, not kArg: `kmEvictAlloc`'s `dlEvict` clobbers `kArg..+7`" — right about `kArg`, wrong about X), and `allocFromPool`'s own `poolBitCheck`/`poolBitSet` candidates each end in `tax`, so the value that stuck was `startPage + pages - 1`: `mallocPages = (startPage + pages - 1) & 7`, an arbitrary 0-7. `kFreeImpl`/`freeMallocBlocks` then freed exactly that many pages — too few strands used pages with no owner, too many clears the pages *above* the block, and the next allocation hands those to a new owner, which writes code over a live task's code: a JAM, and VICE falls back to the KERNAL READY prompt. Found from two save-states of the reported repro (`run sidplay`, `run edit`, quit, let the tune finish, `run sidplay` again): `edit`'s 4-page chunk at 55-58 was freed as 2 pages from 55, stranding **57-58** and splitting the free run at 56/59 — with **no owner table row for either page**, which is why `pool` looked clean, and why `run sidplay` then died in the load path while a second `run edit` was silently refused (the shell sacrificed itself). Fix: read the count from `allocFromPool`'s `kArg+4` echo (2 bytes). Same false `Clobbers:` line corrected in `freeFromPool`, `markPagesUsed`, `dlAllocCode`, `setTextColor`, `setCursorColor` and `spriteCollide`; `shareScreen`/`takeScreenOwnership` gained their (true) X contract. Free total 127 → **125 B / 22 pockets**; the code chain's growth tail `$FC3B-$FC3E` → `$FC3D-$FC3E`. Left behind: **`tools/audit-clobbers.py`** (path-sensitive X-contract screener with a 17-routine `--selftest`) and **`tools/vsf-pool-audit.py`** (reads a VICE save-state's pool bitmap and cross-checks it against the owner tables, reporting STOLEN and STRANDED pages). Rule: **a clobber list is a contract, and the outermost one is the only one a caller reads — a routine that calls a `tax`ing primitive has already clobbered X.** |
