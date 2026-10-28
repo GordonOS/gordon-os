@@ -7465,6 +7465,10 @@ muSdRts:
 // --- muGiveDisplay -- hand the display back BEFORE releasing our surface ---
 //  edit.inc's rule: sysExit's hand-off runs after the task is DEAD, so a dying
 //  task with no surface and no parent can blank the screen.
+//  The cursor goes off and any live block is un-drawn inside the SEI window that
+//  ends in the switch -- edit's STOP-modal pair, which is what keeps a block out
+//  of the framebuffer copy that surfSave makes of the outgoing surface. Both
+//  calls clobber A, X, Y, kPtr and kArg, so the parent slot rides the stack.
 muGiveDisplay:
     lda #SYS_GETTID
     jsr syscall
@@ -7477,7 +7481,16 @@ muGiveDisplay:
     tax
     lda taskState,x
     beq muGdRts                 // the parent is dead: let sysExit decide
-    jsr kSwitchView
+    txa
+    pha                         // the parent, while the cursor calls run
+    php
+    sei                         // no IRQ tick may draw a block back between the
+    jsr kDisableCursor          //   erase and the copy of our framebuffer
+    jsr kBlinkReset
+    pla
+    tax
+    jsr kSwitchView             // display + kbFocus move to the parent
+    plp
 muGdRts:
     rts
 
