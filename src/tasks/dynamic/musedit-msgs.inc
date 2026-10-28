@@ -6,7 +6,7 @@
 //  holds it as `msgs`, one MU_MSG_SLOT-byte record per index, in this order,
 //  each NUL terminated. muMsg DMAs a record into its buffer and points the
 //  text at it, so a string costs no code page at all.
-.const MU_MSG_COUNT = 28
+.const MU_MSG_COUNT = 29
 .const MU_MSG_SLOT = 64
 .const M_LANES      = 0
 .const M_TEM2       = 1
@@ -36,6 +36,7 @@
 .const M_NOT_PHRASE = 25
 .const M_NO_DEF     = 26
 .const M_NO_CALL    = 27
+.const M_CMD        = 28
 
 // The length of each message, for a layout that depends on it: the bar's
 // labels sit in fixed cells, so their width is not decoration.
@@ -67,3 +68,4 @@
 .const M_NOT_PHRASE_LEN = 14
 .const M_NO_DEF_LEN = 15
 .const M_NO_CALL_LEN = 9
+.const M_CMD_LEN    = 4

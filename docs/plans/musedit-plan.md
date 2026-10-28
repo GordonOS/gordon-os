@@ -1319,16 +1319,29 @@ order:
   its own byte; and a search leaves the producer parked at the row it stopped on, so a refusal
   puts it back **silently** (`muBandRebuild`) -- repainting instead makes a one-second message
   flash the whole grid.
-- **c. Author it.** The `CMD` key (printed on the bar, not yet wired) opens the mnemonic menu
-  for every command the player implements -- `TEM`, `UTL`, `UTV`, `HED`, `TAL`, `HLT`, `END`,
-  `DEF`, `CALL`, the 2- and 3-type groups (envelope, waveform/pulse, frequency, filter,
-  modulation, volume) and the 16-23 phrase form. Adding or removing a command pair is a
-  two-byte gap move under the existing undo record.
+- **c. Author it.** *Partly done.* `C` — and `SHIFT+C`, and the `CMD` cell on the bar — opens a
+  **one-line prompt on row 0** rather than a full-screen panel: CRSR up/down picks one of the nine
+  structural commands, `RETURN` takes it and the digits then build its operand, `STOP` cancels and
+  the grid comes back untouched. The prompt writes at most **two bytes**: the pair is inserted at
+  the boundary the cursor's row starts (the same `muInsGap` a note uses), or replaced where it
+  stands when that boundary already carries the same command and the mode is `OVR`; `SHIFT+INST/DEL`
+  on a command line removes the pair through `muDelGap`. Either way the undo record is the pair
+  alone, so a command edit undoes as one action and no row moves. The pieces are `muObjEnc`
+  (mnemonic + operand -> pair, from three id-indexed tables), `muObjFind` (a boundary's command
+  pairs are contiguous before the event's own pair, so a backwards two-byte scan finds the one an
+  id names) and `muMnPrint` (the mnemonic field, shared with the draw).
+  Two rules the work settled. A command pair consumes no time, so its line only ever sits above a
+  **note or a rest**: a row in the middle of a duration is refused (`? no event here`) rather than
+  split, because the format has nothing to split it with — which is also why the editor offers no
+  way to place one there. And the authoring surface is the nine structural commands, whose operands
+  are the tune's own settings; a sound command's operand is a timing or a waveform number that
+  belongs to the pattern, so those lines are drawn and not typed. Remaining: the sound commands and
+  the 16-23 phrase form, which want a panel and hex operands.
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 14 pages (b cost 597 bytes, 58 -> 61
-  pages), and the printed text is
+- **e. Keep the accounting.** Budget: musedit is 65 code pages of the pool's 109, a margin of 10
+  (b cost 597 bytes and a page, c 913 bytes and four), and the printed text is
   already out of the code -- every string it prints is a record in the REU file `msgs`, so
   adding a message costs no page (see `tools/gen-musedit-msgs.py`). The editor's own
   readout pages went with the timing line once the walk was proven, which is where the

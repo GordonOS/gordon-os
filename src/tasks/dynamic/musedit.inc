@@ -157,6 +157,7 @@
 .const MU_BAR_Q     = 2       // hit-map code: this one quits
 .const MU_BAR_SAVE  = 3       // ...and this one writes the image back
 .const MU_BAR_PLAY  = 4       // ...and this one plays or stops
+.const MU_BAR_CMD   = 7       // ...and this one authors the row's command line
 
 // --- tiny instance helpers (offsets are constants, so these stay inline) ---
 .macro muSet(field, value) {
@@ -3582,10 +3583,18 @@ muKeyNotRest:
     bne muKeyNotDel
     jsr muPlaying
     bcs muKndlIdle
-    jsr muDelKey
+    jsr muDelKey2
 muKndlIdle:
     jmp muKeyIdle
 muKeyNotDel:
+    cmp #'c'                    // C: author the command on this row
+    beq muKeyCmd
+    cmp #$43                    // ...and SHIFT+C does the same
+    bne muKeyNotCmd
+muKeyCmd:
+    jsr muObjKey
+    jmp muKeyIdle
+muKeyNotCmd:
     cmp #'z'                    // Z: undo
     bne muKeyNotZ
     jsr muPlaying
@@ -4652,6 +4661,492 @@ muDkGo:
     lda (dataPtr),y
     ldx #MU_GRID_BOT+1
     jmp muRedrawRows
+
+// --- muDelKey2 -- SHIFT+INST/DEL: the command on this line, else the row's event ---
+muDelKey2:
+    jsr muCmdHere
+    bcc mdkCmd                  // a command on this line: that is what goes
+    ldy #MU_ROW
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    tay
+    cpy #MU_GRID_ROWS
+    bcs mdkEvent
+    lda muLnKind,y
+    bne mdkEvent                // the row's own line: the event's own delete
+    jsr muBandRebuild           // a command line another lane owns: nothing here
+    lda #M_NO_EVENT
+    jsr muMsgSet
+    jmp muStatus
+mdkEvent:
+    jmp muDelKey
+mdkCmd:
+    sta muObjId                 // its mnemonic and operand name the pair
+    lda muCmdVal
+    sta muObjVal
+    lda #1
+    sta muObjMatch
+    jsr muBandRebuild
+    jsr muSeek
+    lda muSekKind
+    bne mdkGone                 // the row's event started above: no boundary
+    jsr muObjFind
+    bcs mdkGone                 // not in the run: nothing to remove
+    jsr muRecAtObj              // the undo record: two bytes at MU_OBJLO/HI
+    lda #2
+    sta muRecOldN
+    lda #0
+    sta muRecNewN
+    jsr muCapOld
+    lda #2
+    sta muInsN
+    lda muObjLo
+    sta muInsLo
+    lda muObjLo+1
+    sta muInsHi
+    lda muSkV
+    jsr muDelGap
+    jsr muPushEdit
+    jmp mqRedraw
+mdkGone:
+    jsr muBandRebuild
+    lda #M_NO_EVENT
+    jsr muMsgSet
+    jmp muStatus
+
+// ==========================================
+//  Command lines -- create, replace and remove
+// ==========================================
+//  A command pair takes no time: the player applies it when it reaches it, which
+//  is the onset of the next note or rest in that voice. So a command belongs to the
+//  boundary in FRONT of an event, its line sits above that row, and there is no
+//  boundary inside a duration to put one at -- those rows are refused rather than
+//  split, because the format has no way to split a note.
+//  Writing a pair moves bytes and never time: every row stays where it is, so the
+//  undo record is the pair alone and no row needs renumbering.
+//  The nine structural commands are the authoring surface: their operands are the
+//  tune's own settings, where a sound command's operand is a timing or a waveform
+//  value that belongs to the pattern rather than to a line somebody types.
+
+// --- muObjKey -- SHIFT+C, and the bar's CMD cell ---
+muObjKey:
+    jsr muPlaying
+    bcs mqRts                   // "? stop first" is already up
+    jsr muCmdHere               // a command on the cursor's line?
+    bcc mqHave                  // yes: A = its mnemonic id
+    ldy #MU_ROW                 // no: only a row's OWN line can take a new one
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    tay
+    cpy #MU_GRID_ROWS
+    bcs mqRefuse
+    lda muLnKind,y
+    beq mqRefuse                // a command line this lane has nothing on
+    jsr muSeek
+    lda muSekKind
+    bne mqRefuse                // the event started above: no boundary here
+    lda #MU_MN_TEM
+    sta muObjId
+    lda #0
+    sta muObjVal
+    sta muObjKind               // 0 = a pair to be added at the boundary
+    jmp mqPick
+mqHave:
+    sta muObjId
+    lda muCmdVal
+    sta muObjVal
+    lda #1                      // 1 = the pair exists: its two bytes are replaced
+    sta muObjKind
+    sta muObjMatch
+    jsr muBandRebuild           // the walk left the producer parked
+    jsr muSeek
+    lda muSekKind
+    bne mqGone                  // the row's event started above: no boundary
+    jsr muObjFind               // its offset, by mnemonic and operand
+    bcc mqPick
+mqGone:
+    jmp mqRefuse
+mqRefuse:
+    jsr muBandRebuild
+    lda #M_NO_EVENT
+    jsr muMsgSet
+    jmp muStatus
+mqRts:
+    rts
+
+// --- mqPick -- the row-0 prompt: pick the mnemonic, then type the operand ---
+mqPick:
+    lda #0
+    sta muObjPhase
+mqDraw:
+    jsr muObjEnc                // the operand's maximum, and the encoded pair
+    lda muObjVal                // a mnemonic picked after a value was typed keeps it
+    cmp muObjMax                //   only as far as the new one takes it
+    bcc mqDrawOk
+    lda muObjMax
+    sta muObjVal
+mqDrawOk:
+    jsr muClearRow0
+    lda #M_CMD
+    jsr muMsg
+    lda #1                      // the mnemonic reads as a bar, as it does in the grid
+    sta muRevText
+    lda muObjId
+    jsr muMnPrint               // leaves MU_REVTEXT at 0
+    lda muObjId                 // TAL, HLT and END take no operand
+    cmp #MU_MN_TAL
+    beq mqDrawEnd
+    cmp #MU_MN_HLT
+    beq mqDrawEnd
+    cmp #MU_MN_END
+    beq mqDrawEnd
+    lda #MU_SPACE
+    jsr muPutC
+    lda muObjVal
+    jsr muByteDec
+mqDrawEnd:
+    lda muObjPhase
+    bne mqValKey
+    jmp mqIdKey
+
+// --- the mnemonic step: CRSR up and down walk the nine, RETURN takes one ---
+mqIdKey:
+    jsr kReadKey
+    beq mqIdWait
+    cmp #$84                    // CRSR down: the next mnemonic
+    beq mqIdDown
+    cmp #$85                    // CRSR up: the previous one
+    beq mqIdUp
+    cmp #$81                    // RETURN: take it
+    beq mqIdTake
+    cmp #$83                    // STOP: cancel
+    bne mqIdKey
+    jmp mqCancel
+mqIdWait:
+    lda #SYS_YIELD
+    jsr syscall
+    jmp mqIdKey
+mqIdDown:
+    lda muObjId
+    cmp #MU_MN_END
+    bcc mqIdInc
+    lda #MU_MN_TEM-1            // past the last: wrap to the first
+mqIdInc:
+    clc
+    adc #1
+    sta muObjId
+    jmp mqDraw
+mqIdUp:
+    lda muObjId
+    cmp #MU_MN_TEM
+    bne mqIdDec
+    lda #MU_MN_END+1            // before the first: wrap to the last
+mqIdDec:
+    sec
+    sbc #1
+    sta muObjId
+    jmp mqDraw
+mqIdTake:
+    lda muObjId
+    cmp #MU_MN_TAL
+    bne mqIt1
+    jmp mqTake
+mqIt1:
+    cmp #MU_MN_HLT
+    bne mqIt2
+    jmp mqTake
+mqIt2:
+    cmp #MU_MN_END
+    bne mqIt3
+    jmp mqTake
+mqIt3:
+    lda #1
+    sta muObjPhase
+    jmp mqDraw
+
+// --- the operand step: digits build the value, INST/DEL backs one out ---
+mqValKey:
+    jsr kReadKey
+    beq mqValWait
+    cmp #$81                    // RETURN: write the pair
+    beq mqValTake
+    cmp #$83                    // STOP: cancel
+    bne mqValDigit
+    jmp mqCancel
+mqValTake:
+    jmp mqTake
+mqValDigit:
+    cmp #$80                    // INST/DEL: back one digit
+    beq mqValBack
+    sec
+    sbc #'0'
+    bcc mqValKey                // not a digit
+    cmp #10
+    bcs mqValKey
+    sta muTmpL
+    lda muObjVal                // val * 10 + the digit, never past the maximum
+    cmp #25                     //   25 is the first value whose *10 no longer fits
+    bcs mqValFull               //   a byte with a digit added to it
+    asl
+    sta muTmpH
+    asl
+    asl
+    clc
+    adc muTmpH
+    clc
+    adc muTmpL
+    cmp muObjMax
+    bcc mqValSet
+    beq mqValSet
+mqValFull:
+    lda muObjMax
+mqValSet:
+    sta muObjVal
+    jmp mqDraw
+mqValBack:
+    lda muObjVal
+mqValBl:
+    cmp #10
+    bcc mqValSet
+    sec
+    sbc #10
+    jmp mqValBl
+mqValWait:
+    lda #SYS_YIELD
+    jsr syscall
+    jmp mqValKey
+
+// --- mqTake -- encode the pair and write it ---
+mqTake:
+    jsr muObjEnc
+    lda muObjKind
+    bne mqPut                   // the pair exists: replace it in place
+    lda muInsMode
+    bne mqIns                   // insert mode: a second pair, same command or not
+    lda #0
+    sta muObjMatch              // overwrite mode: the same command at this boundary?
+    jsr muObjFind
+    bcs mqIns
+mqPut:
+    jsr muRecAtObj              // the undo record: two bytes at MU_OBJLO/HI
+    lda #2
+    sta muRecOldN
+    sta muRecNewN
+    jsr muCapOld
+    jsr mqPutPair
+    jmp mqDone
+mqIns:
+    lda muSekLo                 // the new pair goes where the event's own pair is:
+    sta muObjLo                 //   the gap opens there and the event moves up
+    lda muSekHi
+    sta muObjLo+1
+    lda #0
+    sta muRecOldN
+    lda #2
+    sta muInsN
+    lda muObjLo
+    sta muInsLo
+    lda muObjLo+1
+    sta muInsHi
+    jsr muRecAtIns              // after the offset: the record copies MU_INSLO/HI
+    lda muSkV
+    jsr muInsGap
+    bcs mqStatus                // muInsGap left the reason in MU_STR
+    lda #2
+    sta muRecNewN
+    jsr mqPutPair
+mqDone:
+    jsr muPushEdit
+mqRedraw:
+    jsr muDrawHead              // the prompt and the band are both stale
+    ldy #MU_ROW
+    lda (dataPtr),y
+    ldx #MU_GRID_BOT+1
+    jmp muRedrawRows
+mqStatus:
+    jmp muStatus
+mqCancel:
+    jmp mqRedraw                // the prompt only touched row 0
+
+// --- mqPutPair -- the encoded pair into the image at MU_OBJLO/HI ---
+mqPutPair:
+    lda muObjLo
+    sta muWinOfs
+    lda muObjLo+1
+    sta muWinOfs+1
+    ldx #0
+    jsr muWinSeat
+    ldy #0
+    lda muObjCmdB
+    sta (kPtr),y
+    iny
+    lda muObjOptB
+    sta (kPtr),y
+    jmp muWinFlush0             // the pair reaches the page it lives on
+
+// --- muRecAtObj -- the undo record points at the pair in MU_OBJLO/HI ---
+//  In: MU_OBJLO/HI, MU_SKV. Clobbers A.
+muRecAtObj:
+    lda muObjLo
+    sta muRecOff
+    lda muObjLo+1
+    sta muRecOff+1
+    lda muSkV
+    sta muRecV
+    rts
+
+// --- muObjEnc -- MU_OBJID and MU_OBJVAL -> the command pair and the operand's
+//  maximum. Ids 1..9 are the structural nine, so the tables are indexed by id - 1.
+//  The phrase commands take 0-15 in the option's high nibble; 16-23 are the eight
+//  whose high nibble also sets the option's top bit and whose low nibble names the
+//  command, which is why they carry their own base.
+muObjEnc:
+    lda muObjId
+    sec
+    sbc #1
+    tay
+    lda mqCmdB,y
+    sta muObjCmdB
+    lda mqOptB,y
+    sta muObjOptB
+    lda mqMax,y
+    sta muObjMax
+    lda muObjId
+    cmp #MU_MN_DEF
+    beq mqEncPh
+    cmp #MU_MN_CALL
+    bne mqEncVal
+mqEncPh:
+    lda muObjVal
+    cmp #16
+    bcc mqEncNib
+    sec
+    sbc #16
+    clc
+    adc #8
+    asl
+    asl
+    asl
+    asl
+    ora mqOptB+9,y              // the phrase low nibble: $03 for DEF, $0B for CALL
+    sta muObjOptB
+    rts
+mqEncNib:
+    lda muObjVal                // 0-15: the option's HIGH nibble, base in the low
+    asl
+    asl
+    asl
+    asl
+    ora muObjOptB
+    sta muObjOptB
+    rts
+mqEncVal:
+    lda muObjVal                // the whole option byte is the operand
+    ora muObjOptB
+    sta muObjOptB
+    rts
+
+// --- muObjFind -- the boundary's command pair, by mnemonic (and operand) ---
+//  In: MU_SEKLO/HI = the pair of the event that starts at the boundary, MU_OBJID,
+//      MU_OBJVAL, MU_OBJMATCH (1 = the operand must match as well).
+//  Out: C=0 and MU_OBJLO/HI = that command's pair; C=1 when the run has none.
+//  A boundary's command pairs are CONTIGUOUS and sit immediately before the event's
+//  own pair, so they are found by stepping back two bytes at a time until a pair
+//  that consumes time -- a note or a rest -- ends the run. The walk keeps the
+//  candidate in MU_OBJLO/HI itself: the decoder clobbers every temp.
+muObjFind:
+    lda muSekLo
+    sta muObjLo
+    lda muSekHi
+    sta muObjHi
+mqfLp:
+    lda muObjLo
+    sec
+    sbc #2
+    sta muObjLo
+    bcs mqfGo
+    dec muObjHi
+mqfGo:
+    lda muObjHi                 // the image starts at 8: there is nothing before it
+    cmp #>8
+    bcc mqfNo
+    bne mqfRead
+    lda muObjLo
+    cmp #8
+    bcc mqfNo
+mqfRead:
+    lda muObjLo
+    sta muWinOfs
+    lda muObjHi
+    sta muWinOfs+1
+    ldx #0
+    jsr muWinSeat
+    ldy #0
+    lda (kPtr),y
+    sta muScmd
+    iny
+    lda (kPtr),y
+    sta muSopt
+    lda muScmd
+    and #$03
+    beq mqfNo                   // a note or a rest: the run ended before this pair
+    jsr muLnDec                 // A = the mnemonic, MU_LNVLO/HI = the operand
+    cmp muObjId
+    bne mqfLp
+    lda muObjMatch
+    beq mqfHit
+    lda muLnVLo
+    cmp muObjVal
+    bne mqfLp
+mqfHit:
+    clc
+    rts
+mqfNo:
+    sec
+    rts
+
+// --- muMnPrint -- print the five-character mnemonic of command id A ---
+//  The field is space-padded, so the print stops at the first space and the padding
+//  is never drawn. MU_REVTEXT is left at 0. Clobbers A, X and Y (muPutC).
+muMnPrint:
+    sec
+    sbc #1
+    sta muTmpL
+    asl
+    asl
+    clc
+    adc muTmpL
+    sta muTmpL                  // (id - 1) * 5
+    lda #0
+    sta muTmpH
+mqMnLp:
+    lda muTmpL
+    clc
+    adc muTmpH
+    tay
+    lda muMnTab,y
+    cmp #' '
+    beq mqMnEnd
+    jsr muPutC
+    inc muTmpH
+    lda muTmpH
+    cmp #5
+    bcc mqMnLp
+mqMnEnd:
+    lda #0
+    sta muRevText
+    rts
+
+//  The encoder's three tables, one entry per structural command in id order: the
+//  command byte, the option byte's base and the largest operand it takes. The
+//  option table's second nine are the PHRASE bases: a phrase the option's top bit
+//  names puts its own low nibble there, where the value 0-15 keeps the first nine.
+mqCmdB:     .byte $06, $16, $F6, $36, $01, $01, $01, $01, $01
+mqOptB:     .byte $00, $00, $00, $00, $06, $02, $0F, $4F, $2F
+            .byte $00, $00, $00, $00, $03, $0B, $00, $00, $00
+mqMax:      .byte 255,  255,  255,  255,  23,   23,   0,    0,    0
 
 // ==========================================
 //  Undo -- a stack of range-diff records
@@ -6371,6 +6866,8 @@ muClickAct:
     beq muBarSave
     cmp #MU_BAR_PLAY
     beq muBarPlay
+    cmp #MU_BAR_CMD
+    beq muBarCmd
     cmp #MU_BAR_Q
     bne muClkNotBarQ
     jmp muQuit                  // out of branch range: invert and jump
@@ -6383,6 +6880,8 @@ muBarSave:
     rts
 muBarPlay:
     jmp muPlayToggle
+muBarCmd:
+    jmp muObjKey
 muClkGrid:
     cmp #MU_GRID_TOP
     bcc muClkLow
@@ -7011,36 +7510,11 @@ mlcHasCmd:
     lda muLaneCol,x
     sta muGdCol
     jsr muGdAtCell
-    ldy muTmp2                  // the mnemonic: one five-character field per id
-    lda muLogId,y
-    sec
-    sbc #1
-    sta muTmpL
-    asl
-    asl
-    clc
-    adc muTmpL
-    sta muTmpL                  // (id - 1) * 5
     lda #1                      // the MNEMONIC reads as a bar; the operand below
     sta muRevText               //   stays plain so the value is easy to read
-    lda #0
-    sta muTmpH
-mlcChars:
-    lda muTmpL
-    clc
-    adc muTmpH
-    tay
-    lda muMnTab,y
-    cmp #' '                    // the field is space-padded: the bar ends at the
-    beq mlcText                 //   last letter, and the padding is not drawn
-    jsr muPutC
-    inc muTmpH
-    lda muTmpH
-    cmp #5
-    bcc mlcChars
-mlcText:
-    lda #0                      // the operand is plain text
-    sta muRevText
+    ldy muTmp2
+    lda muLogId,y
+    jsr muMnPrint               // leaves MU_REVTEXT at 0
     ldy muTmp2                  // TAL, HLT and END take no operand
     lda muLogId,y
     cmp #MU_MN_TAL
@@ -7796,6 +8270,16 @@ muFndVoice: .byte 0             // ...and the voice whose command it is
 muCmdVal:   .byte 0             // the operand of the command under the cursor
 muCmdRow:   .fill 2, 0          // ...and the row its line belongs to
 muCmdK:     .byte 0             // ...and its index in that row's command lines
+muObjId:    .byte 0             // the command being authored: mnemonic id 1..9
+muObjVal:   .byte 0             // ...its operand
+muObjMax:   .byte 0             // ...and the largest operand it takes
+muObjKind:  .byte 0             // 0 = a pair to add, 1 = the pair at MU_OBJLO/HI
+muObjPhase: .byte 0             // 0 = picking the mnemonic, 1 = typing the operand
+muObjMatch: .byte 0             // 1 = a scan matches the operand as well as the id
+muObjLo:    .byte 0             // the pair being found, replaced or added
+muObjHi:    .byte 0
+muObjCmdB:  .byte 0             // the encoded pair, ready to write
+muObjOptB:  .byte 0
 muLinkW:    .byte 0             // 1 while a search has walked the producer
 muWinTop:   .byte 0             // 1 while the band's top line is the tune's first
 muRevText:  .byte 0             // 1 while muPutC draws reversed (command lines)

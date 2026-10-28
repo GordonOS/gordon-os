@@ -81,8 +81,8 @@ A lane is drawn in its own voice's colour — the same red, yellow and cyan — 
 that follows it are one thing seen twice. The row number, the lane headers and the head stay white.
 
 **Row 24** — the control bar: `DUR` with the armed duration and the dot cell, `TIE-` the tie
-toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, SAVE and Q are clickable; `DUR`,
-`TIE-`, `CMD` and `UNDO` answer `? not yet` and are driven from the keys instead (`1`-`9` arm
+toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, CMD, SAVE and Q are clickable; `DUR`,
+`TIE-` and `UNDO` answer `? not yet` and are driven from the keys instead (`1`-`9` arm
 the duration a **new** note is written with, `.` cycles the dots, `Z`/`X` undo and redo).
 
 The bar answers the mouse: the item under the pointer shows in reverse video and goes back to
@@ -180,7 +180,9 @@ no line anywhere.
 
 A command line has **no row number**, because it is not a point in time — it belongs to the row
 below it. And because it takes no time, playback does not stop on it: the cursor passes straight
-over it to the row's own line, scrolling as many lines as it takes to get there.
+over it to the row's own line, scrolling as many lines as it takes to get there. For the same
+reason a line can be written, changed and removed without moving a single row — see
+*Writing a command line* below.
 
 ### The keys
 
@@ -310,10 +312,11 @@ itself works, and it is why the grid never shows overlaps.
 | key | action |
 |---|---|
 | `INST/DEL` | replace the note at the cursor with a **rest** of the same length |
-| `SHIFT+INST/DEL` | **delete** the event and close the gap |
+| `SHIFT+INST/DEL` | **delete** the event and close the gap; on a command line it removes that command |
 | `I` | **insert a row** at the cursor, pushing everything below down |
 | `SHIFT+I` | **insert a bar** (the rows a bar has at this tempo) |
 | `M` | **insert/overwrite mode** for entering notes |
+| `C` | **write or edit the command** at the cursor (see *Commands*) |
 | `SHIFT+D` | **follow a phrase**: from a `CALL` to its `DEF`, from a `DEF` to the next `CALL` |
 | `Z` / `X` | undo / redo |
 
@@ -378,38 +381,46 @@ rather than silently kept.
 
 Commands are the sound of the tune. `.mus` commands are 2-byte events placed **before the note
 they affect**; they stay in force until changed. `musedit` groups them by the note they belong
-to.
+to: every command that comes into force at a note's onset gets **a line of its own above that
+note's row**, and the cursor passes over those lines on its way down.
 
-Press `C` (or click `CMD` on the control bar) with the cursor on a note — or on the row where
-you want a command — to open the command panel:
+A command pair takes no time of its own. It comes into force at the onset of the next note or
+rest, which is why a command line only ever sits above a note or a rest: there is no place
+"inside" a duration to put one, and the editor refuses a row in the middle of a note rather
+than splitting it.
+
+### Writing a command line
+
+Put the cursor on a **note's own row** and press `C` (or click `CMD` on the control bar). The
+head row becomes the prompt:
 
 ```
-COMMANDS   V1   ROW 048   C-4 16
- 1 ATK   9
- 2 DCY   D
- 3 SUS   9
- 4 REL   6
- 5 PNT   4
- 6 HLD   0
- 7 WAV   NOISE
- 8 P-W   0800
- 9 VDP   04
-10 VRT   20
- [A]dd  [DEL] remove  [RET] edit  [Q] back
+CMD TEM 120
 ```
 
-| key | action |
+| key | in the prompt |
 |---|---|
-| click a row | select that command |
-| up / down | choose a command |
-| `RETURN` | edit its value |
-| `A` | add a command (choose a group, then a command, then a value) |
-| `INST/DEL` | remove the command |
-| `Q` | back to the grid |
+| CRSR up / down | choose one of the nine commands you can write |
+| `RETURN` | take it, then finish its value — or write it straight away for `TAL`, `HLT`, `END` |
+| digits | build the value in decimal, never past what that command takes |
+| `INST/DEL` | back one digit out |
+| `STOP` | cancel, and the grid comes back as it was |
 
-Values are typed as up to four hex digits or stepped with `-` and `+`; the panel shows the
-decoded decimal or signed value beside each field. Setting a field to the value that means
-"no effect" **removes** its pair, so a tune you did not change stays byte-identical.
+The nine are `TEM` `UTL` `UTV` `HED` `DEF` `CALL` `TAL` `HLT` `END` — the tune's own settings,
+and they are listed in that order in the prompt. The pair is written at the boundary the cursor's
+row starts, so every row stays where it is and nothing needs renumbering.
+
+**Overwrite or insert** — the mode `M` shows decides what happens when that boundary already
+carries the same command: `OVR` replaces it where it stands, `INS` adds a second pair.
+
+**Editing and removing** — put the cursor on an existing command line: `C` opens the prompt on
+that line, already filled in and ready to change, and `SHIFT+INST/DEL` removes that pair and
+closes the gap. `Z` takes either back, like any other edit.
+
+A line that shows a *sound* command — `ATK`, `WAV`, `P-W` and the rest of the table below — was
+written by the tune you opened. Those operands are timing and waveform numbers that belong to the
+pattern rather than to a line somebody types, so the prompt writes the nine settings above and the
+grid shows the rest; the reference below says what the player does with each of them.
 
 ### The groups
 
