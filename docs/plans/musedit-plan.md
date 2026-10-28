@@ -372,7 +372,9 @@ DUR 16. TIE-  PLAY  CMD  UNDO  SAVE  Q
 - **Lane, 11 cells**: three for the note and the bar as far as it reaches; the last cell is `*`
   when the note carries commands, or `~` when its onset is off-grid (the bar then stops a cell
   short). A rest shows `...` at its onset; a command that fires where no note starts shows its
-  mnemonic (`WAV=4`). A tie draws one continuous bar. Each lane is drawn in its voice's colour —
+  mnemonic (`WAV=4`). A rest shows `...` at its onset. A tie is drawn after its duration as `TIE`,
+  read straight from the format's tie bit on the event, so a note struck once and held shows its
+  attack and then its ties. Each lane is drawn in its voice's colour —
   red, yellow, cyan, the same three the dots use — and the text colour goes back to white for the
   row numbers and everything outside the lanes.
 - **Cursor**: the cell at `(row, voice)` is drawn in the highlight colour and the row number is

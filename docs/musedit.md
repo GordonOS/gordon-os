@@ -94,6 +94,7 @@ Inside a lane:
 | mark | meaning |
 |---|---|
 | `C-4 16` | a note starts here, and its duration is a sixteenth |
+| `C-4 16 TIE` | the tie flag is set on this event, so the note carries on from the one before it instead of being struck again |
 | `C-4 16  ?` | the note's onset falls between two rows, so the row it is drawn on is not where it starts |
 | `... 4` | a rest starts here, lasting a quarter |
 | `DEF 3` | a command, on a line of its own (see below) |
@@ -101,6 +102,19 @@ Inside a lane:
 The duration is written in the format's own numbers on the note's own row: a whole note, a half,
 a quarter, an 8th, a 16th, a 32nd and a 64th read `1`, `2`, `4`, `8`, `16`, `32`, `64`, and a
 utility length prints no number because its length is whatever `UTL`/`UTV` set.
+
+`TIE` comes straight after the duration, and it reads the format's own tie bit (bit 6 of the
+event's duration byte) rather than anything the editor keeps. A note too long for a single event
+is written as several events, the first carrying the attack and every one after it carrying the
+tie:
+
+```
+C-4 16
+C-4 16 TIE
+C-4 16 TIE
+```
+
+which is one note, struck once and held for three events' worth of time.
 
 Only the row a note **starts** on is written. The rows the note covers stay blank ? the pitch and
 the duration already say how long it lasts, and leaving them empty is what lets the window scroll

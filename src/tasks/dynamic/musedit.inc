@@ -7236,8 +7236,24 @@ mlnDur:
     and #$07                    // the length class, 0-7
     tay
     lda muDurNum,y
-    beq mlnMark                 // a utility length has no number
+    beq mlnTie                  // a utility length has no number
     jsr muNumDur
+mlnTie:
+    ldx muLnV                   // the format's tie flag: bit 6 of the duration
+    lda muPendOpt,x             //   byte. A rest has no note to carry on from, so
+    and #$07                    //   the option's note index is asked first.
+    beq mlnMark
+    lda muPendDur,x
+    and #$40
+    beq mlnMark
+    lda #MU_SPACE               // " TIE", one character at a time: the writer
+    jsr muPutC                  //   clobbers A, X and Y, so nothing indexes with
+    lda #'T'                    //   them
+    jsr muPutC
+    lda #'I'
+    jsr muPutC
+    lda #'E'
+    jsr muPutC
 mlnMark:
     ldx muLnV
     lda muPendSp,x
