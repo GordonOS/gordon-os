@@ -85,8 +85,9 @@
 .const MU_MUS_REPEATS = 1     // one pass through the tune: the end stops it
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
-.const MU_FOLLOW_CENTER = 8   // rows below the window top the playhead is pinned to
-.const MU_FOLLOW_WALK   = MU_GRID_ROWS // lines one pass may walk: a whole band, so a slow pass can always re-centre
+.const MU_FOLLOW_CENTER = 8   // lines below the window top the playhead is pinned to
+.const MU_FOLLOW_WALK   = 1   // lines one pass may walk: a pass is one displayed frame, so
+                              //   giving back a deep opening's offset is a glide, not a jump
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 .const MU_LOG_SLOTS = 16      // command pairs one voice may log for one row: the
                               //   longest run a bundled tune has is twelve
@@ -6745,13 +6746,16 @@ muPcGone:
 //  out of it. muLnFind gives the playhead's line, and the band scrolls until that
 //  line sits MU_FOLLOW_CENTER from the bottom -- always reachable, one line a scroll.
 //  A settled playhead costs one scan per frame and nothing more.
+//  MU_FOLLOW_WALK is one line, because a pass is one displayed frame: a playhead that
+//  has to be given back to the centre moves a line a pass, which reads as a glide.
 //  WARNING: the target is MU_FOLLOW1, not the constant: a row's own line sits as many
 //  lines down as that row has commands above it, so the tune's FIRST row can already
 //  be deeper than the centre. Aiming at the centre there scrolls the view off the
 //  tune's own opening before a note has played, and the music then walks back up to
 //  where the pencil already is. muLnRowDraw raises the target to whatever the opening
-//  turns out to be, for any tune, so the follow never asks for a line above one the
-//  score has not reached yet.
+//  turns out to be, for any tune, and muScrollBand puts it back the moment the band
+//  leaves the opening -- so the centre is where the playhead lives once the music, and
+//  not the opening's commands, is what fills the band.
 muPhFollow:
     jsr muCursorHide            // out before the band can move: one hide for the
                                 //   whole pass, however many lines it walks, and
@@ -7145,12 +7149,12 @@ muDecWHi:   .byte >10000, >1000, >100, >10, >1
 // --- muLnRowDraw -- the row's own line: every lane's note, then its number ---
 muLnRowDraw:
     lda muGrpRow                // the tune's first row: its own line sits as deep as
-    ora muGrpRow+1              //   the opening's command count, and the follow may
-    bne mlrSpot                 //   never ask for a line above that
-    lda muLogLns                // the command lines that came before this row's own
-    clc                         //   line, in this very walk
-    adc #1
-    cmp muFollow1
+    ora muGrpRow+1              //   the opening's command count, and while the band
+    bne mlrSpot                 //   still holds that opening the follow may not ask
+    lda muLogLns                //   for a line above it. The command lines that came
+    clc                         //   before this row's own line, in this very walk, are
+    adc #1                      //   that depth; muScrollBand gives the centre back once
+    cmp muFollow1               //   the opening scrolls away
     bcc mlrSpot
     sta muFollow1
 mlrSpot:
@@ -7337,11 +7341,11 @@ msbGot:
     sta muTop
     lda muLnTbHi
     sta muTop+1
-    lda #0
-    sta muWinTop                // a line moved, so whatever was at the top is not
-    rts                         //   the tune's first line any more -- even when the
-                                //   top line's row is still 0, which a row of ten
-                                //   command lines makes ordinary
+    lda #MU_FOLLOW_CENTER+1     // the opening's own depth was only ever in force
+    sta muFollow1               //   while the band still held the opening, and it is
+    lda #0                      //   leaving now: the playhead goes back to the centre,
+    sta muWinTop                //   one line a pass, so the view glides rather than
+    rts                         //   jumping
 
 // --- muHistAdd -- remember the event the walk just took: its row and pitch ---
 //  In: X = the voice (muSv), muVRow = the onset row of the event just stepped.

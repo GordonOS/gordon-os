@@ -69,6 +69,13 @@ the pin down to that depth and keeps the lines of lookahead the band can still a
 A row whose opening is deeper than the whole band is still handled, by the blind path,
 which scrolls until the line is found.
 
+The pin is not permanent. `muScrollBand` sets it back to the centre the moment the band
+leaves the opening — that offset existed only so the opening could stay on screen — and
+`MU_FOLLOW_WALK` is one line, because a pass is one displayed frame. So the playhead
+returns to the middle of the band as a glide over a few frames rather than a jump, and
+the first scroll is the music's, not the editor's. A deep opening therefore costs a
+short catch-up once the tune moves, and never a jog before it does.
+
 Behind it, `muPtStart` records the published count and sets `muPhWait`; `muPhSync` holds
 row 0 until the player publishes a **different** byte. The first version of that gate
 compared the recorded byte against the count *after* the player's one-jiffy adjustment
