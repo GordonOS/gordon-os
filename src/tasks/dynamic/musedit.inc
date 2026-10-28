@@ -7481,11 +7481,11 @@ muGiveDisplay:
     tax
     lda taskState,x
     beq muGdRts                 // the parent is dead: let sysExit decide
-    txa
-    pha                         // the parent, while the cursor calls run
     php
     sei                         // no IRQ tick may draw a block back between the
-    jsr kDisableCursor          //   erase and the copy of our framebuffer
+    txa                         //   erase and the copy of our framebuffer
+    pha                         // the parent rides the stack: the cursor calls
+    jsr kDisableCursor          //   clobber A, X, Y, kPtr and kArg
     jsr kBlinkReset
     pla
     tax
