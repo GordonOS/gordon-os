@@ -1276,8 +1276,25 @@ order:
   playhead's line at `MU_FOLLOW_CENTER`, in LINES, so one tick of music may move the band several
   lines. `tools/mus-sim.py --lines N` is the host reference for the layout, and its `decode_cmd`
   mirrors `muLnDec`.
-- **b. Move through it.** `D` on a call row moves the cursor to that phrase's `DEF` (the walk
-  already holds the address); `D` on a definition lists its call sites, nearest first.
+- **b. Move through it.** *Done.* `SHIFT+D` on a `CALL` line moves the cursor to that phrase's
+  `DEF`; on a `DEF` line it moves to the next `CALL` of the same phrase below the cursor, and
+  wraps round to the first one when there is none below, so repeated presses **tour** the call
+  sites rather than listing them. Two things the design had to settle: `D` alone is a piano key,
+  so the binding is `SHIFT+D`; and a line carries one command per lane, so the key acts on the
+  lane the cursor is in -- which is why the cursor marker now sits **in the gap left of that
+  lane** (columns 3/15/27) instead of at column 0, so the lane it will act on is visible.
+  Implementation: `muCmdHere` re-derives the command under the cursor by walking the cursor's row
+  with the grid's own producer and replaying the draw's index arithmetic
+  (`block = voice*2 + class`, depth, line index); `muFindCmd` walks for the partner command and
+  returns the row **and the line index inside that row's group**, so the cursor lands on the line
+  that carries the command; the jump puts that row at the window's top and the cursor follows the
+  command into its own lane. `muWalkStart`/`muWalkToTop` are the producer's start and skip,
+  shared with `muDrawGrid`. Three rules the work produced: the producer has **no**
+  end-of-tune return, so a search must stop on the walk's own halt flags (`muOn`); a search
+  clobbers `muTmpH` (`muLnLog` uses it for the mnemonic id), so a line index across a walk needs
+  its own byte; and a search leaves the producer parked at the row it stopped on, so a refusal
+  puts it back **silently** (`muBandRebuild`) -- repainting instead makes a one-second message
+  flash the whole grid.
 - **c. Author it.** The `CMD` key (printed on the bar, not yet wired) opens the mnemonic menu
   for every command the player implements -- `TEM`, `UTL`, `UTV`, `HED`, `TAL`, `HLT`, `END`,
   `DEF`, `CALL`, the 2- and 3-type groups (envelope, waveform/pulse, frequency, filter,
@@ -1286,7 +1303,8 @@ order:
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.
-- **e. Keep the accounting.** Budget: musedit's margin is 17 pages, and the printed text is
+- **e. Keep the accounting.** Budget: musedit's margin is 14 pages (b cost 597 bytes, 58 -> 61
+  pages), and the printed text is
   already out of the code -- every string it prints is a record in the REU file `msgs`, so
   adding a message costs no page (see `tools/gen-musedit-msgs.py`). The editor's own
   readout pages went with the timing line once the walk was proven, which is where the

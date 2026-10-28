@@ -175,6 +175,10 @@ The playhead follows playback and the window follows the playhead. Moving the cu
 stop playback, but **editing does not work while the tune is playing** — stop first
 (`? stop first`).
 
+The cursor marker `>` is drawn in the free cell immediately **left of the lane the cursor is
+in** — column 3, 15 or 27 — so it says which voice a key will act on as well as which line you
+are on.
+
 ## Entering notes
 
 The piano at the bottom of the screen is how notes go in.
@@ -288,9 +292,33 @@ itself works, and it is why the grid never shows overlaps.
 | `I` | **insert a row** at the cursor, pushing everything below down |
 | `SHIFT+I` | **insert a bar** (the rows a bar has at this tempo) |
 | `M` | **insert/overwrite mode** for entering notes |
+| `SHIFT+D` | **follow a phrase**: from a `CALL` to its `DEF`, from a `DEF` to the next `CALL` |
 | `Z` / `X` | undo / redo |
 
 The `HLT` that ends a voice cannot be deleted; it can be pushed down by inserting before it.
+
+### Following the structure
+
+The command lines above a row are the tune's own control flow: a `CALL` plays a phrase whose
+`DEF` sits somewhere else in the same voice, and `immig` has sixty-five of them, so reading one
+half of a pair means finding the other.
+
+Put the cursor on a command line and press **`SHIFT+D`**:
+
+- on a **`CALL`** it moves the cursor to that phrase's **`DEF`** — the line that carries the
+  definition, not the row's own numbered line;
+- on a **`DEF`** it moves to the **next `CALL` of the same phrase below the cursor**, and once
+  there is none below it wraps round to the first one in the tune — so pressing it again and
+  again tours the call sites.
+
+The window follows: the row that was found becomes the **top line** of the grid, and the head's
+`BAR`/`R` show where you are. Anything else on the line — an `ATK`, a `TEM`, or a row's own
+numbered line — answers `? not a phrase` and moves nothing.
+
+**`SHIFT+D` acts on the lane the cursor is in.** A line carries one command from each lane, so
+the lane decides which one is followed — and the `>` marker in the gap left of the lane tells you
+which lane that is. If the lane has no command on that line, the key answers `? not a phrase`:
+move the cursor left or right into the lane that shows the command.
 
 ### Inserting time
 

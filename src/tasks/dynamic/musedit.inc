@@ -2352,6 +2352,330 @@ muDmOvr:
     jsr kPrintCharAt
     rts
 
+// ==========================================
+//  The structure's links
+// ==========================================
+//  The phrase commands are the format's own control flow: a CALL plays a phrase
+//  whose DEF sits somewhere else in the same voice, and a tune like `immig` has
+//  sixty-five of them. Reading one means finding the other, and the row to find is
+//  the row the band would draw it on -- so the search walks the tune with the same
+//  producer the grid uses rather than decoding the image a second way.
+
+// --- muWalkStart -- the producer back at the tune's start ---
+//  The rows a window shows are reached by generating and discarding the ones above
+//  them, so every walk from the beginning starts here. MU_LNSCR is $ff: each line
+//  is discarded, so a search draws nothing and leaves the band's table alone.
+muWalkStart:
+    jsr muSimInit
+    ldx #2
+mwsZero:
+    lda #0
+    sta muVRow,x
+    sta muVRowHi,x
+    sta muVRem,x
+    dex
+    bpl mwsZero
+    lda #$ff                    // the producer starts one row before the first, so
+    sta muGrpRow                //   the group it opens first is row 0
+    sta muGrpRow+1
+    sta muLnScr
+    lda #0
+    sta muGrpSt
+    sta muLogN
+    sta muLogIx
+    rts
+
+// --- muFindCmd -- the first row that draws a given command ---
+//  In: MU_FINDID (the mnemonic id), MU_FINDVAL (its operand), MU_FINDANY (1 = any
+//      row), MU_FINDAFTER (the 16-bit row to pass when MU_FINDANY is 0).
+//  Out: C=0 with MU_FNDROW = that row and MU_FNDLINE = the command's line index
+//      inside the row's group (0 is the row's top line); C=1 when the tune has no
+//      such command.
+//  A row's commands are logged per voice and class, so the search covers all six
+//  blocks: the caller picks its lane from the depth afterwards.
+muFindCmd:
+    jsr muWalkStart
+mfcRow:
+    jsr muGrpOpen
+    bcc mfcScan
+    jmp mfcNone                 // the tune ended: no such command
+mfcScan:
+    lda muFindAny               // a row at or above MU_FINDAFTER cannot match when
+    bne mfcBlocks               //   the caller wants the next one; skip its scan
+    lda muGrpRow+1
+    cmp muFindAfter+1
+    bcc mfcNextRow
+    bne mfcBlocks
+    lda muGrpRow
+    cmp muFindAfter
+    bcc mfcNextRow
+    beq mfcNextRow
+mfcBlocks:
+    ldx #0                      // the structural blocks only: CALL and DEF are ids
+mfcBlock:                       //   below MU_MN_FC, so they are never logged as sound
+    lda muLogN,x
+    beq mfcBlkNext
+    lda muLogBase,x
+    sta muTmp2                  // the slot, from the block's first
+    lda #0
+    sta muTmpH                  // ...and its depth in the block
+mfcSlot:
+    ldy muTmp2
+    lda muLogId,y
+    cmp muFindId
+    bne mfcStep
+    lda muLogHi,y
+    bne mfcStep                 // a 16-bit operand is never a phrase number
+    lda muLogLo,y
+    cmp muFindVal
+    beq mfcMaybe
+mfcStep:
+    inc muTmp2
+    inc muTmpH
+    lda muTmpH
+    cmp muLogN,x
+    bcc mfcSlot
+mfcBlkNext:
+    inx
+    inx                         // block = voice * 2 + class, and the class is 0
+    cpx #6
+    bcc mfcBlock
+mfcNextRow:
+    lda muOn                    // the producer reports no row for a tune that has
+    ora muOn+1                  //   ended, so its own halt flags are the end test
+    ora muOn+2
+    beq mfcNone
+    jmp mfcRow
+mfcMaybe:
+    lda muFindAny
+    bne mfcTake
+    lda muGrpRow+1              // only a row past MU_FINDAFTER will do
+    cmp muFindAfter+1
+    bcc mfcStep
+    bne mfcTake
+    lda muGrpRow
+    cmp muFindAfter
+    bcc mfcStep
+    beq mfcStep                 // the cursor's own row is not after itself
+mfcTake:
+    txa
+    lsr                         // the block's voice is its top bit
+    sta muFndVoice
+    lda muLogSnd                // a structural line sits below the row's sound lines
+    clc
+    adc muTmpH
+    sta muFndLine
+    lda muGrpRow
+    sta muFndRow
+    lda muGrpRow+1
+    sta muFndRow+1
+    clc
+    rts
+mfcNone:
+    sec
+    rts
+
+// --- muCmdHere -- the command the cursor's line holds ---
+//  Out: C=0 with A = its mnemonic id, MU_CMDVAL = the operand and MU_CMDROW = the
+//      row the line belongs to; C=1 when the cursor is not on a command line, or
+//      its lane has no command on that line -- a line carries one per lane.
+muCmdHere:
+    ldy #MU_ROW
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    tay
+    cpy #MU_GRID_ROWS
+    bcc mchIn
+    sec                         // the cursor is below the band
+    rts
+mchIn:
+    lda muLnKind,y              // 1 = the row's own line, which holds no command
+    beq mchCmd
+    sec
+    rts
+mchCmd:
+    lda muLnTbLo,y
+    sta muCmdRow
+    lda muLnTbHi,y
+    sta muCmdRow+1
+    sty muTmpL                  // where the line is in the band
+    ldy #0                      // the command's index: the command lines above it
+mchCount:
+    lda muTmpL
+    beq mchHave                 // the cursor stands on the band's top line
+    dec muTmpL
+    ldx muTmpL
+    lda muLnTbHi,x              // an earlier row's line starts the group above
+    cmp muCmdRow+1
+    bne mchHave
+    lda muLnTbLo,x
+    cmp muCmdRow
+    bne mchHave
+    iny                         // another command line of the same row
+    jmp mchCount
+mchHave:
+    sty muCmdK                  // its own byte: the walk below clobbers MU_TMPH
+    lda #1
+    sta muLinkW                 // the producer is about to move: a refusal must
+    jsr muWalkStart             //   put it back (muBandRebuild)
+mchRow:
+    jsr muGrpOpen
+    lda muGrpRow+1
+    cmp muCmdRow+1
+    bne mchNext
+    lda muGrpRow
+    cmp muCmdRow
+    bne mchNext
+    jmp mchFound
+mchNext:
+    lda muOn                    // the producer has no row past the tune's end, so
+    ora muOn+1                  //   its halt flags are the end test
+    ora muOn+2
+    bne mchRow
+    sec
+    rts
+mchFound:
+    ldy #MU_VOICE               // the lane the cursor stands in
+    lda (dataPtr),y
+    asl                         // block = voice * 2 + class
+    sta muTmpL
+    lda muCmdK
+    cmp muLogSnd
+    bcc mchSound
+    sec                         // a structural line, counted from the row upwards
+    sbc muLogSnd
+    sta muTmp2
+    lda muTmpL
+    jmp mchBlock
+mchSound:
+    sta muTmp2                  // a sound line: the depth is the line index
+    lda muTmpL
+    ora #1
+mchBlock:
+    tax
+    lda muTmp2
+    cmp muLogN,x
+    bcs mchNone                 // the cursor's lane has no command on the line
+    clc
+    adc muLogBase,x
+    tay
+    lda muLogLo,y
+    sta muCmdVal
+    lda muLogId,y
+    clc
+    rts
+mchNone:
+    sec
+    rts
+
+// --- muLinkKey -- SHIFT+D: from a call to its definition, and back to a call ---
+//  On a CALL's line the cursor goes to that phrase's DEF; on a DEF's line it goes
+//  to the next call of the same phrase below the cursor, and round to the first
+//  one when there is none below, so repeated presses tour the call sites. The
+//  cursor lands on the line that carries the command, not on the row's own line,
+//  and the window puts that row at its top.
+muLinkKey:
+    lda #0                      // nothing has walked the producer yet
+    sta muLinkW
+    jsr muCmdHere
+    bcc mlkHave
+    lda #M_NOT_PHRASE
+    jmp mlkSay
+mlkHave:
+    cmp #MU_MN_CALL
+    bne mlkNotCall
+    lda #MU_MN_DEF              // a definition is anywhere: the first one
+    sta muFindId
+    lda muCmdVal
+    sta muFindVal
+    lda #1
+    sta muFindAny
+    jsr muFindCmd
+    bcc mlkJump
+    lda #M_NO_DEF
+    jmp mlkSay
+mlkNotCall:
+    cmp #MU_MN_DEF
+    beq mlkDef
+    lda #M_NOT_PHRASE
+    jmp mlkSay
+mlkDef:
+    lda #MU_MN_CALL             // the next call below the cursor, if there is one
+    sta muFindId
+    lda muCmdVal
+    sta muFindVal
+    lda #0
+    sta muFindAny
+    lda muCmdRow
+    sta muFindAfter
+    lda muCmdRow+1
+    sta muFindAfter+1
+    jsr muFindCmd
+    bcc mlkJump
+    lda #1                      // none below: round to the tune's first call
+    sta muFindAny
+    jsr muFindCmd
+    bcc mlkJump
+    lda #M_NO_CALL
+mlkSay:
+    pha                         // the message index, across the walk back below
+    lda muLinkW                 // only a search moved the producer: a refusal on a
+    beq mlkMsg                  //   note's line walked nothing
+    jsr muBandRebuild
+mlkMsg:
+    pla
+    jsr muMsgSet
+    jmp muStatus
+mlkJump:
+    lda muFndRow
+    sta muTop
+    lda muFndRow+1
+    sta muTop+1
+    ldy #MU_VOICE               // the cursor follows the command into its lane
+    lda muFndVoice
+    sta (dataPtr),y
+    lda muFndLine               // the line carrying the command, clamped to the band
+    clc
+    adc #MU_GRID_TOP
+    cmp #MU_GRID_BOT+1
+    bcc mlkSet
+    lda #MU_GRID_BOT
+mlkSet:
+    ldy #MU_ROW
+    sta (dataPtr),y
+    jmp muCurRedraw
+
+// --- muWalkToTop -- the producer at the first line of the window at MU_TOP ---
+//  Out: C=1 when the tune ended above the window (there is nothing to draw).
+//  Nothing is drawn on the way: MU_LNSCR is $ff, so every line this passes is
+//  discarded and the band's table is left alone.
+muWalkToTop:
+mwtSkip:
+    lda muGrpSt
+    bne mwtGo                   // a group is open: its next line is this row's
+    lda muGrpRow                // the group the next line would open
+    clc
+    adc #1
+    sta muTmpL
+    lda muGrpRow+1
+    adc #0
+    sta muTmpH
+    lda muTmpH
+    cmp muTop+1
+    bne mwtGo
+    lda muTmpL
+    cmp muTop
+    bne mwtGo
+    clc
+    rts
+mwtGo:
+    jsr muLnNext
+    bcs mwtRts
+    jmp mwtSkip
+mwtRts:
+    rts
+
 // --- muDrawGrid -- fill the band at MU_TOP from the producer's lines ---
 //  The row unit is fixed for the whole view, so rows are counted in jiffies
 //  whatever a later TEM does; a length that does not divide the unit lands on the
@@ -2376,46 +2700,9 @@ muDgTbLp:
     dex
     bpl muDgTbLp
 muDgWalk:
-    jsr muSimInit
-    ldx #2
-muGdInitLp:
-    lda #0
-    sta muVRow,x
-    sta muVRowHi,x
-    sta muVRem,x
-    dex
-    bpl muGdInitLp
-    //  The producer starts one row before the first, so the group it opens first
-    //  is row 0, and the walker is at the tune's start either way -- a window that
-    //  is scrolled down is reached by generating and discarding the rows above it.
-    lda #$ff
-    sta muGrpRow
-    sta muGrpRow+1
-    sta muLnScr                 // discarded while the walk skips down to MU_TOP
-    lda #0
-    sta muGrpSt
-    sta muLogN
-    sta muLogIx
-muDgSkip:
-    lda muGrpSt
-    bne muDgSkipGo              // a group is open: its next line is this row's
-    lda muGrpRow                // the group the next line would open
-    clc
-    adc #1
-    sta muTmpL
-    lda muGrpRow+1
-    adc #0
-    sta muTmpH
-    lda muTmpH
-    cmp muTop+1
-    bne muDgSkipGo
-    lda muTmpL
-    cmp muTop
-    beq muDgTop
-muDgSkipGo:
-    jsr muLnNext
+    jsr muWalkStart
+    jsr muWalkToTop
     bcs muDgEnd                 // the tune ended above the window: nothing to draw
-    jmp muDgSkip
 muDgTop:
     lda #MU_GRID_TOP
     sta muLnScr
@@ -2430,6 +2717,26 @@ muDgEnd:
     lda #0                      // the clip lasts exactly one draw: the lines the
     sta muGdClip                //   next scroll pulls in are outside it and must be
     rts                         //   drawn
+
+// --- muBandRebuild -- put the producer back where the band was drawn from ---
+//  A search walks the tune with the producer itself, so it leaves MU_GRPST and the
+//  open group at whatever row it stopped on and the next scroll would emit the
+//  wrong lines. This walks back to the window's top and re-emits the band's own
+//  lines, which is the state the draw left -- and draws nothing, because the screen
+//  is already right. It also refills the walk's history ring with the band's own
+//  events, which the search had replaced.
+muBandRebuild:
+    jsr muWalkStart
+    jsr muWalkToTop
+    bcs mbrRts
+    ldx #MU_GRID_ROWS
+mbrLp:
+    jsr muLnNext
+    bcs mbrRts
+    dex
+    bne mbrLp
+mbrRts:
+    rts
 
 // --- muGdFlag -- '?' on the row whose length the tempo in force refused ---
 // --- muRedrawRows -- draw the grid for a band of screen rows only ---
@@ -3086,13 +3393,26 @@ muStatTickRts:
 //  than one place, and a tail jump into kPrintCharAt would let its `rts` pop
 //  whichever return address happens to be on top -- the caller's, or an earlier
 //  jsr's -- which is a stack walk, not a call.
+// --- muCurCol -- X = the cursor's column: the free cell before its lane ---
+//  The glyph sits in the gap left of the cursor's lane, so it says which voice the
+//  cursor will act on as well as which line it is on. Each lane starts two cells
+//  past the previous one's last, so that gap holds nothing else.
+muCurCol:
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    tax
+    lda muLaneCol,x
+    tax
+    dex
+    rts
+
 muCursorShow:
     ldy #MU_ROW
     lda (dataPtr),y
     sta muCurScr
-    tay
-    ldx #0
+    jsr muCurCol
     lda #'>'
+    ldy muCurScr
     jsr kPrintCharAt
     rts
 
@@ -3100,9 +3420,9 @@ muCursorHide:
     lda muCurScr
     cmp #$ff
     beq muChRts                 // not drawn: there is no cell to take it out of
-    tay
-    ldx #0
+    jsr muCurCol
     lda #MU_SPACE
+    ldy muCurScr
     jsr kPrintCharAt
     lda #$ff
     sta muCurScr
@@ -3135,6 +3455,14 @@ muKeyNotSave:
     jsr muUnitCycle
     jmp muCurRedraw
 muKeyNotU2:
+    cmp #$44                    // SHIFT+D: the call and its definition
+    bne muKeyNotLink
+    jsr muPlaying               // a jump would fight the playhead's follow
+    bcs muKnkIdle
+    jsr muLinkKey
+muKnkIdle:
+    jmp muKeyIdle
+muKeyNotLink:
     cmp #'-'                    // octave down for the note keys
     bne muKeyNotDash
     lda muKbdOct
@@ -3309,10 +3637,10 @@ muCurUp:
 muCurUpSet:
     sta muTop+1
     sty muTop
-    lda #MU_GRID_BOT            // the cursor arrives on the page's last line
-    ldy #MU_ROW
-    sta (dataPtr),y
-    jmp muCurRedraw
+    jmp muCurRedraw             // the cursor stays on the TOP line: the window moves
+                                //   under it, so holding UP walks back a page at a
+                                //   time and the clamp to row 0 leaves the cursor on
+                                //   the tune's first line, not a page below it
 muCurUpIn:
     jsr muCursorHide
     ldy #MU_ROW
@@ -3347,18 +3675,26 @@ muCurRight:
     lda (dataPtr),y
     cmp #2
     beq muCurDone
+    jsr muCursorHide            // out of the lane it is leaving, in the new one
+    ldy #MU_VOICE
+    lda (dataPtr),y
     clc
     adc #1
     sta (dataPtr),y
+    jsr muCursorShow
     jmp muKeyIdle
 
 muCurLeft:
     ldy #MU_VOICE
     lda (dataPtr),y
     beq muCurDone
+    jsr muCursorHide
+    ldy #MU_VOICE
+    lda (dataPtr),y
     sec
     sbc #1
     sta (dataPtr),y
+    jsr muCursorShow
 muCurDone:
     jmp muKeyIdle
 
@@ -7289,6 +7625,18 @@ muGdFrom:   .byte 0             // the band being repainted, in screen rows
 muGdTo:     .byte 0             //   (the end exclusive)
 muGdLo:     .fill 2, 0          // ...and the rows those screen lines hold
 muGdHi:     .fill 2, 0          //   (the end exclusive)
+// --- searching the walk for the command on a line, and for a phrase's partner ---
+muFindId:   .byte 0             // the mnemonic wanted
+muFindVal:  .byte 0             // ...and its operand
+muFindAny:  .byte 0             // 1 = any row, 0 = only one past MU_FINDAFTER
+muFindAfter: .fill 2, 0         // the row to pass
+muFndRow:   .fill 2, 0          // where it was found
+muFndLine:  .byte 0             // ...and its line index inside that row's group
+muFndVoice: .byte 0             // ...and the voice whose command it is
+muCmdVal:   .byte 0             // the operand of the command under the cursor
+muCmdRow:   .fill 2, 0          // ...and the row its line belongs to
+muCmdK:     .byte 0             // ...and its index in that row's command lines
+muLinkW:    .byte 0             // 1 while a search has walked the producer
 // --- the line producer: a time row, or one structural command ---
 muGrpRow:   .fill 2, 0          // the row the open group belongs to
 muGrpSt:    .byte 0             // 1 = a group is open, 0 = the next line opens one
