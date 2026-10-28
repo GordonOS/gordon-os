@@ -3132,16 +3132,18 @@ muDrawRefuse:
 // ==========================================
 //  Text helpers
 // ==========================================
-// --- muPutC -- print A at (MU_CURCOL, MU_CURROW) and advance the column ---
-//  kPrintCharAt clobbers A, X and Y, so the character rides the task's stack and
-//  the column is re-read afterwards. The cell is always written: whether a line is
-//  drawn at all is decided once, when the line is produced (muLnSpot).
 // --- muPutC -- print A at the text cursor and advance one cell ---
+//  The blits clobber A, X and Y, so the character rides the task's stack and the
+//  column is re-read afterwards. The cell is always written: whether a line is
+//  drawn at all is decided once, when the line is produced (muLnSpot).
 //  MU_REVTEXT draws the cell reversed (a solid bar in the text colour with the
 //  glyph in bg0): the command lines and the lane header read as bars, so they
-//  cannot be mistaken for notes. The reverse blit writes the FRAMEBUFFER only, so
-//  it is used only while this task owns the display -- a background task keeps the
+//  cannot be mistaken for notes. Both blits write the FRAMEBUFFER only, so they
+//  are used only while this task owns the display -- a background task keeps the
 //  routed writer and lands in its own surface, unreversed, until it is back.
+//  A plain cell goes through kBlitChar, which sets the paper nibble back to bg0:
+//  a bar leaves the paper on the text colour and a routed write keeps whatever
+//  paper nibble it finds, so a cleared bar would stay a solid block of colour.
 muPutC:
     pha
     ldy #MU_CURCOL
@@ -3150,15 +3152,19 @@ muPutC:
     ldy #MU_CURROW
     lda (dataPtr),y
     tay
-    lda muRevText
-    beq muPcPlain
     lda muTid
     cmp kbFocus
-    bne muPcPlain
+    bne muPcSlot
+    lda muRevText
+    beq muPcPlain
     pla
     jsr kBlitCharRev
     jmp muPcAdv
 muPcPlain:
+    pla
+    jsr kBlitChar
+    jmp muPcAdv
+muPcSlot:
     pla
     jsr kPrintCharAt
 muPcAdv:
@@ -6971,17 +6977,14 @@ mlcChars:
     adc muTmpH
     tay
     lda muMnTab,y
-    cmp #' '                    // the field is space-padded, so the bar covers
-    bne mlcDraw                 //   the letters only
-    lda #0
-    sta muRevText
-    lda muMnTab,y
-mlcDraw:
+    cmp #' '                    // the field is space-padded: the bar ends at the
+    beq mlcText                 //   last letter, and the padding is not drawn
     jsr muPutC
     inc muTmpH
     lda muTmpH
     cmp #5
     bcc mlcChars
+mlcText:
     lda #0                      // the operand is plain text
     sta muRevText
     ldy muTmp2                  // TAL, HLT and END take no operand
@@ -6992,6 +6995,9 @@ mlcDraw:
     beq mlcNext
     cmp #MU_MN_END
     beq mlcNext
+    lda #' '                    // one space, then the operand
+    jsr muPutC
+    ldy muTmp2
     lda muLogHi,y               // a byte for every command but the three wide
     bne mlcWide                 //   ones: P-W, DTN and POR
     lda muLogLo,y               // every operand is a count, so it prints in decimal

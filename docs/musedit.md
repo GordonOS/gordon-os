@@ -117,11 +117,11 @@ and the rest. Each one gets a line of its own, above the row it belongs to, so t
 row does is visible and nothing hides behind a mark:
 
 ```
-      |ATK  $1    |ATK  $1    |ATK  $0    |
-      |SUS  $C    |SUS  $B    |SUS  $A    |
-      |F-C  $FE   |P-W  $5DC  |P-W  $708  |
-      |TEM  $80   |HED  7     |HED  15    |
-      |           |           |DEF  0     |
+      |ATK 1      |ATK 1      |ATK 0      |
+      |SUS 12     |SUS 11     |SUS 10     |
+      |F-C 254    |P-W 1500   |P-W 1800   |
+      |TEM 128    |HED 7      |HED 15     |
+      |           |           |DEF 0      |
  01   |C-4 16     |... 16     |F#2 8      |
  02   |           |           |           |
 ```
@@ -132,9 +132,9 @@ commands than the others carries on down the lines below, with the other lanes e
 
 **A command's mnemonic is drawn in reverse video** — a bar in the voice's own colour, exactly as
 wide as the letters and with those letters knocked out — and so is the `ROW VOICE 1 VOICE 2 VOICE 3`
-header row. So a bar is a command, and plain text is a note or a command's operand. (A task that is
-not the displayed one draws plain text, because reversed cells are written straight to the
-framebuffer; the bars come back with the next redraw.)
+header row. So a bar is a command, and plain text is a note or a command's operand, which follows its
+mnemonic one space later. (A task that is not the displayed one draws plain text, because reversed
+cells are written straight to the framebuffer; the bars come back with the next redraw.)
 
 The two kinds of command never share a line, because a tempo and an envelope step are not
 comparable events:

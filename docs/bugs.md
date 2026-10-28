@@ -21,6 +21,39 @@
 
 ---
 
+## Bug #186 — `musedit`'s reversed command bars left solid blocks behind: a routed text write keeps the paper nibble it finds 🟠 ✅ FIXED (2026-10-28)
+
+**Symptom.** Stop the player and start it again, and solid blocks of colour were
+left on the grid exactly where the reversed command bars had been — ghosts that
+survived every later redraw. Reported as *"if I stop and restart the player, the
+reversed positions remain as ghosts"*.
+
+**Root cause.** Two nibbles, two writers. `kBlitCharRev` writes the cell as
+`(bg0 << 4) | textColour` — the bar's ink is bg0 and its **paper is the text
+colour**. `kPrintCharAt` (and the surface-slot writer behind it, `blitCharSlot`)
+writes `(textColour << 4) | existing low nibble`: it is an **ink** write and keeps
+whatever paper it finds. So the first plain character drawn over a former bar —
+a space from `muClearRow` as much as a note — came out with ink **and** paper on
+the text colour, i.e. a solid block. A full repaint clears the grid and then draws
+the new lines, so every bar that the new view no longer had left a block in its
+place, and the blocks compounded with every redraw.
+
+**Fix.** `muPutC`'s plain path now goes through `kBlitChar` while this task owns
+the display: the fixed blitter sets the paper nibble back to `bg0`, so a cell a bar
+has touched is clean again the moment it is written. The routed writer stays for
+the background case, where the cell belongs in the task's own surface and no bar
+is ever drawn. The reverse case still uses `kBlitCharRev`. Cost: 7 bytes, and the
+displayed case is now a single blit per cell with no cursor routing at all.
+
+**Transferable:** only the fixed blitters (`kBlitChar` / `kBlitCharRev`) write
+**both** nibbles; a routed text write is an ink write and inherits the paper. So a
+cell that a reverse blit has touched cannot be brought back by ordinary text — it
+needs another fixed blit. `kBlitCharRev`'s own header calls the bar *idempotent*
+(redrawing it cannot fade the glyph); the other half of that contract is that it is
+**not reversible** by anything except `kBlitChar`.
+
+---
+
 ## Bug #185 — after any edit, `musedit`'s grid stopped drawing beyond the window: the partial repaint's clip was never cleared 🟠 ✅ FIXED (2026-10-28)
 
 **Symptom.** Enter a note, move the cursor to the bottom of the grid and keep
@@ -7646,6 +7679,7 @@ The AM/PM suffix is written in non-sequential order (`timeBuf+9` before `timeBuf
 
 | ID | Severity | Status | Title |
 |---|---|---|---|
+| #186 | 🟠 High | ✅ Fixed | **`musedit`'s reversed command bars left solid blocks of colour behind.** `kBlitCharRev` writes `(bg0<<4) \| textColour`, so a bar leaves the cell's **paper** nibble on the text colour — and `kPrintCharAt`, the routed writer every plain cell used, is an *ink* write that keeps the paper it finds. So the first space or note drawn over a former bar came out ink-on-ink: a solid block wherever a bar had been, compounding with every repaint. `muPutC`'s plain path now uses `kBlitChar` while the task owns the display, which sets paper back to `bg0`; the routed writer stays for the background case. Rule: **only the fixed blitters write both nibbles — a routed text write inherits the paper, so a reversed cell can only be un-reversed by another fixed blit** |
 | #185 | 🟠 High | ✅ Fixed | **After any edit, `musedit`'s grid stopped drawing beyond the window.** `muRedrawRows` (the band-limited repaint an edit uses) set `muGdClip` and never cleared it, so from the first edit on the editor stayed in partial-repaint mode: every line the scroll pulled in fell outside the stale `MU_GDLo..MU_GDHi` band, `muLnSpot` recorded its table entry and declined to draw it, and the arriving lines were blank **and unnumbered** while the head's `R` advanced. `muDrawGrid` now consumes the clip at `muDgEnd`, `muRedrawNoHead`'s private clear is gone (net 0 bytes), and the note-replace path repaints from the cursor's row down, because a pitch typed over a rest takes the armed length and moves every row below. Rule: **a mode flag set by one routine and cleared by another is a one-shot that will be forgotten — clear it in the routine that consumes it.** The tell is a blank-but-advancing display |
 | #184 | 🟠 High | ✅ Fixed | **`musedit`'s messages printed as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes.** `muTextAt` prints the REU file's bytes straight to the screen, so a slot must hold screen codes; `gen-musedit-msgs.py` wrote ASCII, which differs for every letter (`?` is `$3F` in both, which is why that one character looked right). `screencode()` now reproduces `.text` under `screencode_mixed` — `ord(c) - 96` for `a`-`z`, otherwise `ord(c)` — with an assert on the probe value, and the bytes were verified by assembling the same 40 strings with KickAssembler and diffing all 2,560 of them |
 | #183 | 🟠 High | ✅ Fixed | **In fill mode, the left press that dismissed the palette band also ran the flood fill.** `gpDraw`'s band guard reads `GP_MENU`, but `gpPicker` runs first in the same frame and `gpPickAway` clears `GP_MENU` as the band goes down — so the dismissal press reached `gpShapeFlood` as a canvas press and filled from a click made while the UI was up (deliberate for the pencil/shapes, #164b; wrong for a fill that reads its region from the canvas's pixels). `GP_MENU0` now records `GP_MENU` at the top of each displayed frame, before the picker can put the band away, and `gpShapeFlood` refuses when it is set: the dismissal only dismisses and the next press fills. `grpaint` 7729 -> 7743 bytes, 71 pool pages (unchanged), 64 asserts. Rule: **a guard that must tell "the UI was up when the press landed" from "the UI is up now" reads the frame's STARTING state — the flag that means "is up now" is cleared by the very dismissal it must detect.** |
