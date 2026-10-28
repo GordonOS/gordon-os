@@ -171,9 +171,11 @@ over it to the row's own line, scrolling as many lines as it takes to get there.
 | change voice | cursor left / right, or click a cell in another lane |
 | jump to the start of the voice | `CLR/HOME` |
 
-The playhead follows playback and the window follows the playhead. Moving the cursor does not
-stop playback, but **editing does not work while the tune is playing** — stop first
-(`? stop first`).
+The playhead follows playback and the window follows the playhead. **While the tune is playing
+the cursor is the playhead**, so `CRSR-UP`/`CRSR-DOWN` are refused — the follow would drag the
+marker straight back. `CRSR-LEFT`/`CRSR-RIGHT` still work, and are the useful pair while playing:
+they move the dots to another voice, so you can see which note that voice is sounding. Editing
+does not work while the tune is playing either — stop first (`? stop first`).
 
 The cursor marker `>` is drawn in the free cell immediately **left of the lane the cursor is
 in** — column 3, 15 or 27 — so it says which voice a key will act on as well as which line you

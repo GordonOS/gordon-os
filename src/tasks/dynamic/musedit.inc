@@ -3585,10 +3585,18 @@ muKeyNotMode:
 muKeyNotSpace:
     cmp #$84                    // CRSR down
     bne muKeyN1
+    lda muPlayOn                // while the player runs the cursor IS the playhead:
+    beq muKnDownGo              //   the follow would drag it back, so up and down are
+    jmp muKeyIdle               //   refused outright. Left and right still work --
+muKnDownGo:                     //   they point the dots at another voice.
     jmp muCurDown
 muKeyN1:
     cmp #$85                    // CRSR up
     bne muKeyN2
+    lda muPlayOn
+    beq muKnUpGo
+    jmp muKeyIdle
+muKnUpGo:
     jmp muCurUp
 muKeyN2:
     cmp #$86                    // CRSR right: next voice
