@@ -6971,6 +6971,12 @@ mlcChars:
     adc muTmpH
     tay
     lda muMnTab,y
+    cmp #' '                    // the field is space-padded, so the bar covers
+    bne mlcDraw                 //   the letters only
+    lda #0
+    sta muRevText
+    lda muMnTab,y
+mlcDraw:
     jsr muPutC
     inc muTmpH
     lda muTmpH

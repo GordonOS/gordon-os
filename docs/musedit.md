@@ -130,11 +130,11 @@ A line carries **one command from each lane**, exactly as a row line carries one
 three voices that fire a command on the same row take one line and not three. A voice with more
 commands than the others carries on down the lines below, with the other lanes empty.
 
-**A command's mnemonic is drawn in reverse video** — a solid bar in the voice's own colour with the
-letters knocked out — and so is the `ROW VOICE 1 VOICE 2 VOICE 3` header row. So a bar is a
-command, and plain text is a note or a command's operand. (A task that is not the displayed one
-draws plain text, because reversed cells are written straight to the framebuffer; the bars come
-back with the next redraw.)
+**A command's mnemonic is drawn in reverse video** — a bar in the voice's own colour, exactly as
+wide as the letters and with those letters knocked out — and so is the `ROW VOICE 1 VOICE 2 VOICE 3`
+header row. So a bar is a command, and plain text is a note or a command's operand. (A task that is
+not the displayed one draws plain text, because reversed cells are written straight to the
+framebuffer; the bars come back with the next redraw.)
 
 The two kinds of command never share a line, because a tempo and an envelope step are not
 comparable events:
