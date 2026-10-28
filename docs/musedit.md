@@ -81,9 +81,9 @@ A lane is drawn in its own voice's colour — the same red, yellow and cyan — 
 that follows it are one thing seen twice. The row number, the lane headers and the head stay white.
 
 **Row 24** — the control bar: `DUR` with the armed duration and the dot cell, `TIE-` the tie
-toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, SAVE and Q are clickable; the rest
-answer `? not yet` and are driven from the keys instead (`1`-`9` arm the duration, `.` cycles
-the dots, `Z`/`X` undo and redo).
+toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, SAVE and Q are clickable; `DUR`,
+`TIE-`, `CMD` and `UNDO` answer `? not yet` and are driven from the keys instead (`1`-`9` arm
+the duration a **new** note is written with, `.` cycles the dots, `Z`/`X` undo and redo).
 
 The bar answers the mouse: the item under the pointer shows in reverse video and goes back to
 plain when the pointer leaves it, and `PLAY` stays reversed for as long as the tune plays, so the
@@ -202,7 +202,9 @@ Every pitch the format allows is on screen at once — there is nothing to page 
 
 ### Duration, dots and tie
 
-The armed duration applies to the note you enter. Set it with the number keys `1`–`7`
+The armed duration applies to a **new** note — one entered where no note starts, or inside a
+longer one. An event that already starts on the row keeps its own length, so typing a pitch
+over it never re-times the voice. Set the armed value with the number keys `1`–`7`
 (whole … 64th) or `8`/`9` (the utility lengths UTL/UTV). `.` cycles the dots (none, dotted,
 double-dotted, triplet). The armed value is shown in the control bar's `DUR` field — the dot
 cell shows `.` dotted, `:` double-dotted, `3` triplet.

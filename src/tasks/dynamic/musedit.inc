@@ -3559,8 +3559,8 @@ muNcReplace:
     jsr muCapOld
     jsr muSeekKPtr
     ldy #0
-    lda muDurArm
-    sta (kPtr),y
+    lda muRecOld                // the event keeps its own length and dots, so the
+    sta (kPtr),y                //   rows below it do not move
     iny
     lda muNewOpt
     sta (kPtr),y
