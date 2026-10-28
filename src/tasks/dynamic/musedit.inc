@@ -2212,8 +2212,8 @@ muDrawHead:
     ldx #0
     jsr muNum16
     ldy #MU_CURCOL              // the tail -- BAR, the bar, R, the row -- starts here,
-    lda (dataPtr),y             //   and the playhead rewrites it from here
-    sta muHeadBarCol
+    lda (dataPtr),y             //   and a cursor move or the playhead rewrites it
+    sta muHeadBarCol            //   from here with muHeadTail
     lda #M_BAR2
     jsr muMsg
     jsr muCursorAbs             // A/X = the cursor's absolute row
@@ -2228,8 +2228,58 @@ muDrawHead:
     sta muHeadRowCol
     jsr muCursorAbs
     jsr muNum16
+    ldy #MU_CURCOL              // where the row number ends: a shorter one blanks
+    lda (dataPtr),y             //   the cells back to here
+    sta muHeadEnd
     muSet(MU_HOV, $ff)          // no pitch yet: three blanks, until a hover says otherwise
     jmp muHovDraw
+
+// --- muHeadTail -- rewrite the head's BAR and R from where the tail starts ---
+//  A cursor move changes the position fields only: the name and the tempo are
+//  already the right characters in the right cells, so clearing the row and
+//  printing them again is work with nothing to show for it. The tail is
+//  rewritten in place, and whatever a shorter number gave up is blanked.
+muHeadTail:
+    lda muStatT                 // a status owns row 0 until it retires: it is not
+    bne muDrawHead              //   ours to write into, so the whole row comes back
+    ldy #MU_CURROW
+    lda #0
+    sta (dataPtr),y
+    ldy #MU_CURCOL
+    lda muHeadBarCol
+    sta (dataPtr),y
+    lda #M_BAR2
+    jsr muMsg
+    jsr muCursorAbs
+    jsr muBarOf
+    sta muHeadBar
+    stx muHeadBar+1
+    jsr muNum16
+    lda #M_ROW2                 // R and the row, laid out as the head draw does
+    jsr muMsg
+    ldy #MU_CURCOL              // the row field moved with the bar's width
+    lda (dataPtr),y
+    sta muHeadRowCol
+    jsr muCursorAbs
+    jsr muNum16
+    jmp muHeadPad
+
+// --- muHeadPad -- blank the head from the text cursor to the old field end ---
+//  A number that lost a digit would leave the old one behind (the cursor moving
+//  up across 1000 -> 999, or a bar boundary going the other way), so the cells up
+//  to where the field ended last time are blanked, and the end that results is
+//  recorded -- a field that gained a digit moves it.
+muHeadPad:
+    ldy #MU_CURCOL
+    lda (dataPtr),y
+    cmp muHeadEnd
+    bcs muHpStore
+    lda #MU_SPACE
+    jsr muPutC
+    jmp muHeadPad
+muHpStore:
+    sta muHeadEnd
+    rts
 
 // --- muDrawHeadRow -- just the row number of the head ---
 //  The playhead moves the row every line, and rewriting the whole head for it
@@ -2242,7 +2292,8 @@ muDrawHeadRow:
     lda muHeadRowCol
     sta (dataPtr),y
     jsr muCursorAbs
-    jmp muNum16
+    jsr muNum16
+    jmp muHeadPad
 
 // --- muPhHead -- the head's BAR and R fields follow the playhead ---
 //  The row moves every line and the bar once every N lines, so the bar field is
@@ -2254,29 +2305,9 @@ muPhHead:
     cmp muHeadBar
     bne muPhBar
     cpx muHeadBar+1
-    bne muPhBar
-    jmp muDrawHeadRow           // the bar has not moved: only the row number
+    beq muDrawHeadRow           // the bar has not moved: only the row number
 muPhBar:
-    sta muHeadBar
-    stx muHeadBar+1
-    ldy #MU_CURROW
-    lda #0
-    sta (dataPtr),y
-    ldy #MU_CURCOL
-    lda muHeadBarCol
-    sta (dataPtr),y
-    lda #M_BAR2
-    jsr muMsg
-    jsr muCursorAbs
-    jsr muBarOf
-    jsr muNum16
-    lda #M_ROW2                 // R and the row, laid out as the head draw does
-    jsr muMsg
-    ldy #MU_CURCOL              // the row field moved with the bar's width
-    lda (dataPtr),y
-    sta muHeadRowCol
-    jsr muCursorAbs
-    jmp muNum16
+    jmp muHeadTail
 
 // --- muCursorAbs -- A/X = the cursor's absolute timeline row ---
 //  The screen row names a LINE, and a line may be a command's: MU_LNTB says which
@@ -3644,7 +3675,7 @@ muCurDown:
     //  comes out before the band moves and goes back on after it.
     jsr muCursorHide
     jsr muScrollBand
-    jsr muDrawHead
+    jsr muHeadTail
     jsr muCursorShow
     jmp muKeyIdle
 muCurDownIn:
@@ -3655,7 +3686,7 @@ muCurDownIn:
     adc #1
     sta (dataPtr),y
     jsr muCursorShow
-    jsr muDrawHead
+    jsr muHeadTail
     jmp muKeyIdle
 
 muCurUp:
@@ -3699,7 +3730,7 @@ muCurUpIn:
     sbc #1
     sta (dataPtr),y
     jsr muCursorShow
-    jsr muDrawHead
+    jsr muHeadTail
     jmp muKeyIdle
 
 // --- muCurRedraw -- the window moved: draw it again, head and cursor last ---
@@ -6385,6 +6416,7 @@ muClkSetVoice:
     lda muRowNew
     ldy #MU_ROW
     sta (dataPtr),y
+    jsr muHeadTail              // the click moved the cursor: its BAR and R follow
     jmp muCursorShow
 muClkLow:
     cmp #MU_PIANO_TOP            // the piano: the click enters that pitch
@@ -7615,6 +7647,7 @@ muTmpL:     .byte 0
 muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
 muHeadRowCol: .byte 0           // the head's row number, for the row-only update
+muHeadEnd:  .byte 0             // ...and the column just past its last digit
 muHeadBarCol: .byte 0           // where the head's BAR field starts, for the playhead
 muHeadBar:  .word 0
 muNeedPage: .byte 0
