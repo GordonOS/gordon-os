@@ -6493,6 +6493,10 @@ muPtStart:
     sta muPlayHush              // arm a fresh stop
     sta muPhCurLo               // the tune plays from its first row
     sta muPhCurLo+1
+    lda #1                      // the published count is the last pass's until the
+    sta muPhWait                //   player restarts it, so the playhead holds row 0
+    lda MU_POS_BLOCK+6          // ...and this is the count it must differ from
+    sta muPhOld
     jsr muPlayHome              // the view goes home BEFORE the music starts: a
                                 //   redraw must not run while the tune does
     lda #MU_BAR_PLAY
@@ -6676,6 +6680,14 @@ muPsHaveUnit:
     sta kArg
 muPsPub:
     sta kArg+1
+    lda muPhWait                // the count belongs to ONE pass, and a stop leaves it
+    beq muPsDiv                 //   where the music stopped: until the player publishes
+    lda kArg                    //   a different value the view must not chase it. The
+    cmp muPhOld                 //   low byte is enough -- a new pass counts up from 1,
+    beq muPsRts                 //   so a match holds row 0 for one jiffy at most
+    lda #0
+    sta muPhWait
+muPsDiv:
     jsr kDiv16
     lda kArg+4                  // the quotient is the row
     sta muPhCurLo
@@ -7925,6 +7937,8 @@ muSidCfgB:  .fill 9, 0          // kSidPlay mode 1: the file's FS offset, then w
 // --- the playhead: the player publishes its own count, the walk rings the dots ---
 muPhFrame:  .byte 0             // frameCount at the last playhead update
 muPhCurLo:  .fill 2, 0          // the row the cursor is on while playing (lo, hi)
+muPhWait:   .byte 0             // 1 until the player publishes THIS pass's count
+muPhOld:    .byte 0             // ...the count the pass started with, to tell them apart
 muHistN:    .fill 3, 0          // next slot per voice
 //  The row an event sounds on and its pitch, per voice, as the renderer walks:
 //  the keyboard dots ask this table instead of re-walking the tune. MU_HIST slots

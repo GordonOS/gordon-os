@@ -21,6 +21,39 @@
 
 ---
 
+## Bug #187 — the playhead chased the PREVIOUS pass's jiffy count, so the band scrolled early at a start 🟠 ✅ FIXED (2026-10-28)
+
+**Symptom.** Starting a pass (reported for the bar's `PLAY` cell) scrolled the grid a
+line or two before the music had played any of it, and the tune then had to walk back
+up to where the view already was. Starting with SPACE just after the same stop did not.
+
+**Root cause.** `muPhSync` derives the playhead's row from `SID_POS_TICK`, the jiffy
+count the *player* publishes, and that count belongs to ONE pass: `sidInitSong`
+zeroes it as the pass begins and the per-jiffy path increments it. A hush — `muPlayStop`,
+i.e. SPACE or the bar — silences the chip and leaves the count exactly where the music
+stopped. Between `muPlayOn = 1` and the child's next slice the count is therefore still
+the *previous* pass's, and the first `muPlayTick` after a start reads it: `muPhFollow`
+then scrolls the band down towards that stale row. Whether that pass comes before the
+child restarts the count is a scheduling race, which is why the same start could be
+clean from the keyboard and not from the mouse — the click's `muPointerTick` has
+already consumed the frame and done its four mouse reads, so its play tick follows
+immediately, while the key path still has that work to do before its own.
+
+**Fix.** `muPtStart` records the count as it stands and sets `muPhWait`; `muPhSync`
+holds the row at 0 — the row a start zeroes it to — until the player publishes a
+different low byte, which it does on the first jiffy of the new pass. The test is
+*change*, never "the count is small", so a parent that misses the first jiffy cannot
+wedge the playhead: any later value differs from the one recorded at the start. The
+low byte alone is enough because a new pass counts up from 1, so a collision costs at
+most one jiffy of hold. Costs 31 bytes.
+
+**Transferable:** a counter another task publishes is scoped to the *unit of work* that
+writes it (here, one pass), and it survives the stop that ends that unit. A reader must
+be able to tell "this belongs to the run I am in" — record the value at the start and
+require a **change**, rather than trusting any value that is merely present.
+
+---
+
 ## Bug #186 — `musedit`'s reversed command bars left solid blocks behind: a routed text write keeps the paper nibble it finds 🟠 ✅ FIXED (2026-10-28)
 
 **Symptom.** Stop the player and start it again, and solid blocks of colour were
@@ -7679,6 +7712,7 @@ The AM/PM suffix is written in non-sequential order (`timeBuf+9` before `timeBuf
 
 | ID | Severity | Status | Title |
 |---|---|---|---|
+| #187 | 🟠 High | ✅ Fixed | **`musedit`'s playhead chased the previous pass's jiffy count, so the band scrolled early at a start.** `SID_POS_TICK` is published by the player and belongs to one pass; a hush leaves it where the music stopped. Between `muPlayOn = 1` and the child's next slice the first `muPlayTick` read that stale count, and `muPhFollow` scrolled to it. Whether it happens is a scheduling race, so the same start could be clean from the keyboard and not from the mouse (the click's `muPointerTick` has already done its mouse reads, so its play tick follows immediately). `muPtStart` now records the count and sets `muPhWait`; `muPhSync` holds row 0 until the player publishes a **different** value. Rule: **a counter published by another task is scoped to the unit of work that writes it and survives the stop that ends it — record the value at the start and require a change, never trust a value that is merely present** |
 | #186 | 🟠 High | ✅ Fixed | **`musedit`'s reversed command bars left solid blocks of colour behind.** `kBlitCharRev` writes `(bg0<<4) \| textColour`, so a bar leaves the cell's **paper** nibble on the text colour — and `kPrintCharAt`, the routed writer every plain cell used, is an *ink* write that keeps the paper it finds. So the first space or note drawn over a former bar came out ink-on-ink: a solid block wherever a bar had been, compounding with every repaint. `muPutC`'s plain path now uses `kBlitChar` while the task owns the display, which sets paper back to `bg0`; the routed writer stays for the background case. Rule: **only the fixed blitters write both nibbles — a routed text write inherits the paper, so a reversed cell can only be un-reversed by another fixed blit** |
 | #185 | 🟠 High | ✅ Fixed | **After any edit, `musedit`'s grid stopped drawing beyond the window.** `muRedrawRows` (the band-limited repaint an edit uses) set `muGdClip` and never cleared it, so from the first edit on the editor stayed in partial-repaint mode: every line the scroll pulled in fell outside the stale `MU_GDLo..MU_GDHi` band, `muLnSpot` recorded its table entry and declined to draw it, and the arriving lines were blank **and unnumbered** while the head's `R` advanced. `muDrawGrid` now consumes the clip at `muDgEnd`, `muRedrawNoHead`'s private clear is gone (net 0 bytes), and the note-replace path repaints from the cursor's row down, because a pitch typed over a rest takes the armed length and moves every row below. Rule: **a mode flag set by one routine and cleared by another is a one-shot that will be forgotten — clear it in the routine that consumes it.** The tell is a blank-but-advancing display |
 | #184 | 🟠 High | ✅ Fixed | **`musedit`'s messages printed as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes.** `muTextAt` prints the REU file's bytes straight to the screen, so a slot must hold screen codes; `gen-musedit-msgs.py` wrote ASCII, which differs for every letter (`?` is `$3F` in both, which is why that one character looked right). `screencode()` now reproduces `.text` under `screencode_mixed` — `ord(c) - 96` for `a`-`z`, otherwise `ord(c)` — with an assert on the probe value, and the bytes were verified by assembling the same 40 strings with KickAssembler and diffing all 2,560 of them |
