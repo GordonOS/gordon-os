@@ -21,36 +21,67 @@
 
 ---
 
-## Bug #187 — the playhead chased the PREVIOUS pass's jiffy count, so the band scrolled early at a start 🟠 ✅ FIXED (2026-10-28)
+## Bug #187 — a start scrolled the band before a note had played: the follow's fixed centre against a first row that is deeper than it, and a stale pass counter behind that 🟠 ✅ FIXED (2026-10-28)
 
-**Symptom.** Starting a pass (reported for the bar's `PLAY` cell) scrolled the grid a
-line or two before the music had played any of it, and the tune then had to walk back
-up to where the view already was. Starting with SPACE just after the same stop did not.
+**Symptom.** Starting a pass scrolled the grid a line or two before the music had
+played any of it, and the tune then had to walk back up to where the view already was.
+Reported for the bar's `PLAY` cell first, then for SPACE as well — which is the tell:
+the entry point was never the variable.
 
-**Root cause.** `muPhSync` derives the playhead's row from `SID_POS_TICK`, the jiffy
-count the *player* publishes, and that count belongs to ONE pass: `sidInitSong`
-zeroes it as the pass begins and the per-jiffy path increments it. A hush — `muPlayStop`,
-i.e. SPACE or the bar — silences the chip and leaves the count exactly where the music
-stopped. Between `muPlayOn = 1` and the child's next slice the count is therefore still
-the *previous* pass's, and the first `muPlayTick` after a start reads it: `muPhFollow`
-then scrolls the band down towards that stale row. Whether that pass comes before the
-child restarts the count is a scheduling race, which is why the same start could be
-clean from the keyboard and not from the mouse — the click's `muPointerTick` has
-already consumed the frame and done its four mouse reads, so its play tick follows
-immediately, while the key path still has that work to do before its own.
+**Root cause, in two layers.**
 
-**Fix.** `muPtStart` records the count as it stands and sets `muPhWait`; `muPhSync`
-holds the row at 0 — the row a start zeroes it to — until the player publishes a
-different low byte, which it does on the first jiffy of the new pass. The test is
-*change*, never "the count is small", so a parent that misses the first jiffy cannot
-wedge the playhead: any later value differs from the one recorded at the start. The
-low byte alone is enough because a new pass counts up from 1, so a collision costs at
-most one jiffy of hold. Costs 31 bytes.
+1. **The follow's target was a constant.** `muPhFollow` scrolls until the playhead's
+   *line* index is at most `MU_FOLLOW_CENTER` (8). But a row's own line sits as many
+   lines down as that row has commands above it — the sound commands first, then the
+   structural ones — so **the tune's first row can already be deeper than 8**, and a
+   grid showing the tune's start has nothing above it that scrolling may discard. The
+   first `muPhFollow` of a pass then scrolled 1-3 lines off the *opening* of the tune
+   before anything had played, and the music had to reach that line before the pencil
+   and the sound agreed again. How deep the opening is depends on the tune alone
+   (`immig` 9 command lines, `tetris` 9, `tambrn` 11, `commodo` 5), which is exactly
+   why it looked intermittent and looked entry-point-specific.
+2. **The counter read behind it.** `muPhSync` derives the row from `SID_POS_TICK`,
+   which belongs to ONE pass: `sidInitSong` zeroes it as the pass begins and the
+   per-jiffy path increments it, while a hush (`muPlayStop`) only silences the chip.
+   So the first playhead evaluation of a restart could read the *previous* pass's
+   count and chase a row the last pass died on.
 
-**Transferable:** a counter another task publishes is scoped to the *unit of work* that
-writes it (here, one pass), and it survives the stop that ends that unit. A reader must
-be able to tell "this belongs to the run I am in" — record the value at the start and
-require a **change**, rather than trusting any value that is merely present.
+**Fix.** The target is no longer a constant. `muLnRowDraw` — the one routine that knows
+how many command lines a row carried — raises `MU_FOLLOW1` to the opening's own depth
+when it emits the tune's first row, for whatever that depth is:
+
+```asm
+muLnRowDraw:
+    lda muGrpRow                // the tune's first row: its own line sits as deep as
+    ora muGrpRow+1              //   the opening's command count, and the follow may
+    bne mlrSpot                 //   never ask for a line above that
+    lda muLogLns                // the command lines that came before this row's own
+    clc                         //   line, in this very walk
+    adc #1
+    cmp muFollow1
+    bcc mlrSpot
+    sta muFollow1
+```
+
+`muLogLns` is the producer's own count of the row's command lines, so nothing about a
+particular tune is baked in: a shallow opening leaves the centre at 8, a deep one moves
+the pin down to that depth and keeps the lines of lookahead the band can still afford.
+A row whose opening is deeper than the whole band is still handled, by the blind path,
+which scrolls until the line is found.
+
+Behind it, `muPtStart` records the published count and sets `muPhWait`; `muPhSync` holds
+row 0 until the player publishes a **different** byte. The first version of that gate
+compared the recorded byte against the count *after* the player's one-jiffy adjustment
+(`count - 1`), so the two never matched and the gate opened immediately — a no-op that
+cost a build. It compares the published byte with the published byte now.
+
+**Transferable:** a target that describes a *view* ("pin the playhead at line 8") is a
+claim about the content, and content that carries a variable number of header lines —
+commands above a row, a preamble, a legend — can start deeper than the claim. Derive
+the target from the content the producer emits, not from a constant that assumes the
+content is shallow. And when a guard is meant to compare two readings, compare them in
+the **same units**: a snapshot of a raw counter against a derived value is always
+unequal, so the guard silently does nothing while looking correct.
 
 ---
 
@@ -7712,7 +7743,7 @@ The AM/PM suffix is written in non-sequential order (`timeBuf+9` before `timeBuf
 
 | ID | Severity | Status | Title |
 |---|---|---|---|
-| #187 | 🟠 High | ✅ Fixed | **`musedit`'s playhead chased the previous pass's jiffy count, so the band scrolled early at a start.** `SID_POS_TICK` is published by the player and belongs to one pass; a hush leaves it where the music stopped. Between `muPlayOn = 1` and the child's next slice the first `muPlayTick` read that stale count, and `muPhFollow` scrolled to it. Whether it happens is a scheduling race, so the same start could be clean from the keyboard and not from the mouse (the click's `muPointerTick` has already done its mouse reads, so its play tick follows immediately). `muPtStart` now records the count and sets `muPhWait`; `muPhSync` holds row 0 until the player publishes a **different** value. Rule: **a counter published by another task is scoped to the unit of work that writes it and survives the stop that ends it — record the value at the start and require a change, never trust a value that is merely present** |
+| #187 | 🟠 High | ✅ Fixed | **A start scrolled the band before a note had played.** Two layers. (1) `muPhFollow` pinned the playhead's **line** at `MU_FOLLOW_CENTER` (8), but a row's own line sits as deep as that row has commands above it, so a tune whose opening has more than 8 command lines (`immig` 9, `tambrn` 11, `commodo` 5) had the view scroll off its own first lines before anything played, and the music then walked back up to the pencil. `muLnRowDraw` now raises `MU_FOLLOW1` to the opening's own depth, from the producer's `muLogLns`, for any tune. (2) `muPhSync` read `SID_POS_TICK`, which belongs to one pass and survives the hush that ends it; `muPtStart` now records it and sets `muPhWait`, and the row holds at 0 until the player publishes a different byte. Rule: **a target that describes a view is a claim about the content — derive it from what the producer emits, never from a constant that assumes the content is shallow; and compare a guard's two readings in the same units, or it silently does nothing** |
 | #186 | 🟠 High | ✅ Fixed | **`musedit`'s reversed command bars left solid blocks of colour behind.** `kBlitCharRev` writes `(bg0<<4) \| textColour`, so a bar leaves the cell's **paper** nibble on the text colour — and `kPrintCharAt`, the routed writer every plain cell used, is an *ink* write that keeps the paper it finds. So the first space or note drawn over a former bar came out ink-on-ink: a solid block wherever a bar had been, compounding with every repaint. `muPutC`'s plain path now uses `kBlitChar` while the task owns the display, which sets paper back to `bg0`; the routed writer stays for the background case. Rule: **only the fixed blitters write both nibbles — a routed text write inherits the paper, so a reversed cell can only be un-reversed by another fixed blit** |
 | #185 | 🟠 High | ✅ Fixed | **After any edit, `musedit`'s grid stopped drawing beyond the window.** `muRedrawRows` (the band-limited repaint an edit uses) set `muGdClip` and never cleared it, so from the first edit on the editor stayed in partial-repaint mode: every line the scroll pulled in fell outside the stale `MU_GDLo..MU_GDHi` band, `muLnSpot` recorded its table entry and declined to draw it, and the arriving lines were blank **and unnumbered** while the head's `R` advanced. `muDrawGrid` now consumes the clip at `muDgEnd`, `muRedrawNoHead`'s private clear is gone (net 0 bytes), and the note-replace path repaints from the cursor's row down, because a pitch typed over a rest takes the armed length and moves every row below. Rule: **a mode flag set by one routine and cleared by another is a one-shot that will be forgotten — clear it in the routine that consumes it.** The tell is a blank-but-advancing display |
 | #184 | 🟠 High | ✅ Fixed | **`musedit`'s messages printed as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes.** `muTextAt` prints the REU file's bytes straight to the screen, so a slot must hold screen codes; `gen-musedit-msgs.py` wrote ASCII, which differs for every letter (`?` is `$3F` in both, which is why that one character looked right). `screencode()` now reproduces `.text` under `screencode_mixed` — `ord(c) - 96` for `a`-`z`, otherwise `ord(c)` — with an assert on the probe value, and the bytes were verified by assembling the same 40 strings with KickAssembler and diffing all 2,560 of them |

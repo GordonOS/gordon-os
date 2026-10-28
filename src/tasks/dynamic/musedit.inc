@@ -6682,10 +6682,10 @@ muPsPub:
     sta kArg+1
     lda muPhWait                // the count belongs to ONE pass, and a stop leaves it
     beq muPsDiv                 //   where the music stopped: until the player publishes
-    lda kArg                    //   a different value the view must not chase it. The
-    cmp muPhOld                 //   low byte is enough -- a new pass counts up from 1,
-    beq muPsRts                 //   so a match holds row 0 for one jiffy at most
-    lda #0
+    lda MU_POS_BLOCK+6          //   a different value the view must not chase it. The
+    cmp muPhOld                 //   published byte, against the one recorded at the
+    beq muPsRts                 //   start -- the adjusted low byte below is a different
+    lda #0                      //   number and would never match
     sta muPhWait
 muPsDiv:
     jsr kDiv16
@@ -6745,6 +6745,13 @@ muPcGone:
 //  out of it. muLnFind gives the playhead's line, and the band scrolls until that
 //  line sits MU_FOLLOW_CENTER from the bottom -- always reachable, one line a scroll.
 //  A settled playhead costs one scan per frame and nothing more.
+//  WARNING: the target is MU_FOLLOW1, not the constant: a row's own line sits as many
+//  lines down as that row has commands above it, so the tune's FIRST row can already
+//  be deeper than the centre. Aiming at the centre there scrolls the view off the
+//  tune's own opening before a note has played, and the music then walks back up to
+//  where the pencil already is. muLnRowDraw raises the target to whatever the opening
+//  turns out to be, for any tune, so the follow never asks for a line above one the
+//  score has not reached yet.
 muPhFollow:
     jsr muCursorHide            // out before the band can move: one hide for the
                                 //   whole pass, however many lines it walks, and
@@ -6755,9 +6762,8 @@ muPfStep:
     jsr muLnFind
     cpx #$ff
     beq muPfBlind
-    cpx #(MU_FOLLOW_CENTER+1)   // settled once the line is at or above index
-    bcc muPfRts                 //   MU_FOLLOW_CENTER: that is the row the playhead
-                                //   is pinned to, counted from the window's top
+    cpx muFollow1               // settled once the line is at or above the target
+    bcc muPfRts                 //   the playhead is pinned to, counted from the top
 muPfMove:
     jsr muScrollBand            // one line: the band moves, only it is drawn
     dec muPfN
@@ -7138,6 +7144,16 @@ muDecWHi:   .byte >10000, >1000, >100, >10, >1
 
 // --- muLnRowDraw -- the row's own line: every lane's note, then its number ---
 muLnRowDraw:
+    lda muGrpRow                // the tune's first row: its own line sits as deep as
+    ora muGrpRow+1              //   the opening's command count, and the follow may
+    bne mlrSpot                 //   never ask for a line above that
+    lda muLogLns                // the command lines that came before this row's own
+    clc                         //   line, in this very walk
+    adc #1
+    cmp muFollow1
+    bcc mlrSpot
+    sta muFollow1
+mlrSpot:
     lda #1                      // the row's own line: the one with the notes, and
     jsr muLnSpot                //   the only line the cursor may stand on
     lda muLnDraw
@@ -7687,6 +7703,8 @@ muNumSquash: .byte 0
 muTmpL:     .byte 0
 muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
+muFollow1:  .byte MU_FOLLOW_CENTER+1  // the line the playhead is pinned to, +1: the
+                                //   opening raises it to its own depth (muLnRowDraw)
 muHeadRowCol: .byte 0           // the head's row number, for the row-only update
 muHeadEnd:  .byte 0             // ...and the column just past its last digit
 muHeadBarCol: .byte 0           // where the head's BAR field starts, for the playhead
