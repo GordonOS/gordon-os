@@ -4682,10 +4682,10 @@ muDelKey2:
 mdkEvent:
     jmp muDelKey
 mdkCmd:
-    sta muObjId                 // its mnemonic and operand name the pair
-    lda muCmdVal
-    sta muObjVal
-    lda #1
+    sta muObjId                 // its mnemonic names the pair: a removal is the
+    lda muCmdVal                //   nearest one of that id at this boundary, so a
+    sta muObjVal                //   value wider than a byte cannot hide it
+    lda #0
     sta muObjMatch
     jsr muBandRebuild
     jsr muSeek
@@ -4708,7 +4708,7 @@ mdkCmd:
     lda muSkV
     jsr muDelGap
     jsr muPushEdit
-    jmp mqRedraw
+    jmp muRedrawNoHead
 mdkGone:
     jsr muBandRebuild
     lda #M_NO_EVENT
@@ -4754,6 +4754,8 @@ muObjKey:
     sta muObjKind               // 0 = a pair to be added at the boundary
     jmp mqPick
 mqHave:
+    cmp #MU_MN_END+1            // a sound command is drawn, not written: its
+    bcs mqRefuseCmd             //   operand is the pattern's own timing
     sta muObjId
     lda muCmdVal
     sta muObjVal
@@ -4768,6 +4770,11 @@ mqHave:
     bcc mqPick
 mqGone:
     jmp mqRefuse
+mqRefuseCmd:
+    jsr muBandRebuild
+    lda #M_NOT_YET
+    jsr muMsgSet
+    jmp muStatus
 mqRefuse:
     jsr muBandRebuild
     lda #M_NO_EVENT
@@ -4780,6 +4787,7 @@ mqRts:
 mqPick:
     lda #0
     sta muObjPhase
+    sta muObjFresh
 mqDraw:
     jsr muObjEnc                // the operand's maximum, and the encoded pair
     lda muObjVal                // a mnemonic picked after a value was typed keeps it
@@ -4864,6 +4872,8 @@ mqIt2:
 mqIt3:
     lda #1
     sta muObjPhase
+    lda #0
+    sta muObjFresh
     jmp mqDraw
 
 // --- the operand step: digits build the value, INST/DEL backs one out ---
@@ -4886,6 +4896,13 @@ mqValDigit:
     cmp #10
     bcs mqValKey
     sta muTmpL
+    lda muObjFresh              // the first digit typed starts the value afresh, so
+    bne mqValAcc                //   an operand already there is not extended
+    lda #1
+    sta muObjFresh
+    lda #0
+    sta muObjVal
+mqValAcc:
     lda muObjVal                // val * 10 + the digit, never past the maximum
     cmp #25                     //   25 is the first value whose *10 no longer fits
     bcs mqValFull               //   a byte with a digit added to it
@@ -4907,12 +4924,24 @@ mqValSet:
     jmp mqDraw
 mqValBack:
     lda muObjVal
-mqValBl:
+    bne mqVbGo                  // a value: drop its last digit
+    lda #0                      // nothing left to delete: back to the mnemonic
+    sta muObjPhase
+    jmp mqDraw
+mqVbGo:
+    sta muObjFresh              // a digit typed now extends what is left
+    lda muObjVal
+    ldx #0                      // the quotient, by repeated subtraction
+mqVbLp:
     cmp #10
-    bcc mqValSet
+    bcc mqVbDone
     sec
     sbc #10
-    jmp mqValBl
+    inx
+    bne mqVbLp
+mqVbDone:
+    stx muObjVal
+    jmp mqDraw
 mqValWait:
     lda #SYS_YIELD
     jsr syscall
@@ -4959,16 +4988,12 @@ mqIns:
     jsr mqPutPair
 mqDone:
     jsr muPushEdit
-mqRedraw:
-    jsr muDrawHead              // the prompt and the band are both stale
-    ldy #MU_ROW
-    lda (dataPtr),y
-    ldx #MU_GRID_BOT+1
-    jmp muRedrawRows
+    jsr muStatArm               // the prompt line stands for a moment, then the
+    jmp muRedrawNoHead          //   head takes row 0 back; a new line moves the band
 mqStatus:
     jmp muStatus
 mqCancel:
-    jmp mqRedraw                // the prompt only touched row 0
+    jmp muDrawHead              // the prompt only touched row 0
 
 // --- mqPutPair -- the encoded pair into the image at MU_OBJLO/HI ---
 mqPutPair:
@@ -5908,14 +5933,25 @@ muInRts:
     rts
 
 // --- muDelGap -- close MU_INSN bytes at MU_INSLO/HI ---
-//  In: MU_INSLO/HI the offset (an event boundary), MU_INSN the byte count,
+//  In: MU_INSLO/HI the offset the tail lands on, MU_INSN the byte count,
 //      A = the voice whose length word shrinks. The tail behind the gap -- the
 //      rest of this voice, the later voices, the description -- moves down as
 //      one piece, so nothing in the image has to be patched.
+//  MU_GAPMOVE treats MU_INSLO/HI as the start of the run it shifts, and its
+//  destination is that start minus MU_INSN: handing it the gap's own offset would
+//  copy the doomed bytes MU_INSN lower and drop the voice's last MU_INSN bytes
+//  instead of closing anything, so the run starts AFTER the bytes being closed.
 muDelGap:
     sta muInsV
     lda #0
     sta muGapUp                 // the tail moves DOWN: the pages are walked forwards
+    lda muInsLo
+    clc
+    adc muInsN
+    sta muInsLo
+    bcc muDgGo
+    inc muInsHi
+muDgGo:
     jsr muGapMove
     bcs muDgRts
     jsr muImgSeat
@@ -8275,6 +8311,7 @@ muObjVal:   .byte 0             // ...its operand
 muObjMax:   .byte 0             // ...and the largest operand it takes
 muObjKind:  .byte 0             // 0 = a pair to add, 1 = the pair at MU_OBJLO/HI
 muObjPhase: .byte 0             // 0 = picking the mnemonic, 1 = typing the operand
+muObjFresh: .byte 0             // 0 = the next digit starts the operand afresh
 muObjMatch: .byte 0             // 1 = a scan matches the operand as well as the id
 muObjLo:    .byte 0             // the pair being found, replaced or added
 muObjHi:    .byte 0

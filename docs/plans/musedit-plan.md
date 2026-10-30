@@ -1335,8 +1335,14 @@ order:
   split, because the format has nothing to split it with — which is also why the editor offers no
   way to place one there. And the authoring surface is the nine structural commands, whose operands
   are the tune's own settings; a sound command's operand is a timing or a waveform number that
-  belongs to the pattern, so those lines are drawn and not typed. Remaining: the sound commands and
-  the 16-23 phrase form, which want a panel and hex operands.
+  belongs to the pattern, so those lines are drawn and not typed. Remaining: the sound
+  commands and the 16-23 phrase form, which want a panel and hex operands.
+  Checked in VICE against the saved `.mus`: a replaced operand changes exactly its own
+  byte, an inserted pair moves the voice's length word by two and shifts the tail by
+  two, `SHIFT+INST/DEL` removes it, and insert -> redo -> delete leaves the file
+  byte-identical to the original. The referee was `muDelGap`, which had been moving
+  the stream two bytes down instead of closing it, so **every** delete in the editor
+  was a silent corruption rather than a delete (see `docs/bugs.md` #188).
 - **d. Edit a definition knowingly.** Inside a `DEF` body an edit changes every call site, so
   the status line names the phrase and its call count; inside a *replay* region there are no
   bytes, so insert and delete stay refused and the cursor snaps to the body event.

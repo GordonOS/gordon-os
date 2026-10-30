@@ -92,6 +92,55 @@ unequal, so the guard silently does nothing while looking correct.
 
 ---
 
+## Bug #188 — `musedit`'s deletes moved the stream 2 bytes down instead of closing it: a gap move's source is the tail, not the bytes being closed 🔴 ✅ FIXED (2026-10-30)
+
+**Symptom.** `SHIFT+INST/DEL` on a row's own line appeared to do **nothing**: the
+event stayed on screen and the file kept it. The saved tune then showed a *different*
+fault -- the pair the user meant to delete was still there and the pair **before** it
+had vanished -- and the voice was two bytes shorter, so the last pair of the voice was
+gone. Reached from the new command-line editor (remove a command line, or undo a
+command insert) it looked like the delete and the undo were both broken.
+
+**Root cause.** `muDelGap` handed `muGapMove` **the gap's own offset** as the start of
+the run to shift, and `muGapPage` then writes that run to `start - MU_INSN`. So a
+"close" copied the doomed bytes two bytes lower instead of starting after them, and
+everything beyond them was duplicated one pair down while the length word shrank. The
+same offset convention has a *different* meaning on the open path: an insert moves the
+tail **up**, so its run really does start at the gap. `muRangeReplace` -- the undo and
+redo replay -- already passed `RecOff + want`, i.e. a *destination*, which is what the
+down move needs and what `muDelKey` did not pass.
+
+**Fix.** `muDelGap` advances the offset past the bytes it is closing before the move,
+with the page carried, so `muGapPage`'s `start - MU_INSN` lands on the gap:
+
+```asm
+muDelGap:
+    sta muInsV
+    lda #0
+    sta muGapUp                 // the tail moves DOWN: the pages are walked forwards
+    lda muInsLo
+    clc
+    adc muInsN
+    sta muInsLo
+    bcc muDgGo
+    inc muInsHi
+muDgGo:
+    jsr muGapMove
+```
+
+Verified in VICE against the saved `.mus`: insert a `UTV 3` at row 01, redo it, delete
+it, and the saved file is **byte-identical** to the original (before the fix the same
+sequence left the pair moved down two bytes and `VRT 2` destroyed).
+
+**Transferable:** a routine that shifts a region has two offsets -- where the region
+*is* and where it is going -- and a caller that passes one for the other can be exactly
+`n` bytes wrong in a way that still produces a plausible file. When two directions of
+one move share a helper, write down **which** offset the helper takes (here: the run's
+own start, with the destination derived), and check every caller against that, not
+against the direction it happens to pass.
+
+---
+
 ## Bug #186 — `musedit`'s reversed command bars left solid blocks behind: a routed text write keeps the paper nibble it finds 🟠 ✅ FIXED (2026-10-28)
 
 **Symptom.** Stop the player and start it again, and solid blocks of colour were
