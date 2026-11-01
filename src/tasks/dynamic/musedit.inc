@@ -154,6 +154,7 @@
 // --- the status line and the control bar ---
 .const MU_SCREEN_COLS = 40    // the surface's width, in cells
 .const MU_STAT_FRAMES = 50    // about a second of displayed frames
+.const MU_AUD_FRAMES  = 5     // the audition's length, in displayed frames (100 ms)
 .const MU_UNIT_N   = 7        // the row unit's candidates, shortest first
 .const MU_BAR_Q     = 2       // hit-map code: this one quits
 .const MU_BAR_SAVE  = 3       // ...and this one writes the image back
@@ -3640,8 +3641,11 @@ muKeyNotArm:
 muKeyNotDot:
     jsr muKeyNote               // a note key enters its pitch at the cursor
     bcc muKeyNotNote
+    sta muNoteLin               // the pitch to write, not MU_HOV -- the pointer owns that
     jsr muPlaying               // it IS a note key: refuse while the player runs
     bcs muKndIdle
+    lda muNoteLin
+    jsr muAudNote               // it sounds as it arrives
     jsr muNoteClick
 muKndIdle:
     jmp muKeyIdle
@@ -3745,6 +3749,8 @@ muKeyIdle:
     jsr muPointerTick
     jsr muStatusTick
     jsr muPlayTick
+    jsr muAudTick
+    jsr muHovDot
     lda #SYS_YIELD
     jsr syscall
     jmp muKeyLoop
@@ -4009,10 +4015,141 @@ muSeekKPtr:
     tax
     rts
 
+// ==========================================
+//  Audition -- a note sounds as it is entered
+// ==========================================
+//  The editor holds no player while it is stopped, so the pitch is written to SID
+//  voice 1 directly and released a few frames later. It is NOT known whether
+//  another task owns the chip (sid.lib keeps that in its own pages, which a caller
+//  cannot read), so the gate bits are the test: any voice gated means somebody is
+//  playing and the audition stays silent rather than fighting it.
+//  A player that is mid-tick when we look can still be interrupted once; it
+//  rewrites its voice controls every tick, so the loss is one tick of one voice.
+// --- muAudFreq -- A = the linear note (0-95) -> muAudLo/muAudHi, the SID frequency ---
+//  The table is the player's PAL one, an octave down: octave 7 doubles it (B clamps
+//  at $ffff) and every octave below halves it once per step.
+muAudFreq:
+    ldx #0
+muAfDiv:
+    cmp #12
+    bcc muAfDivDone
+    sec
+    sbc #12
+    inx
+    jmp muAfDiv
+muAfDivDone:
+    sta muTmp                   // the semitone inside the octave
+    stx muTmp2                  // ...and the octave
+    lda #7
+    sec
+    sbc muTmp2                  // stored as the option byte is: 0 is octave 7
+    beq muAfTop
+    tay
+    dey                         // octave 7 is the table's own octave once doubled,
+    ldx muTmp                   //   so every step below halves it one time fewer
+    lda muAudLoTab,x
+    sta muAudLo
+    lda muAudHiTab,x
+    sta muAudHi
+muAfHalve:
+    cpy #0
+    beq muAfRts
+    lsr muAudHi
+    ror muAudLo
+    dey
+    jmp muAfHalve
+muAfTop:
+    ldx muTmp
+    lda muAudLoTab,x
+    sta muAudLo
+    asl
+    sta muAudLo
+    lda muAudHiTab,x
+    rol
+    bcc muAfTopOk
+    lda #$ff                    // B: $106D0 does not fit, so it clamps
+    sta muAudHi
+muAfTopOk:
+    sta muAudHi
+muAfRts:
+    rts
+
+// --- muAudNote -- sound the linear note in A on voice 1, unless another player has the chip ---
+//  A is parked on the stack because the gate test reads three registers first, and a
+//  refused note has to leave with the same stack it arrived with.
+muAudNote:
+    pha
+    lda muAudOn
+    bne muAudGo                 // our own note: retrigger it
+    lda $d404                   // three gates, and only when no note of ours sounds
+    and #$01
+    bne muAudNo
+    lda $d40b
+    and #$01
+    bne muAudNo
+    lda $d412
+    and #$01
+    bne muAudNo
+muAudGo:
+    pla
+    jsr muAudFreq
+    lda muAudLo
+    sta $d400
+    lda muAudHi
+    sta $d401
+    lda #0
+    sta $d402                   // a sawtooth ignores the pulse width, but a player
+    sta $d403                   //   that resumes should not find it stale
+    sta $d405                   // attack 2 ms, decay 6 ms
+    lda #$f0                    // sustain 15, release 6 ms
+    sta $d406
+    lda $d418                   // keep the filter bits, make sure there is volume
+    and #$f0
+    ora #$0f
+    sta $d418
+    lda #$21                    // sawtooth, gate on
+    sta $d404
+    lda frameCount
+    sta muAudStart
+    lda #1
+    sta muAudOn
+    rts
+muAudNo:
+    pla                         // another task's note: the pitch is dropped, unsounded
+    rts
+
+// --- muAudTick -- release the audition once its frames are up ---
+//  Runs from the idle pass, and measures ELAPSED frames rather than waiting for one
+//  to be reached: a pass is slower than a frame, so an equality test would step over
+//  its own deadline and the note would drone until the counter wrapped.
+muAudTick:
+    lda muAudOn
+    beq muAuRts
+    lda muPlayOn
+    beq muAuChk
+    lda #0                      // the player owns the chip now: drop ours silently,
+    sta muAudOn                 //   because clearing a gate under it would cut a note
+    rts
+muAuChk:
+    lda frameCount
+    sec
+    sbc muAudStart
+    cmp #MU_AUD_FRAMES
+    bcc muAuRts
+    lda #0
+    sta muAudOn
+    lda $d404                   // gate off: the release phase ends the note
+    and #$fe
+    sta $d404
+muAuRts:
+    rts
+
+
 // --- muNoteClick -- a piano click enters its pitch on the cursor's row ---
-//  The hover has already put the clicked key's linear note in MU_HOV. The armed
-//  length is checked against the tempo in force at that row first, so an entry
-//  the player could not express writes nothing.
+//  The pitch arrives in muNoteLin: the pointer publishes the key it is over in
+//  MU_HOV, but a note key also calls this, and MU_HOV belongs to the pointer. The
+//  armed length is checked against the tempo in force at that row first, so an
+//  entry the player could not express writes nothing.
 //  A command has a line of its own above the row it belongs to, and that line shares
 //  the row without holding a note: a note belongs on the row's OWN line, so a key
 //  pressed on a command line is refused rather than rewriting the event below it,
@@ -4029,8 +4166,7 @@ muNcGo:
     tay
     lda muLnKind,y
     beq muNcNoEvt
-    ldy #MU_HOV
-    lda (dataPtr),y
+    lda muNoteLin
     cmp #$fe
     bcs muNcRts                 // nothing under the pointer
     jsr muNoteOpt               // A = the note option byte for that key
@@ -5761,14 +5897,12 @@ muUxPeek:
 muUxDone:
     jmp muRedrawNoHead
 
-// --- muNoteOpt -- A = the option byte for the linear note in MU_HOV ---
+// --- muNoteOpt -- A = the linear note -> A = its option byte, in muNewOpt ---
 //  The format stores a letter (1..7), an accidental (10 plain, 01 sharp) and an
 //  octave, and it stores the octave INVERTED: the player's frequency table starts
 //  at octave 7 and is halved once per octave field, so field = 7 - octave. A black
 //  key is written as the sharp of the letter below it.
 muNoteOpt:
-    ldy #MU_HOV
-    lda (dataPtr),y
     ldx #0
 muNoDiv:
     cmp #12
@@ -6186,8 +6320,8 @@ muWinFlush0:
 //  The home row plays the white keys and W E T Y U O P the black ones, an octave
 //  up or down with - and +. A note key enters its pitch at the cursor through
 //  the same writer a piano click uses.
-//  In: A = the screen code of the key.  Out: C=1 when it is a note key, and
-//  MU_HOV then holds the linear note it plays.
+//  In: A = the screen code of the key.  Out: C=1 when it is a note key, and A then
+//  holds the linear note it plays. MU_HOV is left alone: that is the pointer's.
 muKeyNote:
     sta muTmp2                  // the key, while the table is walked
     ldx #0
@@ -6217,9 +6351,7 @@ muKnHit:
     adc muTmp
     cmp #96
     bcs muKnNone                // above B7 there is no note to enter
-    ldy #MU_HOV
-    sta (dataPtr),y
-    sec
+    sec                         // A = the linear note
     rts
 muKnNone:
     clc
@@ -6454,6 +6586,88 @@ muDotsOff:
     ldx #SPR_SHD_ENABLE
     jmp kSpriteReg
 
+// --- muHovDot -- the cursor voice's dot on the key under the pointer ---
+//  The pointer says which pitch a click would enter, and this says which VOICE it
+//  would enter it on: the dot is the same one that voice gets during playback, in
+//  its own colour, parked on the key -- and it sounds as it arrives, so a tune can
+//  be found by ear before anything is written.
+//  Playback owns the dot slots while the tune runs, and MU_HOV is not a key when the
+//  pointer is anywhere else, so both cases end in no dot at all.
+muHovDot:
+    lda muPlayOn
+    beq muHdIdle
+    ldy #0                      // playback's dots own the keys: forget ours, so the
+    sty muHdOn                  //   first pass after a stop places it again
+    ldy #$ff
+    sty muHdOld
+    rts
+muHdIdle:
+    ldy #MU_HOV
+    lda (dataPtr),y
+    cmp #$fe
+    bcc muHdKey
+    lda muHdOn                  // off the keyboard: our dot goes, and the key it was
+    bne muHdGone                //   on is forgotten so a return to it sounds again
+    rts
+muHdGone:
+    lda #0
+    sta muHdOn
+    lda #$ff                    // no key: the next place on a key is always new
+    sta muHdOld
+    jmp muDotsOff
+muHdKey:
+    cmp muHdOld                 // the same key on the same voice: nothing to redo
+    bne muHdNew
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    cmp muHdOldV
+    beq muHdRts
+muHdNew:
+    ldy #MU_VOICE               // the voice the cursor acts on
+    lda (dataPtr),y
+    sta muHdV
+    ldy #MU_HOV
+    lda (dataPtr),y
+    sta muHdOld
+    jsr muAudFreq               // A = the linear note -> muTmp = the semitone
+    ldx muTmp
+    lda muSemSharp,x
+    beq muHdNat
+    ldy #MU_DOT_Y               // a black key: the dot sits up on it
+    bne muHdHaveY
+muHdNat:
+    ldy #MU_DOT_YN              // a natural: below the black keys
+muHdHaveY:
+    sty muHdY
+    ldy muHdOld
+    lda muDotTabHi,y            // the dot's x, and its ninth bit
+    sta muTmp2
+    lda muDotTab,y
+    sta muTmpL
+    lda muHdV
+    clc
+    adc #MU_DOT_SLOT0
+    tax                         // X = that voice's dot slot
+    ldy muHdY
+    lda muTmp2
+    lsr                         // C = the ninth bit of x, which kSpritePos reads
+    lda muTmpL
+    jsr kSpritePos
+    lda muHdOld
+    jsr muAudNote               // it sounds as it comes under the pointer
+    lda muHdV
+    sta muHdOldV
+    lda #1
+    sta muHdOn
+    ldx muHdV                   // this voice's dot alone: the pointer's slots stay on
+    lda muDotBit,x
+    ora #%00000011
+    ldx #SPR_SHD_ENABLE
+    jmp kSpriteReg
+muHdRts:
+    rts
+
+
 // ==========================================
 //  The pointer
 // ==========================================
@@ -6471,6 +6685,9 @@ muPtrInit:
     jmp muPtrRefuse             // out of branch range: invert and jump
 muPtrGo:
     muSet(MU_HOV, $fe)          // no pitch yet: the first hover must redraw
+    lda #$ff                    // no key on no voice: the first one placed is new even
+    sta muHdOld                 //   when it is the first key of the keyboard
+    sta muHdOldV
     sprColour(0, 0)             // the arrow's interior: black, to read on a white key
     sprColour(1, 1)             // its ring: white, to read on a black one
     sprPriority(0)              // in front
@@ -7035,6 +7252,9 @@ muClkLow:
     bcc muClkRts
     cmp #MU_PIANO_TOP+MU_PIANO_ROWS
     bcs muClkRts
+    ldy #MU_HOV                 // the key the pointer is over
+    lda (dataPtr),y
+    sta muNoteLin
     jmp muNoteClick
 muClkRts:
     rts
@@ -8133,6 +8353,11 @@ muQuitDrain:
     dec muDrain
     bne muQuitDrain
     jsr muMusicBye              // stop and reap the child before its page goes
+    lda #0
+    sta muAudOn                 // an audition must not outlive the editor
+    lda $d404
+    and #$fe
+    sta $d404
     jsr muScrDrop               // the scratch goes with it: the next load rebuilds it
     lda #MOUSE_DISABLE
     jsr kMouseCall              // stop tracking before the surface goes
@@ -8205,7 +8430,9 @@ muLetterSem: .byte 0, 0, 2, 4, 5, 7, 9, 11
     muDotBit:   .byte 32, 64, 128 // the dot slots in the $D015 mask
 muDotTab:   // octave x 12 + semitone -> the dot's x LOW byte, in raster
             // coordinates (key centre + 24 for the window's left edge, less the
-            // 11 pixels the dot sits inside its shape)
+            // 11 pixels the dot sits inside its shape). The window is 320 wide at
+            // raster 24, so its last column is 343 and the dot's own pixels are at
+            // x + 10: the top note's 330 is still on screen, and nothing is clamped.
     .byte 17, 19, 22, 25, 27, 33, 36, 39, 42, 45, 48, 50
     .byte 56, 59, 62, 65, 67, 73, 76, 79, 82, 85, 88, 90
     .byte 96, 99, 102, 105, 107, 113, 116, 119, 122, 125, 128, 130
@@ -8213,7 +8440,7 @@ muDotTab:   // octave x 12 + semitone -> the dot's x LOW byte, in raster
     .byte 176, 179, 182, 185, 187, 193, 196, 199, 202, 205, 208, 210
     .byte 216, 219, 222, 225, 227, 233, 236, 239, 242, 245, 248, 250
     .byte 0, 3, 6, 9, 11, 17, 20, 23, 26, 29, 32, 34
-    .byte 40, 43, 46, 49, 51, 54, 54, 54, 54, 54, 54, 54
+    .byte 40, 43, 46, 49, 51, 57, 60, 63, 66, 69, 72, 74
 muDotTabHi: // ...and its ninth bit, which kSpritePos takes in C
     .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
@@ -8223,26 +8450,7 @@ muDotTabHi: // ...and its ninth bit, which kSpritePos takes in C
     .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
     .byte 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
     .byte 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-            // (the key's centre + 24 for the display window's left edge, less
-            //  the 11 pixels the dot sits inside its 24-wide shape)
-    .byte 17, 19, 22, 25, 27, 33, 36, 39, 42, 45, 48, 50
-    .byte 56, 59, 62, 65, 67, 73, 76, 79, 82, 85, 88, 90
-    .byte 96, 99, 102, 105, 107, 113, 116, 119, 122, 125, 128, 130
-    .byte 136, 139, 142, 145, 147, 153, 156, 159, 162, 165, 168, 170
-    .byte 176, 179, 182, 185, 187, 193, 196, 199, 202, 205, 208, 210
-    .byte 216, 219, 222, 225, 227, 233, 236, 239, 242, 245, 248, 250
-    .byte 256, 259, 262, 265, 267, 273, 276, 279, 282, 285, 288, 290
-    .byte 296, 299, 302, 305, 307, 310, 310, 310, 310, 310, 310, 310
-            // (key centre + 24 for the display window's left edge, less the 12
-            //  pixels the dot sits inside its 24-wide shape)
-    .byte 17, 18, 21, 24, 26, 32, 35, 38, 41, 44, 47, 49
-    .byte 55, 58, 61, 64, 66, 72, 75, 78, 81, 84, 87, 89
-    .byte 95, 98, 101, 104, 106, 112, 115, 118, 121, 124, 127, 129
-    .byte 135, 138, 141, 144, 146, 152, 155, 158, 161, 164, 167, 169
-    .byte 175, 178, 181, 184, 186, 192, 195, 198, 201, 204, 207, 209
-    .byte 215, 218, 221, 224, 226, 232, 235, 238, 241, 244, 247, 249
-    .byte 255, 258, 261, 264, 266, 272, 275, 278, 281, 284, 287, 289
-    .byte 295, 298, 301, 304, 306, 310, 310, 310, 310, 310, 310, 310
+.assert "the top octave's dots are not clamped", (muDotTab+95 > muDotTab+90) ? 1 : 0, 1
 muLaneCol:  .byte MU_LANE1_COL, MU_LANE1_COL+MU_LANE_STEP, MU_LANE1_COL+2*MU_LANE_STEP
 muLaneW:    .byte MU_LANE_W, MU_LANE_W, MU_LANE_W
 muVoiceCol: .byte 2, 7, 3       // red, yellow, cyan -- the dot colours, voice 1..3
@@ -8420,6 +8628,19 @@ muScanN:    .word 0
 muDrain:    .byte 0
 muStatT:    .byte 0             // displayed frames left before the head returns
 muStatF:    .byte 0             // frameCount at the last counted frame
+muAudOn:    .byte 0             // 1 while our own note is sounding on voice 1
+muAudStart: .byte 0             // frameCount when it gated on
+muHdOn:     .byte 0             // 1 while the hover dot is on the keyboard
+muHdOld:    .byte 0             // the key it is on, and the voice it is that voice's
+muHdOldV:   .byte 0
+muNoteLin:  .byte 0             // the pitch being entered: set by both writers
+muHdV:      .byte 0             // the voice being placed
+muHdY:      .byte 0             // its y on the keyboard
+muAudLo:    .byte 0             // its SID frequency, low and high
+muAudHi:    .byte 0
+// The player's own PAL note table, an octave down (see muAudFreq): semitones C..B.
+muAudLoTab: .byte $9C,$C0,$23,$C8,$B4,$EB,$72,$4C,$80,$12,$08,$68
+muAudHiTab: .byte $45,$49,$4E,$52,$57,$5C,$62,$68,$6E,$75,$7C,$83
 muGdClip:   .byte 0             // 1 while only MU_GDLo..MU_GDHi (rows) is drawn
 muGdStepN:  .byte 0             // events left to walk on the row being opened
 muGdFrom:   .byte 0             // the band being repainted, in screen rows

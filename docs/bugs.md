@@ -21,6 +21,34 @@
 
 ---
 
+## Bug #191 — the dot x table had been stored CLAMPED, so every note above F-7 got the same dot 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** `musedit`'s keyboard dots stopped tracking at **F-7**: hovering F#7 through B7, and
+playing any of them back, left the dot sitting on F-7. Everything below F-7 was correct, in both
+the hover dot and the playback dots, which share one table.
+
+**Root cause.** `muDotTab` held the top octave as `..., 51, 54, 54, 54, 54, 54, 54, 54`. Those
+`54`s are a **clamp**, not a position: an earlier version of the routine computed the dot's x and
+capped it at `MU_DOT_XMAX = 310`, and when that code was replaced the table was regenerated with
+the clamped results baked in. The cap was wrong in the first place — the display window is 320
+pixels wide at raster 24, so its last column is 343, and `dot.spr` draws its two pixels at columns
+10-11 of the shape, so a dot's own pixels are at `x + 10..11`. B-7's x is 330, i.e. pixels at
+340-341, which is **on screen**. Nothing needed the clamp, and nothing removed it.
+
+**Fix.** The top octave now runs `296, 299, 302, 305, 307, 313, 316, 319, 322, 325, 328, 330` —
+the same noise pattern as every other octave (each is the one below plus 40). An assert fails the
+build if the row is clamped again (`muDotTab+95 > muDotTab+90`). The **two unlabelled drafts of the
+whole table** that were still in the image between `muDotTabHi` and `muLaneCol` — 192 bytes that
+nothing referenced, left behind by the same edit — are deleted; that took `musedit` from 68 code
+pages to 67.
+
+**Transferable rule.** A clamp is a *decision about a context*, and a table of clamped values
+outlives the context that justified it. Either compute the value from the geometry every time, or
+assert the bound the clamp was protecting; a clamped constant in a data table is a bug waiting for
+the guard to be deleted.
+
+---
+
 ## Bug #190 — the grid's row numbers were printed by a two-digit routine, so row 100 came out as `:0` 🟡 ✅ FIXED (2026-11-01)
 
 **Symptoms.** On a tune whose grid is refined, the numbers in the left column went wrong past

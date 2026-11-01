@@ -225,6 +225,18 @@ The piano at the bottom of the screen is how notes go in.
    note is split; past the last event (or in an empty voice) rests are filled in so the note
    lands on the cursor's row — see *Editing* below.
 
+**The pitch sounds as you point at it.** Hovering a key on the keyboard — or pressing a note key —
+plays it for a tenth of a second, so a tune can be found by ear before anything is written. A click
+still just enters the note. It is a bare sawtooth, not the instrument the tune gives that voice — it
+answers "is this the note I meant", nothing more. While the pointer is on the keyboard a dot in the
+cursor voice's own colour sits on the key it is over, the same dot that voice gets on that key during
+playback: it says which voice a click would write to, and it comes back in the other colour as soon
+as the cursor moves to another voice. Move the pointer off the keyboard and the dot goes. The editor
+has no player of its own while stopped; if another task's music is running the keyboard stays silent
+rather than cutting into it — and the dot stays away, because the dots on the keys belong to whoever
+is playing. During our own playback a click enters nothing (it answers `? stop first`), so there is
+nothing to hear either way.
+
 A command has a line of its own above the row it belongs to, and that line holds no note: with
 the cursor on a command's line a note key is refused (`? no event here`), so an entry can never
 rewrite the row below the one the cursor is on. Move down to the row's own line — the one with
