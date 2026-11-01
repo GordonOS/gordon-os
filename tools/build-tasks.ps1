@@ -36,6 +36,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & "$PSScriptRoot/check-zp-indirect.ps1"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# The command encoder tables against the format's own generator: musedit builds a
+# pair from a mnemonic id and the operand, and gen-mus.py builds the same pair from
+# the format's definition. Nothing kept the two in step, so a table row could drift
+# and the only symptom would be a tune playing something the grid does not say.
+& python "$PSScriptRoot/check-mus-commands.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # KickAssembler jar location - see tools/toolpaths.ps1
 . "$PSScriptRoot/toolpaths.ps1"                   # machine paths: $KickAssJar
 $kick = $KickAssJar
