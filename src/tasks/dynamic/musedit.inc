@@ -241,6 +241,7 @@ muScreen:
     bcc muScrOk
     jmp muQuit                  // no surface at all: leave without drawing
 muScrOk:
+    jsr kDisableCursor          // our surface carries no blinking text cursor
     lda #SYS_GETTID
     jsr syscall
     sta muSlot
@@ -253,7 +254,6 @@ muScrOk:
     lda #MU_GRID_TOP
     ldx #MU_GRID_BOT
     jsr kSetScrollRegion        // only the grid scrolls; the piano cannot move
-    jsr kDisableCursor
     jsr kClearScreen            // a recycled slot keeps the previous bitmap
     // zero the instance state from MU_ROW upward
     ldy #MU_STATE_TOP
@@ -8027,10 +8027,10 @@ muSdRts:
 // --- muGiveDisplay -- hand the display back BEFORE releasing our surface ---
 //  edit.inc's rule: sysExit's hand-off runs after the task is DEAD, so a dying
 //  task with no surface and no parent can blank the screen.
-//  The cursor goes off and any live block is un-drawn inside the SEI window that
-//  ends in the switch -- edit's STOP-modal pair, which is what keeps a block out
-//  of the framebuffer copy that surfSave makes of the outgoing surface. Both
-//  calls clobber A, X, Y, kPtr and kArg, so the parent slot rides the stack.
+//  The switch is bare, like every other task's: the surface being saved here is
+//  ours and kFreeScreen discards it a few instructions later, so a block in it
+//  goes with it. The SEI-wrapped kBlinkReset belongs to TAKING the display, where
+//  the surface that gets saved is the previous owner's and outlives us.
 muGiveDisplay:
     lda #SYS_GETTID
     jsr syscall
@@ -8043,16 +8043,7 @@ muGiveDisplay:
     tax
     lda taskState,x
     beq muGdRts                 // the parent is dead: let sysExit decide
-    php
-    sei                         // no IRQ tick may draw a block back between the
-    txa                         //   erase and the copy of our framebuffer
-    pha                         // the parent rides the stack: the cursor calls
-    jsr kDisableCursor          //   clobber A, X, Y, kPtr and kArg
-    jsr kBlinkReset
-    pla
-    tax
     jsr kSwitchView             // display + kbFocus move to the parent
-    plp
 muGdRts:
     rts
 

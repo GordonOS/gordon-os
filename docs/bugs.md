@@ -2243,6 +2243,31 @@ cursorCol/Row/On exactly as before. Two facts worth keeping:
 pocket pins. ⚠️ **Documentation drift:** the code chain shifted, so `docs/memory-map.md`'s section
 spans from roughly `$EE3B` upward still need re-deriving from the build's Memory Map block.
 
+### The hand-back needs no erase, and musedit had one that could not fire
+
+The erase is for TAKING the display: the surface `surfSave` copies there is the previous
+owner's, it outlives the switch, and a block left in it is permanent. On the way OUT the
+surface being saved is the exiting task's own and `kFreeScreen` discards it a few
+instructions later — so `edit`, `grview` and `grknoid` hand back with a **bare**
+`kSwitchView` (or leave it to `sysExit`'s `transferFocusAway`), and so does `musedit` now.
+A `kDisableCursor` + `kBlinkReset` pair on that path is inert for a task whose cursor is
+off for its whole life: `musedit` disables it once in `muScreen` and never re-enables it,
+so there is no block of its own to un-draw.
+
+### Measured 2026-11-01 — not reproduced in 42 cycles
+
+`musedit` launch/quit cycles in VICE against the invariant above (`cursorVisible = 1` iff
+the tail's saved cell holds `GLYPH ^ $FF`, plus a decode of the shell's saved REU slot
+where any cell that matches no font glyph is a block, solid or not): 8 with `q` as an
+event, 8 with `q` held as a level (`keybHeld`, which is what forces the IRQ's
+`kbHeldBlink` ON), 6 quitting mid-playback, 6 with the shell's cursor parked mid-line, 8
+hands-off with no sampling at all, and 5 direct scans of the shell's slot after each
+take-over. **The invariant never broke in ~1,200 samples and no take-over baked a cell**;
+one take-over was caught with the shell's block actually drawn (`px = ff..ff` at the
+cursor) and it was erased correctly. So the flag-lie path above is not firing on the
+shell's normal route, and the sighting is still to be caught in the act: the user reports
+it as very intermittent, and that only a full-screen redraw removes it.
+
 ---
 
 ## Bug #82: Exiting the Editor Could Leave the Shell Rendering into Its REU Slot 🟡 ✅ FIXED
