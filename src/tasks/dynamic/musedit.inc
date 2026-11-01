@@ -86,8 +86,9 @@
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
 .const MU_POS_BLOCK = $54A2   // the SID player's published per-voice position (sid.asm SID_POS_BLOCK)
 .const MU_FOLLOW_CENTER = 8   // lines below the window top the playhead is pinned to
-.const MU_FOLLOW_WALK   = 1   // lines one pass may walk: a pass is one displayed frame, so
-                              //   giving back a deep opening's offset is a glide, not a jump
+.const MU_FOLLOW_WALK   = MU_GRID_ROWS-1   // the most lines one pass may walk: the walk
+                              //   stops as soon as the playhead's line is on target, so
+                              //   this only bounds a catch-up
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 .const MU_LOG_SLOTS = 16      // command pairs one voice may log for one row: the
                               //   longest run a bundled tune has is twelve
@@ -7281,8 +7282,11 @@ muPcGone:
 //  out of it. muLnFind gives the playhead's line, and the band scrolls until that
 //  line sits MU_FOLLOW_CENTER from the bottom -- always reachable, one line a scroll.
 //  A settled playhead costs one scan per frame and nothing more.
-//  MU_FOLLOW_WALK is one line, because a pass is one displayed frame: a playhead that
-//  has to be given back to the centre moves a line a pass, which reads as a glide.
+//  The walk ends when the playhead's line is AT the target, not after a fixed number
+//  of lines: a row occupies as many lines as it has commands above it, so a tune whose
+//  rows carry commands asks the band for several lines per pass, and a one-line walk
+//  falls behind for as long as that lasts. MU_FOLLOW_WALK is the most lines one pass
+//  may walk, so a long catch-up (a seek, a pass the producer stalled on) still ends.
 //  WARNING: the target is MU_FOLLOW1, not the constant: a row's own line sits as many
 //  lines down as that row has commands above it, so the tune's FIRST row can already
 //  be deeper than the centre. Aiming at the centre there scrolls the view off the
