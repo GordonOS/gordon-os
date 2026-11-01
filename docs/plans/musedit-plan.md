@@ -928,7 +928,8 @@ the pair, `muObjFind` finds an existing pair at a boundary by id, `muMnPrint` dr
   own body is legal but shows one command line per execution (the call stack's five frames), which
   is the log being faithful rather than a fault.
 - [ ] **7.9 The table gate.** *Not built.* `tools/check-mus-commands.py` — every mnemonic's byte pattern checked against `gen-mus.py`, so the encoder tables and the generator cannot drift. The tables are `mqCmdB`/`mqOptB`/`mqMax`, one row per structural id.
-- [ ] **7.10 The bar's inert cells.** *Built — needs the sitting.* `DUR` (code 5), `TIE-` (code 6)
+- [x] **7.10 The bar's inert cells.** *Verified on hardware* (`commodo`: `DUR` steps the armed
+  length, `TIE-` stays lit and writes bit 6 into the next note, `UNDO` undoes). `DUR` (code 5), `TIE-` (code 6)
   and `UNDO` (code 8) had nothing behind them and a click on any of them answered `? not yet`.
   `DUR` steps the armed length through `muDurTab`'s order (whole, half, quarter, 8th, 16th, 32nd,
   64th) keeping the dot mark, and starts at the whole note when the armed value is a utility length,
