@@ -21,6 +21,64 @@
 
 ---
 
+## Bug #190 — the grid's row numbers were printed by a two-digit routine, so row 100 came out as `:0` 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** On a tune whose grid is refined, the numbers in the left column went wrong past
+99: `100` printed as `:0`, `105` as `:5`, `128` as `:8`. The row column is bar-relative, so this
+first became reachable when a refined unit gave a bar more than a hundred rows (`arose` at a
+third: 48 rows to the bar; at one jiffy it is 256).
+
+**Root cause.** `muLnNum` divided the row by the rows in a bar and ended `jmp muNum2`, which
+emits **exactly two** digits: it subtracts ten while it can and prints the count, then the
+remainder. A row of 100 makes that count 10, and `10 + '0'` is `$3A` — the colon — followed by
+the low digit. The routine is right for its name; the caller was wrong to use a two-digit printer
+for a number that can hold three.
+
+**Fix.** `muLnNum` decides the width first, in 16 bits, and only then prints: under a hundred it
+takes the same two digits from column 1 as before; at a hundred or more it counts hundreds off the
+value and prints them from **column 0**, then the remaining two digits from column 1, so the three
+digits end at column 2 and the cursor's own cell at column 3 stays free. The counting is 16-bit
+because a bar's last row can be 256, which does not fit a byte.
+
+**Transferable rule.** A fixed-width number printer is safe only where the width is a bound the
+caller can prove. Any value derived from a tempo, a unit or a count of rows needs its width
+decided at the call site, and the *column* it starts at matters as much as the digit count when
+the next column belongs to something else.
+
+---
+
+## Bug #189 — the playhead divided the song tick by the PLAIN row unit, so a refined grid ran the cursor at a fraction of the row rate 🟠 ✅ FIXED (2026-11-01)
+
+**Symptoms.** On a tune whose onsets only land on rows when the row unit is refined
+(`arose`, tempo 144 — a triplet tune, so the unit is a third, 3 jiffies and 48 rows to
+the bar), the first play put the cursor behind the music: the band advanced and the `>`
+followed at a third of that rate. Stopping and playing again was **correct**, which is
+what made it look like a startup problem rather than a division.
+
+**Root cause.** `muPhSync` recomputes the divisor every displayed frame so that the
+playhead and the grid cannot disagree — but it computed it with `jsr muUnit`, which
+returns the **plain** unit (the shortest length the tempo can express), and stored that
+straight into `muUnitVal`. The refinement lives in `muUnitRef` and is applied by
+`muUnitApply`, which the playhead never called. So a grid drawn at unit 3 was then
+divided by the plain unit 9: the row was a third of what it should be.
+
+The second play "fixed" it because `muUnitVal` had been clobbered to the plain unit, so
+the next redraw rebuilt the grid with **that** — a coarse grid and a plain divisor agree,
+and the music then simply scrolled three times more slowly than the first pass had. One
+symptom, two wrong states, and only the first looks broken.
+
+**Fix.** `muPhSync` derives the plain unit into `muPlainU`/`muPlainBar` and calls
+`muUnitApply`, so the divisor carries whatever refinement the grid was drawn with. The
+`bne`/`lda #1` guard against a zero unit stays, and now also covers a third that does not
+divide.
+
+**Transferable rule.** A routine that recomputes a derived value "for freshness" must
+recompute it the **same way** the consumer did, or it silently replaces a refined value
+with a plain one. Two ways of deriving one quantity are a bug waiting for the one caller
+that differs — search every writer of the derived variable, not just the obvious one.
+
+---
+
 ## Bug #187 — a start scrolled the band before a note had played: the follow's fixed centre against a first row that is deeper than it, and a stale pass counter behind that 🟠 ✅ FIXED (2026-10-28)
 
 **Symptom.** Starting a pass scrolled the grid a line or two before the music had

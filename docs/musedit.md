@@ -94,7 +94,8 @@ Inside a lane:
 | mark | meaning |
 |---|---|
 | `C-4 16` | a note starts here, and its duration is a sixteenth |
-| `C-4 16 TIE` | the tie flag is set on this event, so the note carries on from the one before it instead of being struck again |
+| `C-4 16.` | ...dotted; `:` is double-dotted and `*` is a triplet |
+| `C-4 16. TIE` | the tie flag is set on this event, so the note carries on from the one before it instead of being struck again |
 | `C-4 16  ?` | the note's onset falls between two rows, so the row it is drawn on is not where it starts |
 | `... 4` | a rest starts here, lasting a quarter |
 | `DEF 3` | a command, on a line of its own (see below) |
@@ -102,6 +103,14 @@ Inside a lane:
 The duration is written in the format's own numbers on the note's own row: a whole note, a half,
 a quarter, an 8th, a 16th, a 32nd and a 64th read `1`, `2`, `4`, `8`, `16`, `32`, `64`, and a
 utility length prints no number because its length is whatever `UTL`/`UTV` set.
+
+A dot or a triplet is a **mark right after that number**, the same three the control bar's dot
+cell uses: `.` dotted, `:` double-dotted, `*` triplet. Nothing is printed for a plain note, so
+`8` is an eighth and `8.` is a dotted eighth — read them as two different lengths, because that is
+what they are. All three come from the duration byte itself (bit 5 the dot, bit 7 the triplet, or
+the second dot with bit 5), so the mark is the format's own information and not a note the editor
+keeps on the side. A note whose onset did not land on a row takes no mark: its lane ends in the
+`?` instead, which is the more important thing about it.
 
 `TIE` comes straight after the duration, and it reads the format's own tie bit (bit 6 of the
 event's duration byte) rather than anything the editor keeps. A note too long for a single event
@@ -238,12 +247,20 @@ back. An event that already starts on the row as a **note** keeps its own length
 pitch over it never re-times the voice. Set the armed value with the number keys `1`–`7`
 (whole … 64th) or `8`/`9` (the utility lengths UTL/UTV). `.` cycles the dots (none, dotted,
 double-dotted, triplet). The armed value is shown in the control bar's `DUR` field — the dot
-cell shows `.` dotted, `:` double-dotted, `3` triplet.
+cell shows `.` dotted, `:` double-dotted, `*` triplet — and a note already in the grid carries
+the same mark beside its duration, so the lane says which of the three it is.
 
 Some notes do not land exactly on a row — a triplet or a double-dotted note can be shorter
 than one step. Such an onset is drawn on the row it falls in, with `?` at the right edge.
-`SHIFT+U` refines the grid (half, third, or a single jiffy) until every onset has a row of
-its own; the row numbering follows the new grid.
+`SHIFT+U` refines the grid until every onset has a row of its own: a half, a third, or a
+single jiffy per row, taking only the steps that divide the tempo's own unit exactly (`arose` at
+tempo 144 offers three — 16, 48 and 144 rows to the bar — because 9 jiffies does not halve). Each
+press goes one step **finer** and, past the finest, wraps back round to the plain grid, so the
+states cycle rather than stop. A tune that contains a triplet is already refined at the third when
+it opens, which means its first press takes you to the finest and the second wraps to plain. Like
+every other edit it needs the music stopped — the grid is drawn in the unit that was in force when
+it was painted, so refining it mid-pass would leave the rows and the playhead apart, and it answers
+`? stop first`.
 
 ### The pointer is required
 

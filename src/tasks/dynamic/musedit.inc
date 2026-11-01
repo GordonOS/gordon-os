@@ -207,6 +207,14 @@ muMainGo:
     jsr muSidCfg                // the child's kSidPlay config: the file and its windows
     jsr muFindTempo             // the tempo the first note will hear
     jsr muUnitNow               // the row unit that tempo falls into
+    jsr muTrScan                // a triplet or second dot anywhere means the rows
+    bcc muUnitAuto              //   must be thirds, or the onsets fall between them
+    lda #2
+    sta muUnitRef
+    jsr muUcValid
+    bcs muUnitAuto              // this tempo's plain unit does not divide by three
+    jsr muUnitApply
+muUnitAuto:
     jsr muMusicInit             // spawn the music child
     lda #$18                    // the armed length: a 16th until the bar says
     sta muDurArm                //   otherwise
@@ -341,12 +349,13 @@ muNsExt:
 // ==========================================
 //  The tune image
 // ==========================================
-//  The whole file -- load address, the three length words, the three streams and
-//  the description after them -- lives in one kMalloc block for the task's life:
-//  playback hands those very bytes to sid.lib, and a save writes them back
-//  unchanged, which is what makes an untouched file round-trip byte for byte.
-//  MU_LEN is the image's length; MU_FLEN is what the file on disk holds, which
-//  includes the slack a created file carries.
+//  The image is <base>.wrk in the REU filesystem -- load address, the three length
+//  words, the three streams and the description after them -- reached through three
+//  page-aligned 256-byte read windows (one per voice) and written back a page at a
+//  time, so its length costs the task no pool pages and the player pages the same
+//  file through the same windows (kSidPlay mode 1).
+//  MU_LEN is the image's length; MU_FLEN is what the real file on disk holds, which
+//  includes the slack a whole-page file carries.
 
 // --- muFsArg -- kArg = the FS name ---
 muFsArg:
@@ -399,9 +408,8 @@ muImgSeat:
 //  command and its option byte can never straddle the end of a window: a voice that
 //  crosses a page refills its window before its next command is read.
 //
-//  A window holds a COPY of a page of <base>.wrk. The READ path is here; the
-//  write entry lands with the edit path, because a write must also reach the page
-//  it came from.
+//  A window holds a COPY of a page of <base>.wrk, so a write has to reach the page it
+//  came from: muWinFlush writes the held page back.
 //
 //  In:  X = the voice (0-2), muWinOfs/muWinOfs+1 = the offset wanted.
 //  Out: C=0 and kPtr = the address of that offset inside voice X's window.
@@ -1285,6 +1293,69 @@ muUcT3D:
     rts
 muUcNo:
     sec
+    rts
+
+// --- muTrScan -- does any length in the streams carry bit 7? ---
+//  A pair's FIRST byte is its length only when its low two bits are 00: the player
+//  routes on them (01, 10 and 11 are commands), and a command byte can carry bit 7
+//  as part of its own value, so bit 7 alone is not a length. With bit 7 set on a
+//  length the note is a triplet (or, with bit 5, the second dot).
+//  The three streams are contiguous: voice 1 starts at 8 and each length word adds
+//  the size of the voice before the next, so the range is [8, 8 + the three words)
+//  and every second byte in it, counting from 8, is a pair's first byte.
+//  Out: C=1 a triplet or second dot was found. Clobbers A, X, Y, kPtr, srcPtr and
+//  muWinOfs -- it is called before the first draw, when nothing holds either.
+muTrScan:
+    jsr muImgSeat               // kPtr = the image, for the three length words
+    lda #8
+    sta muTrCur
+    sta muTrEnd
+    lda #0
+    sta muTrCur+1
+    sta muTrEnd+1
+    ldy #2
+muTsSum:
+    lda (kPtr),y
+    clc
+    adc muTrEnd
+    sta muTrEnd
+    iny
+    lda (kPtr),y
+    adc muTrEnd+1
+    sta muTrEnd+1
+    iny
+    cpy #8
+    bcc muTsSum
+muTsPair:
+    lda muTrCur
+    cmp muTrEnd
+    lda muTrCur+1
+    sbc muTrEnd+1
+    bcs muTsNo
+    lda muTrCur
+    sta muWinOfs
+    lda muTrCur+1
+    sta muWinOfs+1
+    lda #0
+    tax
+    jsr muWinSeat               // any window holds any page: voice 0's is free here
+    ldy #0
+    lda (kPtr),y
+    and #$83                    // bit 7 and the two that say "not a command"
+    cmp #$80
+    beq muTsYes
+    lda muTrCur                 // the next PAIR is two bytes on
+    clc
+    adc #2
+    sta muTrCur
+    bcc muTsPair
+    inc muTrCur+1
+    jmp muTsPair
+muTsYes:
+    sec
+    rts
+muTsNo:
+    clc
     rts
 
 // --- muFindTempo -- the tempo in force when the first note plays ---
@@ -3523,8 +3594,12 @@ muKeyNotQ:
 muKeyNotSave:
     cmp #$55                    // SHIFT+U: a finer row unit
     bne muKeyNotU2
+    jsr muPlaying               // the grid is drawn in the OLD unit: refining it while
+    bcs muKnUIdle               //   the playhead runs leaves the two rows apart
     jsr muUnitCycle
     jmp muCurRedraw
+muKnUIdle:
+    jmp muKeyIdle
 muKeyNotU2:
     cmp #$44                    // SHIFT+D: the call and its definition
     bne muKeyNotLink
@@ -7198,9 +7273,13 @@ muPhSync:
     lda muTempo                 // the row unit in force NOW, not whatever a previous
     sta muJifTem                //   draw or readout left behind: the divisor and the
     jsr muUnit                  //   grid must agree or the row rate is wrong
-    sta muUnitVal
+    sta muPlainU                // muUnit gives the PLAIN unit, so the refinement the
+    stx muPlainBar              //   grid was drawn with has to be applied on top of it
+    jsr muUnitApply             //   -- without that a refined grid and a plain divisor
+    lda muUnitVal               //   run the cursor at a fraction of the row rate
     bne muPsHaveUnit
     lda #1                      // a tempo with no unit: one row per jiffy
+    sta muUnitVal
 muPsHaveUnit:
     sta kArg+2
     lda #0
@@ -7714,7 +7793,46 @@ muLnNum:
     lda kArg+6
     clc
     adc #1
-    jmp muNum2
+    sta muDecLo                 // the row within the bar, one-based
+    lda kArg+7
+    adc #0
+    sta muDecHi
+    lda muDecHi                 // a bar of a refined grid can hold 100 rows or more,
+    bne mlrThree                //   and muNum2 prints exactly TWO: ten tens would print
+    lda muDecLo                 //   a colon. So the width is decided first, in 16 bits
+    cmp #100
+    bcs mlrThree
+    lda muDecLo
+    jmp muNum2                  // under a hundred: two digits from column 1
+mlrThree:
+    ldx #0
+mlrHLp:
+    lda muDecHi
+    bne mlrHSub
+    lda muDecLo
+    cmp #100
+    bcc mlrHDone
+mlrHSub:
+    lda muDecLo
+    sec
+    sbc #100
+    sta muDecLo
+    bcs mlrHNext
+    dec muDecHi
+mlrHNext:
+    inx
+    jmp mlrHLp
+mlrHDone:
+    stx muTmp                   // the hundreds digit, as muPutC owns A, X and Y
+    lda #0                      // column 0, so three digits end at column 2 and the
+    ldy #MU_CURCOL              //   cursor's own cell at column 3 stays free
+    sta (dataPtr),y
+    lda muTmp
+    clc
+    adc #'0'
+    jsr muPutC
+    lda muDecLo
+    jmp muNum2                  // the last two digits, tens then ones
 
 // --- muLnQmark -- '?' in the lane of the row whose length the tempo refused ---
 //  The refused event is never walked, so it is not in MU_PEND: the flag comes from
@@ -7782,8 +7900,24 @@ mlnDur:
     and #$07                    // the length class, 0-7
     tay
     lda muDurNum,y
-    beq mlnTie                  // a utility length has no number
+    beq mlnDot                  // a utility length has no number
     jsr muNumDur
+mlnDot:
+    ldx muLnV                   // the dot cell: bit 5 is a dot, bit 7 a triplet or,
+    lda muPendSp,x              //   with bit 5, the second dot -- so the value alone
+    beq mlnTie                  //   does not say which length the note is. A squeezed
+    lda muPendDur,x             //   event takes no mark: its lane ends in the '?'
+    and #$a0                    //   that says the row is not where it starts
+    beq mlnTie
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    tay
+    lda muDotCh,y
+    beq mlnTie
+    jsr muPutC
 mlnTie:
     ldx muLnV                   // the format's tie flag: bit 6 of the duration
     lda muPendOpt,x             //   byte. A rest has no note to carry on from, so
@@ -8154,7 +8288,9 @@ muDurTab:   .byte $08, $0c, $10, $14, $18, $1c, $00   // W H Q 8 16 32 64
 muArmCh1:   .byte '6', 0, 'W', 'H', 'Q', '8', '1', '3'
 muArmCh2:   .byte '4', 0, ' ', ' ', ' ', ' ', '6', '2'
 // The dot cell by (dur & $a0) >> 5: plain, dotted, -, -, triplet, double-dotted.
-muDotCh:    .byte ' ', '.', 0, 0, '3', ':'
+//  A triplet is `*` and NOT a digit: it is written straight after the duration, so a
+//  `3` there would read as part of the number (`83` for a triplet eighth).
+muDotCh:    .byte ' ', '.', 0, 0, '*', ':'
 // The same seven, as the row unit's candidates, shortest first.
 muUnitTab:  .byte $00, $1c, $18, $14, $10, $0c, $08
 muUnitRows: .byte 64, 32, 16, 8, 4, 2, 1
@@ -8417,6 +8553,8 @@ muCountHi:  .byte 0
 muPlainU:   .byte 0
 muPlainBar: .byte 0
 muUnitRef:  .byte 0             // 0 plain, 1 half, 2 third, 3 one jiffy
+muTrCur:    .word 0             // muTrScan: the pair whose length is being tested...
+muTrEnd:    .word 0             // ...and one past the last byte of the three streams
 muUnitBarHi: .byte 0
 
 // --- the simulator's state, in the code image so it is per instance ---
