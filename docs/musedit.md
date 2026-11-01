@@ -374,6 +374,22 @@ the lane decides which one is followed — and the `>` marker in the gap left of
 which lane that is. If the lane has no command on that line, the key answers `? not a phrase`:
 move the cursor left or right into the lane that shows the command.
 
+### Rows that belong to a phrase body
+
+A `DEF` body is not a separate region of the grid: it plays **inline**, where the definition
+stands, so each of its rows is drawn once, in order, with the `DEF` on the command line above the
+first of them. What those rows share is that they are the *same bytes* every `CALL` of that
+phrase jumps into — so an edit there is an edit in every call site.
+
+The editor tells you when the cursor is on one: the status line says **`phrase 3 x5`** — the
+phrase number and how many `CALL` sites play it, counted across all three voices (a body is
+global, so any voice's `CALL` can play it). It says so again each time a note is entered there,
+because that is the moment the change reaches every call site.
+
+Moving **time** in or out of a body is refused instead (see *Inserting time*): the rows below
+would shift inside the body, and the phrase would come back longer or shorter everywhere it is
+played. Changing a pitch, a command or a duration affects every call site too, and is allowed.
+
 ### Inserting time
 
 Everything you enter goes **on** the grid as it is. When you need more room — to put a note
@@ -391,8 +407,15 @@ where another one already sits, or to open a bar in the middle of a tune — ins
 
 An insert writes to all three voices at once — the three lanes are one timeline, so a per-lane
 insert would slide them out of step with no way back. For the same reason an insert is
-**refused with `? in a phrase`** when the cursor is on a row that belongs to a `CALL` block:
-those rows are the shared definition, and inserting there would edit every place it is called.
+**refused** when the row belongs to a **phrase body**: `? phrase 3 x5` names the phrase and how
+many `CALL` sites play it, and nothing is written. Those rows are the shared definition, so
+"one extra row" here would be one extra row in every place the phrase is played — and in the
+inline pass as well, because a definition plays on the way past.
+
+`SHIFT+INST/DEL` (delete the event and close the gap) is refused for the same reason and with the
+same message: it takes time *out* of the body. A **note** written into a body is allowed — that is
+how you change the phrase everywhere at once — and the status line says `phrase 3 x5` as it goes,
+so you know how many call sites you just changed.
 
 The mode is only about the *next* note: switching it changes nothing in the file.
 
@@ -590,7 +613,7 @@ then on, so `dir` shows it and it costs the same space however much you edit.
 | `? stop first` | an edit was attempted during playback |
 | `? illegal duration` | the current tempo cannot express that note length |
 | `? no event here` | the rest or delete key needs the cursor on a row where an event starts |
-| `? in a phrase` | an insert was attempted on a row that belongs to a `CALL` block — move off it first |
+| `? phrase 3 x5` | an insert or a delete was attempted on a row inside phrase 3's `DEF` body, which 5 `CALL` sites play — move off it, or edit the phrase deliberately with a note |
 | `? no pointer art` | the mouse is on but the pointer sprites could not be resolved — the REU image is stale |
 | `? no mouse - mouse 1351 first` | the system has no 1351: run `mouse 1351` from the shell, then start the editor again |
 

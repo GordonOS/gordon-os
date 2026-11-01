@@ -30,11 +30,11 @@
 > **Where the next session starts.** Open: **8.10** (F-key away and back during playback),
 > **8.11/8.12** (the audition is built and in use — what is left is the two checks: another
 > task's music playing while the keyboard is hovered, and our own play afterwards), **9.5** (a
-> fresh-machine sitting), and the parked **10.1b/10.2/10.3**
-> (scroll REU cost, the tuned row clock, repeat-forever). 6.18 (`? in a phrase` needs CALL-block
-> detection) and 6.13/6.14 (mouse-only and keyboard note sessions) are still unbuilt. The `,` tie
-> key and the bar's `DUR`/`TIE` click cells are still unwired; step 7 (the command panel) is
-> untouched.
+> fresh-machine sitting), and the parked **10.1b/10.2/10.3** (scroll REU cost, the tuned row
+> clock, repeat-forever). 13.4d and 6.18 (phrase bodies) are **verified on hardware**. 6.13/6.14
+> (mouse-only and keyboard note sessions) are still unbuilt. The `,` tie key and the bar's
+> `DUR`/`TIE` click cells are still unwired; step 7 (the command panel) is untouched. Bug #192 (a
+> `CALL`/`DEF` of phrases 16-23 is drawn as another command) is found, recorded, and not fixed.
 >
 > **Three harness lessons:** the kernel's
 > 16-entry key ring drops keys pressed faster than a full-grid redraw finishes, so
@@ -314,11 +314,11 @@ the armed duration before writing the note, which is the difference between push
 below down and overwriting them; the note then overwrites the first rest of the gap it just
 opened, and the whole thing is one action.
 
-Two refusals. `? stop first` while playing. `? in a phrase` when `T0` falls inside a `CALL`
-block: those rows belong to the shared phrase definition, so an insert there would edit every
-call site at once. A row reached through a `HED`/`TAL` repeat maps back to the body event, so
-an insert there changes every pass — the status line names the pass (`repeat`) so it is not a
-surprise.
+Two refusals. `? stop first` while playing. `? phrase n xc` when the row falls inside a **phrase
+body**: those rows are the shared definition, so an insert there would move time in every call
+site at once — and the message names the phrase and how many `CALL` sites play it. A row reached
+through a `HED`/`TAL` repeat maps back to the body event, so an insert there changes every pass —
+the status line names the pass (`repeat`) so it is not a surprise.
 
 Inserting is image growth: at most `2 bytes × 3 voices × n` (the worst case is every unit its
 own rest — greedy filling takes the longest legal duration first, so it is usually two or three
@@ -876,7 +876,17 @@ performed with the pointer first; the same edits are reachable from the computer
 - [x] **6.15 Insert row.** *Verified on `instmv` (voice 1 a quarter C4, voice 2 an 8th rest then an 8th D4, voice 3 a quarter E4; all cross row 2): `i` at row 2 opens a 16th rest in all three voices -- voice 1 and 3 split their quarter (8th + 16th rest + 8th), voice 2 drops a 16th rest before the D4 onset -- everything below moves down one row, and the host model shows the blank row across all three. `muInsertTime` seeks and splices each voice in turn (a splice shifts the later voices, so each is re-seeked on the grown image), as one grouped undo action.*
 - [x] **6.16 Insert bar.** *Verified: `SHIFT+I` on `filltst` at `TEM $90` (16 rows/bar) opens a whole-note rest (`08 00` = 144 jiffies = exactly 16 rows) before the note; the bar count comes from `muUnitBar`, so an inserted bar is always one bar.*
 - [x] **6.17 Insert inside a note.** *The straddle case of `muInsertTime`: `i` one row into `filltst`'s quarter turns `10 99` into `14 99 18 00 14 99` -- the note ends on the cursor's row (8th), one 16th of silence, then the same pitch resumes with a fresh attack (plain, not tied, because the previous event is the rest). The decoder shows the split pairs; total length is the event plus the inserted row.*
-- [ ] **6.18 Insert refuses inside a phrase.** *Not built.* `I` while playing does report `? stop first` (`muPlaying` guards every mutating path), but there is no inside-a-phrase refusal and no message for it: the walk executes a `DEF` body inline and a `CALL` re-enters rows that are already drawn, so "inside a `CALL` block" is not a region of the grid. What the refusal was protecting belongs to 13.4d — knowing that a row's bytes are a `DEF` body's, so an edit there changes every call site.
+- [x] **6.18 Insert refuses inside a phrase.** *Verified on hardware, with 13.4d: `i` inside
+  phrase 0's body on `immig` answers `? phrase 0 x4` and writes nothing; `SHIFT+INST/DEL` answers
+  the same; a top-level insert is not refused.* `I` while playing reports
+  `? stop first` (`muPlaying` guards every mutating path), and inside a phrase body it now
+  **refuses** with `? phrase n xc` rather than editing silently: `muPhBlock` walks to the cursor's
+  row once (the walk takes all three voices with it) and refuses when any voice the insert can
+  write to is inside a body. `SHIFT+I` goes through the same door. `SHIFT+INST/DEL` is refused
+  by `muPhHere` with the same message — it takes time *out* of the body. A command pair takes no
+  time, so removing one is still allowed: it cannot desynchronise anything. The check is on
+  `immig`: `i` and `SHIFT+INST/DEL` inside phrase 0's body (refused), `i` below its `END`
+  (allowed).
 - [x] **6.19 Insert mode.** *Verified on `filltst`: `M` toggles a mode byte shown as `ovr`/`ins` at the right of row 1 (cols 37-39, outside the scroll region). In `ins`, entering a note opens the note's length in all three voices (the cursor voice gets the note, the others rests) and pushes the rows below down -- `m,a` turns `10 99` into `18 a1 10 99`, and `RIGHT,m,a` appends the note to the empty voice 2 while pushing voice 1 down, all one grouped `Z`. `m,m` returns to `ovr`, where a note replaces (`m,m,a` gives `18 a1`, not an insert), and toggling the mode never touches the image. An empty/past-end voice takes the fill-then-note path (`muIvAppend`).*
 - [x] **6.20 One action.** *Verified: `i` on `instmv` (three voices) undoes to the byte-identical original with a single `Z`, and redoes with one `X`. The undo stack groups the three per-voice splices via a bit-7 "group start" flag on the first record; undo unwinds the group newest-first (highest offset first, so closing a gap never invalidates a lower record), redo replays it oldest-first.*
 - [x] **6.21 Dots and triplets.** *Verified (part of 6.7's run, and on screen in `arose`).* **Entering:** `1`-`7` arm the class (`muDurTab`: W H Q 8 16 32 64), then `.` cycles the dot state (`muDotCycle`) through plain -> dotted -> double-dotted -> triplet -> plain, held in `muDurArm` bits 5 and 7; `8`/`9` arm UTL/UTV instead, which take no dots. The armed value is what the next note is written with, so a dot is chosen before the note, not after it. **Displaying:** the bar's `DUR` value cells and its dot cell are repainted by `muDrawArm` through `kPrintCharAt` — cells 4-5 carry the duration (`16`, `W`, `Q`, `UL`, `UV` …) and the dot cell shows `muDotCh` for `(muDurArm & $a0) >> 5`: blank plain, `.` dotted, `:` double-dotted, `*` triplet. **On the note:** the same three marks follow the duration in the lane, from the event's own bits (6.22).
@@ -1318,16 +1328,40 @@ order:
   byte-identical to the original. The referee was `muDelGap`, which had been moving
   the stream two bytes down instead of closing it, so **every** delete in the editor
   was a silent corruption rather than a delete (see `docs/bugs.md` #188).
-- [ ] **13.4d Edit a definition knowingly.** *Not started.* Inside a `DEF` body an edit changes every
-  call site, so the status line names the phrase and its call count, and an insert or delete
-  there is refused rather than done silently. What exists to build it on is the walk's own
-  phrase state: `muDfLo/Hi/Id` records each `DEF` as it is passed, `muCmDef` pushes the body's
-  frame, and `muDep,x > muBaseTab,x` is exactly "this voice is inside a call frame". What is
-  missing is the reverse test — "is the cursor's row inside a `DEF` body, and which phrase" —
-  the count of `CALL n` sites in the voice, and the two refusal paths. The premise needs restating
-  first: the band shows each row once (a `DEF` body is walked inline), so "a replay region with
-  no bytes" is not a region of the grid; the honest refusal is "this row's bytes are a phrase
-  body's, so an edit here changes every call site". Step 6.18 depends on this.
+- [x] **13.4d Edit a definition knowingly.** *Verified on hardware: `immig`, voice 3 inside phrase
+  0's body — the status line says `phrase 0 x4`, `i` and `SHIFT+INST/DEL` answer `? phrase 0 x4`
+  with the image unchanged, a note key is allowed and says so, and a top-level insert in voice 1
+  is not refused.* Inside a `DEF` body an
+  edit changes every call site, so the status line names the phrase and its call count, and an
+  insert or delete there is refused. The premise, restated: the band shows each row once (a body
+  is walked inline), so a body is not a *region* of the grid — what it is, is a byte range whose
+  rows the walk can name. The walk already knows which phrase it is executing, so it tracks it:
+  `muPhDf,x` is the phrase each voice is in (stored as **phrase + 1**, because 0 means the top
+  level stream and phrase 0 is a real phrase), `muPhStk` the enclosing one per call frame, and
+  the three handlers that push and pop frames (`muCmDef`, `muCmCall`, `muCmEnd`) maintain both.
+  `muGrpOpen` completes the row's group before any of its lines is emitted, so the draw
+  records the state in `muLnPh` — one byte per **visible line** per voice, shifted with the band
+  and cleared with it. That is what makes a **cursor move** cheap: a move does not walk the tune
+  at all (it only moves the glyph), so a hook inside the walk could never fire on one — measured
+  on hardware, that version announced nothing on a move. `muPhWatch`, from the idle pass, reads
+  the three bytes for the cursor's line and announces a change, and its value is taken at the
+  group's **end**, so a row that holds a `DEF` and the body's first event — the same row, since
+  neither takes time — reads as the body, and an `END`'s own row reads as the stream it returns
+  to: exactly the answer "is an insert here inside a body?" needs. `muPhCount` counts `CALL n`
+  **sites** with one structural pass over the three contiguous streams (a tally of the walk
+  would be inflated by every `TAL` pass), decoding the two forms `muSimCmd` routes on, and
+  `muPhNum` prints ` n xc` after a message with `muNum16`.
+  `muPhBlock` refuses an insert when any voice the insert can write to is inside a body (a halted
+  voice takes no insert), `muPhHere` refuses `SHIFT+INST/DEL` from the seek that delete already
+  makes, and `muPhArm` announces the phrase on a note entry, which is the edit that is *allowed*
+  there. `muPhTick` puts the message up from the idle pass, because the walk is mid-draw when the
+  state is known and both the message and row 0 want the REU windows. Two new messages, `phrase`
+  and `? phrase`, join `msgs`, so the text costs no code page. **Verified on hardware** (`immig`:
+  9 bodies, 14 `CALL` sites, phrase 0 called 4 times — the host model and the 6502 agree):
+  switching into voice 3 inside phrase 0's body says `phrase 0 x4`, switching out and back says
+  it again, a note key inside says it, `i` inside answers `? phrase 0 x4` with the grid byte-for-
+  byte unchanged, `SHIFT+INST/DEL` answers the same, and an insert at the top level in voice 1 is
+  not refused. Cost: 69 code pages (pool 103 of 109, margin 6) and 87 bytes of data.
 - [x] **13.4e Keep the accounting.** *Verified: the figure is 65 code pages, 99 of 109 with the libraries and the six window pages, and `check-pool-budget.ps1` is the gate.* Budget: musedit is 65 code pages of the pool's 109, a margin of 10
   (b cost 597 bytes and a page, c 913 bytes and four), and the printed text is
   already out of the code -- every string it prints is a record in the REU file `msgs`, so

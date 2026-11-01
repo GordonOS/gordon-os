@@ -1514,6 +1514,7 @@ muSiVoLp:
     lda #0
     sta muTkLo,x
     sta muTkHi,x
+    sta muPhDf,x                // every voice starts at the top level stream
     sta muHedN,x
     sta muEvLo,x
     sta muEvHi,x
@@ -1848,6 +1849,8 @@ muCmEndGo2:
     dec muDep,x
     lda muDep,x
     tay
+    lda muPhStk,y               // the frame's own enclosing phrase: whichever kind of
+    sta muPhDf,x                //   body is ending, this is the one we return to
     lda muPhSt,y                // WARNING: $ff, not a zero high byte -- a return
     cmp #$ff                    //   address is a file OFFSET, so a return into the
     beq muCmEndSent             //   first 256 bytes has a zero muPhHi
@@ -1888,6 +1891,8 @@ muCmCallGo:
     sta muPhHi,y
     lda muId,x
     sta muPhSt,y
+    lda muPhDf,x                // the phrase this call is made from: END comes back
+    sta muPhStk,y               //   to it, and a push never leaves it behind
     inc muDep,x
     ldy muSph
     lda muDfId,y                // WARNING: $ff, never a zero high byte -- these are
@@ -1904,6 +1909,10 @@ muCmCallGo2:
     sta muPtrHi,x
     lda muDfId,y
     sta muId,x
+    lda muSph
+    clc
+    adc #1                      // the phrase this voice is now in, as the stored form
+    sta muPhDf,x
     jmp muStepRun
 
 muCmDef:
@@ -1928,9 +1937,15 @@ muCmDefGo:
     tay
     lda #0
     sta muPhHi,y
+    lda muPhDf,x                // the phrase this DEF sits in: its END comes back to it
+    sta muPhStk,y
     lda #$ff                    // the sentinel: this frame returns to nothing, and
     sta muPhSt,y                //   $ff is the only value a real frame cannot hold
     inc muDep,x
+    lda muSph                   // the phrase this voice is now in, as the stored form
+    clc
+    adc #1
+    sta muPhDf,x
     jmp muStepRun
 
 // --- muSimStop -- silence every voice: the song's end, or an error the player
@@ -2586,6 +2601,240 @@ mfcNone:
     sec
     rts
 
+// ==========================================
+//  Phrase bodies
+// ==========================================
+//  A DEF body is walked INLINE, so it is not a region of the grid: every row of it
+//  is drawn once, where the definition stands. What the rows of a body do share is
+//  that an edit to them changes every call site, and that is what the walk can say
+//  exactly -- muPhDf,x is the phrase each voice is executing, muPhStk the enclosing
+//  one per call frame, and the two are maintained wherever a frame is pushed or
+//  popped. Phrase n is therefore stored as n + 1, because 0 means the top level
+//  stream and phrase 0 is a phrase like any other.
+
+// --- muPhWatch -- name the body the cursor's row is in, when that changes ---
+//  A cursor move does NOT walk the tune: the grid is already on screen and only the
+//  glyph moves, so the answer has to come from what the last draw recorded. muLnPh
+//  holds each visible line's phrase per voice, which is why this costs three loads
+//  and no walk at all.
+muPhWatch:
+    lda muPlayOn
+    bne muPwRts                 // the player owns row 0 while it runs
+    ldy #MU_ROW
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    cmp #MU_GRID_ROWS
+    bcs muPwRts                 // below the band: no line was recorded there
+    tax                         // X = the line's index
+    ldy #MU_VOICE
+    lda (dataPtr),y
+    tay
+    txa
+    clc
+    adc muLnPhBase,y            // this voice's block of the table
+    tax
+    lda muLnPh,x
+    beq muPwGone
+    cmp muPhNo
+    beq muPwRts                 // the same answer as last time: nothing to say
+    sta muPhNo
+    sta muPhPend                // a body: muPhTick puts the name up
+    rts
+muPwGone:
+    sta muPhNo                  // back at the top level: the next body is news again
+muPwRts:
+    rts
+
+// --- muPhTick -- say which phrase body the cursor's row is in, once per arrival ---
+//  Runs from the idle pass: muGrpOpen only ARMS this, because the walk is in the
+//  middle of drawing and both the message and row 0 want the REU windows.
+muPhTick:
+    lda muPhPend
+    beq muPtDone
+    sta muPhBad
+    lda #0
+    sta muPhPend
+    lda #M_IN_PHRASE
+    jsr muMsgSet
+    jsr muStatus
+    jmp muPhNum
+muPtDone:
+    rts
+
+// --- muPhRefuse -- an edit that would change every call site, refused ---
+//  In: MU_PHBAD = the phrase, + 1. Returns with the status line showing it.
+muPhRefuse:
+    lda #M_BAD_PHRASE
+    jsr muMsgSet
+    jsr muStatus
+// --- muPhNum -- " n x c" at the text cursor, for MU_PHBAD ---
+//  muStatus leaves the cursor right after its message, so the numbers simply follow
+//  it; muNum16 already prints at the text cursor and squashes a leading zero.
+muPhNum:
+    lda #' '
+    jsr muPutC
+    lda muPhBad
+    sec
+    sbc #1
+    ldx #0
+    jsr muNum16
+    lda #' '
+    jsr muPutC
+    lda #'x'
+    jsr muPutC
+    jmp muPhCount               // A/X = the sites, printed as the last number
+
+// --- muPhCount -- A/X = how many CALL sites name the phrase MU_PHBAD is ---
+//  The count is structural, not a tally of the walk: a TAL loop would execute the
+//  same CALL on every pass and inflate it. Every event is a 2-byte pair and the
+//  three streams are contiguous, so one pass over [8, 8 + the three lengths) sees
+//  each CALL byte exactly once -- whichever voice's stream it belongs to, because a
+//  phrase body is global and any voice's CALL can jump into it.
+//  The pair is decoded by the two patterns muSimCmd routes on: a CALL of 0-15 is a
+//  $01-family option with bit 3 clear, and a CALL of 16-23 is the mnemonic group's
+//  form that carries bit 7.
+muPhCount:
+    lda #0
+    sta muPhCnt
+    sta muPhCnt+1
+    lda #8
+    sta muPhCur
+    sta muPhEnd
+    lda #0
+    sta muPhCur+1
+    sta muPhEnd+1
+    jsr muImgSeat               // kPtr = the image, for the three length words
+    ldy #2
+muPcSum:
+    lda (kPtr),y
+    clc
+    adc muPhEnd
+    sta muPhEnd
+    iny
+    lda (kPtr),y
+    adc muPhEnd+1
+    sta muPhEnd+1
+    iny
+    cpy #8
+    bcc muPcSum
+muPcPair:
+    lda muPhCur
+    cmp muPhEnd
+    lda muPhCur+1
+    sbc muPhEnd+1
+    bcs muPcDone
+    lda muPhCur
+    sta muWinOfs
+    lda muPhCur+1
+    sta muWinOfs+1
+    lda #0
+    tax
+    jsr muWinSeat               // kPtr = the page this pair lives on
+    ldy #0
+    lda (kPtr),y
+    and #$03
+    cmp #1
+    bne muPcNext                // not the $01 family: no phrase command
+    ldy #1
+    lda (kPtr),y
+    and #$07
+    cmp #$03
+    beq muPcWide                // the mnemonic group: 16-23 when bit 7 is set
+    cmp #$02
+    bne muPcNext
+    lda (kPtr),y                // the CALL/RES pair: bit 3 makes it RES
+    and #$08
+    bne muPcNext
+    lda (kPtr),y
+    lsr
+    lsr
+    lsr
+    lsr
+    jmp muPcCmp
+muPcWide:
+    lda (kPtr),y
+    bpl muPcNext                // bit 7 clear: a sound command, not a phrase one
+    and #$08
+    beq muPcNext                // bit 3 clear: that is a DEF
+    lda (kPtr),y
+    lsr
+    lsr
+    lsr
+    lsr
+    and #$07
+    ora #16
+muPcCmp:
+    clc
+    adc #1                      // ...as the stored form, which is phrase + 1
+    cmp muPhBad
+    bne muPcNext
+    inc muPhCnt
+    bne muPcNext
+    inc muPhCnt+1
+muPcNext:
+    lda muPhCur                 // the next PAIR is two bytes on
+    clc
+    adc #2
+    sta muPhCur
+    bcc muPcPair
+    inc muPhCur+1
+    jmp muPcPair
+muPcDone:
+    lda muPhCnt
+    ldx muPhCnt+1
+    jmp muNum16
+
+// --- muPhBlock -- C=1 when an insert at the cursor's row would cut into a body ---
+//  In: the cursor's row. The walk advances whichever voice is earliest, so one seek
+//  leaves every voice at-or-after that row: MU_PHDF then says, for each voice, which
+//  phrase body the boundary in front of it belongs to. A voice that has halted takes
+//  no insert at all, so its body cannot change and it does not count.
+muPhBlock:
+    jsr muSeek
+    ldx #0
+muPbLp:
+    lda muPhDf,x
+    beq muPbNext
+    lda muOn,x
+    beq muPbNext
+    lda muPhDf,x
+    sta muPhBad
+    sec
+    rts
+muPbNext:
+    inx
+    cpx #3
+    bcc muPbLp
+    clc
+    rts
+
+// --- muPhArm -- say which body the row just edited belongs to, when it is in one ---
+//  Called by a note entry, which is the edit that is ALLOWED inside a body: it
+//  changes every call site, and that is what the message says.
+muPhArm:
+    jsr muPhHere
+    bcc muPaRts
+    lda muPhBad
+    sta muPhPend
+muPaRts:
+    rts
+
+// --- muPhHere -- C=1 when the seek's own boundary is inside a body ---
+//  For the paths that remove time: MU_SKV is the voice the seek ran for.
+muPhHere:
+    ldx muSkV
+    lda muPhDf,x
+    sta muPhBad
+    beq muPhHereNo
+    sec
+    rts
+muPhHereNo:
+    lda #0
+    sta muPhBad
+    clc
+    rts
+
 // --- muCmdHere -- the command the cursor's line holds ---
 //  Out: C=0 with A = its mnemonic id, MU_CMDVAL = the operand and MU_CMDROW = the
 //      row the line belongs to; C=1 when the cursor is not on a command line, or
@@ -2826,6 +3075,9 @@ muDgTbLp:
     sta muLnTbHi,x
     lda #0
     sta muLnKind,x
+    sta muLnPh,x
+    sta muLnPh+MU_GRID_ROWS,x
+    sta muLnPh+2*MU_GRID_ROWS,x
     lda #$ff
     dex
     bpl muDgTbLp
@@ -3751,6 +4003,8 @@ muKeyIdle:
     jsr muPlayTick
     jsr muAudTick
     jsr muHovDot
+    jsr muPhWatch
+    jsr muPhTick
     lda #SYS_YIELD
     jsr syscall
     jmp muKeyLoop
@@ -4177,6 +4431,7 @@ muNcGo:
     jsr muNoteJiffies
     bcs muNcIllegal
     sta muDurJif                // the armed length, for the ones below
+    jsr muPhArm                 // a body's bytes are every call site's bytes
     lda muInsMode
     beq muNcOvr
     jmp muNoteInsMode           // insert mode: push the rows below down
@@ -4539,6 +4794,8 @@ muInsertTime:
     sta muInsJif
     lda #$ff
     sta muInsNoteV
+    jsr muPhBlock               // a body's timing is every call site's timing
+    bcs muItPhrase
 muInsGo:
     lda #1
     sta muInsFirst              // the first splice opens the grouped action
@@ -4568,6 +4825,8 @@ muItIllegal:
     lda #M_ILLEGAL
     jsr muMsgSet
     jmp muStatus
+muItPhrase:
+    jmp muPhRefuse              // out of branch range: the refusal prints the phrase
 
 // --- muNoteInsMode -- insert mode: open the note in all voices, note in ours ---
 //  The cursor voice gets the armed note (muNewOpt), the other two get rests of
@@ -4854,6 +5113,8 @@ muDelKey:
     jsr muMsgSet
     jmp muStatus
 muDkGo:
+    jsr muPhHere                // a body's timing is every call site's timing
+    bcs muDkPhrase
     jsr muRecAtSek  // the undo record: 2 bytes at the onset go away
     lda #2
     sta muRecOldN
@@ -4873,6 +5134,8 @@ muDkGo:
     lda (dataPtr),y
     ldx #MU_GRID_BOT+1
     jmp muRedrawRows
+muDkPhrase:
+    jmp muPhRefuse
 
 // --- muDelKey2 -- SHIFT+INST/DEL: the command on this line, else the row's event ---
 muDelKey2:
@@ -7671,6 +7934,11 @@ muLnNone:
 //  they cannot be drawn as they arrive -- a note from voice 1 and a command from
 //  voice 2 share the row, and the row's own line comes after both.
 //  Out: C=1 when every voice has halted, i.e. there is no such row.
+//  The group's end is also where the row's PHRASE body state is read: a DEF and the
+//  body's first event take no time, so they land on the same row, and the row is an
+//  edit target that lands inside the body. Reading it here rather than at the group's
+//  start is what makes such a row read as the body, and an END's own row as the
+//  stream it returns to -- which is the answer an insert at that row needs.
 muGrpOpen:
     inc muGrpRow
     bne mgpFresh
@@ -7776,6 +8044,12 @@ muLnSpot:
     sta muLnTbHi,y
     lda muTmpL
     sta muLnKind,y
+    lda muPhDf
+    sta muLnPh,y                // the group is complete by now, so this is the phrase
+    lda muPhDf+1                //   each voice is in at the END of the row -- which is
+    sta muLnPh+MU_GRID_ROWS,y   //   what an insert at the row would land in
+    lda muPhDf+2
+    sta muLnPh+2*MU_GRID_ROWS,y
     lda muGdClip
     beq mlsRts
     lda muGrpRow+1
@@ -8192,6 +8466,12 @@ msbShift:
     sta muLnTbHi,x
     lda muLnKind+1,x
     sta muLnKind,x
+    lda muLnPh+1,x
+    sta muLnPh,x
+    lda muLnPh+MU_GRID_ROWS+1,x
+    sta muLnPh+MU_GRID_ROWS,x
+    lda muLnPh+2*MU_GRID_ROWS+1,x
+    sta muLnPh+2*MU_GRID_ROWS,x
     inx
     cpx #MU_GRID_ROWS-1
     bcc msbShift
@@ -8204,6 +8484,9 @@ msbShift:
     sta muLnTbHi+MU_GRID_ROWS-1
     lda #0
     sta muLnKind+MU_GRID_ROWS-1
+    sta muLnPh+MU_GRID_ROWS-1
+    sta muLnPh+MU_GRID_ROWS+MU_GRID_ROWS-1
+    sta muLnPh+2*MU_GRID_ROWS+MU_GRID_ROWS-1
 msbGot:
     lda muLnTbLo                // the window's top is the row now at the top
     sta muTop
@@ -8702,6 +8985,10 @@ muLnV:      .byte 0             // the voice a note line is drawing
 muLnTbLo:   .fill MU_GRID_ROWS, 0   // the row each visible line holds...
 muLnTbHi:   .fill MU_GRID_ROWS, 0   //   ...16-bit; $ffff = past the tune's end
 muLnKind:   .fill MU_GRID_ROWS, 0   // 1 = the row's own line, 0 = a command's
+muLnPh:     .fill MU_GRID_ROWS*3, 0  // each line's phrase body per voice, +1 (0 = the
+                                     //   stream); the draw records it, so naming the
+                                     //   cursor's row costs a table read, not a walk
+muLnPhBase: .byte 0, MU_GRID_ROWS, 2*MU_GRID_ROWS   // where each voice's block starts
 muNoteOut:  .byte 0             // 1 = muStep returned a note, 0 = it halted a voice
 muFoldN:    .byte 0
 muTmp:      .byte 0
@@ -8795,6 +9082,14 @@ muDep:      .fill 3, 0          // the next free call-stack frame
 muPhLo:     .fill 15, 0         // the call stack, five frames per voice
 muPhHi:     .fill 15, 0
 muPhSt:     .fill 15, 0
+muPhStk:    .fill 15, 0         // ...and the phrase each frame was entered from, +1
+muPhDf:     .fill 3, 0          // the phrase each voice is executing, +1 (0 = the stream)
+muPhNo:     .byte 0             // what the status last named, +1 -- 0 = the top level
+muPhPend:   .byte 0             // a body the cursor has just arrived in, to announce
+muPhBad:    .byte 0             // the phrase an edit was refused for, +1
+muPhCnt:    .fill 2, 0          // the CALL sites counted for it...
+muPhCur:    .fill 2, 0          // ...and the scan's own cursor: an image offset...
+muPhEnd:    .fill 2, 0          // ...and where the three streams end
 muDfLo:     .fill 24, 0         // phrase definitions, as PhraseDef
 muDfHi:     .fill 24, 0
 muDfId:     .fill 24, $ff       // $ff = no DEF has named this phrase: the defined

@@ -21,6 +21,42 @@
 
 ---
 
+## Bug #192 — a `CALL`/`DEF` of phrases **16–23** is drawn as another command, because `muLnDec` never tests the form 🔴 OPEN (found 2026-11-01)
+
+**Symptoms.** A tune that uses the 16–23 phrase form has its `CALL 16+n` drawn as a **sound
+command** (the `SW`/`SUS` group) and its `DEF 16+n` drawn as `DEF n` — the wrong number, off by
+sixteen. Nothing else is affected: the walk and the player both execute the form correctly, so the
+notes play and the grid's rows are right; only the command lines lie.
+
+**Root cause.** The format has two encodings for a phrase command. The plain one is a `$01`-family
+pair, `nnnn0010` (CALL) or `nnnn0110` (DEF) in the option byte. The wide one is the **mnemonic
+group**: option `& $07 == 3` with **bit 7 set**, where bits 4-6 are `phrase - 16` and bit 3 picks
+call from def. `muSimCmd` tests for it (`muCmO3` -> `bmi muCmPhr`, and `muCmPhr` resolves
+`(opt >> 4) & 7 | 16`), which is why the walk is right. `muLnDec` — the routine that decides what a
+pair *reads as* — has no such test: its option chain tests the same `& $07` values and sends `3` to
+`moSwS`, and `6` to `moPair6` where bit 3 alone chooses DEF from VOL, so a wide DEF comes out as
+DEF with the 0-15 number.
+
+**Why it was not noticed.** No bundled tune uses the wide form: `tools/gen-mus.py` writes the plain
+one, and `immig`'s nine definitions are all below 16. The editor's own encoder (7.8, `muObjEnc`)
+*does* write it for a phrase above 15, so typing `CALL 20` produces a pair the grid then draws
+wrongly — the encoder and the decoder disagree, which is exactly what 7.9's table gate was meant to
+catch.
+
+**Fix (not applied).** `muDecOpt` needs the wide test before its chain: `muScmd & $03 == 1` and
+`muSopt & $07 == 3` and `muSopt` bit 7 set -> id = CALL or DEF by bit 3, value =
+`((muSopt >> 4) & 7) + 16`. Roughly 25 bytes in the `$E000`-free task image (`muLnDec` is in
+`musedit.inc`, not the kernel, so no band budget applies). `muPhCount` already carries this decode
+for its own purposes and can be the model. A check needs a tune with a phrase above 15 — none of
+the bundled ones has one, so the test is a `CALL 20` typed into a scratch tune.
+
+**Transferable rule.** When a command has two encodings, the *router* and the *renderer* are two
+places that each have to know both, and only the router is exercised by playing the tune. A table
+gate over every mnemonic's bytes (7.9) is the cheap way to keep them in step; without it the
+disagreement hides until someone uses the rare form.
+
+---
+
 ## Bug #191 — the dot x table had been stored CLAMPED, so every note above F-7 got the same dot 🟡 ✅ FIXED (2026-11-01)
 
 **Symptoms.** `musedit`'s keyboard dots stopped tracking at **F-7**: hovering F#7 through B7, and
