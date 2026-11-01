@@ -35,6 +35,12 @@
 > (mouse-only and keyboard note sessions) are still unbuilt. The `,` tie key and the bar's
 > `DUR`/`TIE` click cells are still unwired; step 7 (the command panel) is untouched. Bug #192 (a
 > `CALL`/`DEF` of phrases 16-23 was drawn as another command) is **fixed** and needs its check.
+> **13.4f is built and verified:** rows become a function of the song tick with one segment per
+> tempo, a bar is one whole note in the segment's rows (`rows × unit == tempo`), and the head,
+> `SHIFT+I`, `SHIFT+U` and the playhead all read the segment instead of one global unit. The
+> playhead reads it through the **tick each drawn line was walked at**, not through a segment the
+> walk happens to be in, because the walk draws below the cursor and would otherwise hand the
+> playhead a tempo the music has not reached (bug #193).
 >
 > **Three harness lessons:** the kernel's
 > 16-entry key ring drops keys pressed faster than a full-grid redraw finishes, so
@@ -1372,7 +1378,9 @@ order:
   it again, a note key inside says it, `i` inside answers `? phrase 0 x4` with the grid byte-for-
   byte unchanged, `SHIFT+INST/DEL` answers the same, and an insert at the top level in voice 1 is
   not refused. Cost: 69 code pages (pool 103 of 109, margin 6) and 87 bytes of data.
-- [x] **13.4e Keep the accounting.** *Verified: the figure is 65 code pages, 99 of 109 with the libraries and the six window pages, and `check-pool-budget.ps1` is the gate.* Budget: musedit is 65 code pages of the pool's 109, a margin of 10
+- [x] **13.4e Keep the accounting.** *Verified: the figure is 65 code pages, 99 of 109 with the libraries and the six window pages, and `check-pool-budget.ps1` is the gate.* The
+  figure is unchanged by 13.4f only because of 13.4g below: without it 13.4f cost two pages
+  and the editor sat at 106 of 109. Budget: musedit is 65 code pages of the pool's 109, a margin of 10
   (b cost 597 bytes and a page, c 913 bytes and four), and the printed text is
   already out of the code -- every string it prints is a record in the REU file `msgs`, so
   adding a message costs no page (see `tools/gen-musedit-msgs.py`). The editor's own
@@ -1386,6 +1394,103 @@ order:
   two decode tables, the ladder that formats each class of value, the per-class queues — and
   then gave 412 bytes back by folding six repeated idioms into helpers). `check-pool-budget.ps1`
   is the gate, and `basic`-style exact fits are refused rather than warned about.
+
+**13.4f The grid follows the tempo timeline.** *Built; verified on hardware* (`twotem`: the rows follow across the change, the playhead stands on the note's own row in both sections, and `immig` is unchanged; bugs #193 and #194 were both found by that run). The way a grid row is
+counted has to survive a mid-tune `TEM`, because the format allows one anywhere.
+
+**What the format says.** It has **one** tempo: `TEM` writes the single byte `WorkTempo` (and
+`sidplay.inc`, and there is no per-voice tempo to have. What a `TEM` therefore means is "from this
+point, for everyone": the duration routine reads the tempo when a note is **struck**, so every note
+struck after the change re-times in all three lanes, while a note already sounding keeps the
+countdown it was given and finishes at the old tempo. Order decides only what happens inside the
+tick a change lands on — the tick loop runs lane 1, 2, 3 (`ldx #$00 … cpx #$03`), each lane
+running all its commands for that tick before the next lane looks, and the editor's walk mirrors
+it (`muSimNext` breaks ties to the lower voice). So three `TEM`s on one line — one per lane — all
+execute in that tick: lane 1's note is struck at lane 1's value, lane 2's at lane 2's, lane 3's at
+lane 3's, and the tempo that **survives** for everything after is the last one executed, lane 3's.
+The other two values are overwritten before the next tick. That much is the player working as
+designed, and the editor's `muSekTem` (the tempo recorded for the event the cursor is on) already
+judges a new duration at the tempo in force at that row, so editing after a change is correct.
+
+The problem is the grid's arithmetic. There is **one row unit**, derived from the tempo at the
+**first note** (`muTempo` → `muUnit` → `muUnitApply`), and everything that turns rows into time
+uses it: the walk's tick → row division, `muUnitBar` (a bar is a fixed count of rows), the `BAR`
+and `R` figures in the head, `SHIFT+U`'s refinement, `SHIFT+I`'s "one bar", and the playback
+follow's division (`muPhSync`). Past a mid-tune `TEM` the music re-times and the grid does not, so
+the `BAR` figures stop agreeing with the tune's own metre, `SHIFT+I` inserts the *old* tempo's bar,
+and nothing on screen says a change happened at all.
+
+**The decision.** A row is the finest length the tempo in force can express, and a bar is one whole
+note measured in those rows. The second half is what makes `BAR`, `R`, `SHIFT+I` and the row numbers
+keep meaning what they say; the first is forced, because a row coarser than the segment's own finest
+length has two events inside it and the grid cannot draw the second. The consequence is that a bar's
+**row count changes at a change**, and the tempo byte tells you both numbers: `rows × unit == tempo`,
+so `$90` is 16 rows of 9 jiffies while `$C0` is 64 rows of 3. A `TEM` that does not land on a bar
+line therefore cuts one bar short.
+
+**The shape.** Rows become a piecewise-linear function of the song tick, one segment per tempo:
+
+    row(tick) = segRow0 + (tick - segTick0) / segUnit
+
+The walk already visits events in exactly the player's order, so it opens a segment wherever it
+executes a `TEM` whose value differs: `segRow0` is the group row it is drawing (`muGrpRow`, which
+*is* the row of that tick), `segTick0` is the event's tick, `segUnit` the new tempo's unit. Nothing
+else about the row axis changes, and the per-event span stays the repeated-subtraction divide it is
+today — only its divisor becomes the segment's. The one thing that must be re-seeded is each voice's
+position, because a voice's next event may be *after* the change while its row was accumulated under
+the old unit: at a change, every live voice gets `muVRow = segRow0 + (tick - segTick0) / segUnit` and
+`muVRem` the remainder, a single small divide per voice. That makes the drawing exact rather than
+one row out for the rest of the segment.
+
+**What else has to follow.** The bar a row falls in can no longer be a division, so the walk records
+it per line (`muLnBar`, 2 bytes × 19) along with the tempo in force on the line (`muLnTem`), and the
+head, `muBarOf`, the row numbers and `SHIFT+I` read the line instead of dividing. `muRowsToJif` and
+`SHIFT+I` need the unit and the bar size *at the cursor*, derived from `muLnTem` by a pure routine
+that leaves the grid's own state alone. The playhead records the **tick** of each line
+(`muLnTick`, 2 bytes × 19) and takes the row of the deepest line the music has reached: it reads
+what was drawn rather than a segment the walk is standing in, which is the only way it can be right
+when the walk has drawn several rows beyond the cursor (bug #193).
+
+Reference note: the tempo table is `DataTempoTable` in `sidplay.inc`, and `muTempoTable` in the
+editor.
+
+**13.4g The state moves to zero page.** *Built; verified on hardware* (playback starts on both tunes, which it did not before this). 13.4f cost 625 bytes and
+two pages, which put the editor at 106 of the pool's 109 and broke playback: `sid.lib` is lazy, its
+fifteen pages did not fit, and a failed lazy load **exits** the child, so the parent reported
+`? no player`. The pages were there in total (18 free) but not in one run (14 + 4), which is the
+lesson: a lazy library needs a **contiguous** fit, and `check-pool-budget.ps1` only adds up totals.
+
+The fix was not to trim the feature but to stop keeping 1.3 KB of state in the code image. The
+header now declares `zp_base`/`zp_len` = `$0b`/224, and 193 declarations -- every scalar and array
+the walk, the draw and the key loop touch hardest -- became `.label`s inside that window. Three
+classes stay in the image by necessity: **address-taken** labels (a pointer to a ZP byte is not
+relocatable), **state the music child shares** (`muPlayOn`/`muPlayEnd`/`muPlayQuit`/`muPlayRefd`/
+`muSidOk` -- zero page is per *slot*, so a thread child would read its own copy), and the read-only
+tables. `$02-$0a` stays clear for `sid.lib`'s scratch, which the parent's hush uses and the child
+declares in its own spawn arguments, and an assert holds the window below the kernel's `$f0`.
+The block must sit at the **top** of `musedit.inc`: KickAssembler chooses `zp` over `abs` from the
+symbol's value at parse time, so a label defined at the bottom would silently assemble absolute.
+
+Result: 18,317 -> **16,614 bytes**, 72 -> **65 code pages**, pool 106 -> **99 of 109** (margin 10),
+and fixups 3,120 -> 1,641 because most references are no longer relocatable addresses.
+
+**The instance buffer took the two biggest arrays that fit.** `MU_DATA_SIZE` is one byte, so the
+buffer caps at 255; it now holds `muLogId` and `muLogLo` (`MU_DATA_SIZE` 53 -> 245) at
+`MU_LOGID`/`MU_LOGLO`, addressed through two zero-page pointers that `muHeapPtrs` fills from
+`dataPtr` at entry, so every access stayed a single `zp,Y` instruction. `muLogHi` could **not** go:
+`MU_LOG_SLOTS` is 16 and there are six blocks, so each of those three arrays is 96 bytes, not 36 --
+all three are 288 and only 202 were free. An assert (`MU_LOGID_END <= MU_DATA_SIZE`, and
+`MU_DATA_SIZE <= 255`) now makes that arithmetic fail the build instead of passing silently.
+16,614 -> **16,456 bytes**, still 65 pages.
+
+**Left for a day the pool runs out** (all measured, none needed at margin 10): the undo window's
+**256-byte resident page** (`muUndoBuf`, the largest single item in the image) can become a 64-byte
+chunk window -- the accessors already go through `muUndoIo`/`muUndoWind`, so it is a granule change
+and a chunk index in place of a page index, about +35 bytes of code for -192 of data; the keyboard
+dots' history rings (`muHistRLo/RHi/Opt`) are **288 bytes for nine references**, the best ratio in
+the file, but they cannot fit a 255-byte buffer until they shrink; and the line tables
+(`muLnPh` 57 bytes, then the dozen 19-byte ones) need an `X`-indexed access converting to `Y`,
+which costs code at each site rather than saving it.
 
 Order matters: 13.1-13.3 before 13.4, because a phrase editor built on a walk that is not
 proven will hide the next defect behind a new feature.

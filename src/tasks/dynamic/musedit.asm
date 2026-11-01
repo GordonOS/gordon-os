@@ -10,7 +10,14 @@
 
 // The instance buffer's size. Declared here because the header needs it before
 // the body is imported; musedit.inc's zero loop uses the same constant.
-.const MU_DATA_SIZE = 53
+.const MU_DATA_SIZE = 245
+
+// The zero page window this task keeps across a switch: $0b-$eb, leaving $02-$0a
+// to sid.lib's scratch (the parent's hush uses it, and the music child declares it
+// in its own SPAWN arguments) and $f0-$ff to the kernel's IRQ. musedit.inc declares
+// the state that lives there.
+.const MU_ZP_BASE   = $0b
+.const MU_ZP_LEN    = 202
 
 museditBinStart:
     .word HDR_MAGIC              // +0:  magic 'G','O' (LE)
@@ -18,7 +25,8 @@ museditBinStart:
                                  // +2:  flags: it holds unsaved work, so it is pinned
     .word $5000                  // +3:  origin (page-aligned, nominal)
     .word museditEnd - museditMain // +5: code size (the entry is the first label)
-    .byte MU_DATA_SIZE, 0, 0     // +7:  data size; no ZP here (the player child declares $02-$0A)
+    .byte MU_DATA_SIZE, MU_ZP_BASE, MU_ZP_LEN
+                                 // +7:  data size, zero page base and length
     .word (1 << LIB_FILESYS) | (1 << LIB_SID) | (1 << LIB_SPRITE) | (1 << LIB_MOUSE)
                                  // +10: filesys 10 + sid 13 lazy, sprite 1 + mouse 2 eager
     .byte museditNameEnd - museditName // +12: name length

@@ -7,6 +7,11 @@ src/libs/sidplay.inc does -- three voices, a per-voice countdown, HED/TAL,
 DEF/CALL/END, HLT, and the global tempo plus UTL/UTV -- and reports when every
 event plays.
 
+Rows are counted the way the editor counts them: `row(tick)` is a piecewise
+linear function of the song tick with one segment per tempo change, and a bar is
+one whole note in the segment's own rows. `--grid` and `--lines` print what the
+screen shows, so a change of tempo can be checked line for line against musedit.
+
 The trace it prints is the trace musedit's `X` key prints, line for line, which
 is how the two are compared:
 
@@ -179,6 +184,7 @@ def simulate(image, trace_limit=0, trace_cmd=False):
 
     tempo = INIT_TEMPO
     utl = INIT_UTL
+    temps = []                  # (tick, tempo) for every change the walk honours
     deffed = [None] * 24        # phrase address, None = not defined
     dfident = [0xFF] * 24       # WorkPhraseUnknown
     frlo = [0] * 15
@@ -227,6 +233,8 @@ def simulate(image, trace_limit=0, trace_cmd=False):
                     voice.hed_at = voice.ptr
                     voice.hed_ident = voice.ident
                 elif cmd == 0x06:               # TEM
+                    if opt != tempo:
+                        temps.append((clock, opt))
                     tempo = opt
                 elif cmd == 0x16:               # UTL
                     utl = opt
@@ -309,9 +317,70 @@ def simulate(image, trace_limit=0, trace_cmd=False):
         "capped": events >= MAX_EVENTS,
         "tempo": tempo,
         "utl": utl,
+        "temps": temps,
         "details": details,
     }
     return result, trace
+
+
+def segments(temps):
+    """The row map: one segment per tempo change, as the editor walks it.
+
+    row(tick) = row0 + (tick - tick0) / unit, one segment per tempo. A change takes
+    effect at its own tick, so the map is continuous there; the segment's unit is
+    the finest length that tempo can express, and a bar is one whole note counted
+    in those rows, which makes `rows * unit == tempo`.
+    """
+    model = timing()
+    unit, bar = model.unit_and_rows(INIT_TEMPO)
+    out = [{"tick": 0, "row": 0, "unit": unit, "bar": bar, "tempo": INIT_TEMPO}]
+    for tick, tempo in temps:
+        here = out[-1]
+        row = here["row"] + (tick - here["tick"]) // here["unit"]
+        unit, bar = model.unit_and_rows(tempo)
+        seg = {"tick": tick, "row": row, "unit": unit, "bar": bar, "tempo": tempo}
+        if tick == here["tick"]:
+            out[-1] = seg           # a change at a segment's own start replaces it
+        else:
+            out.append(seg)
+    return out
+
+
+def row_of(segs, tick):
+    """The row a tick falls on, and the segment it is in."""
+    found = segs[0]
+    for seg in segs:
+        if seg["tick"] <= tick:
+            found = seg
+        else:
+            break
+    return found["row"] + (tick - found["tick"]) // found["unit"], found
+
+
+def bars(segs, last_row):
+    """[(first_row, rows, unit)] for the bars up to LAST_ROW.
+
+    A change starts a bar wherever it lands, so one that falls inside a bar cuts it
+    short; after that the bars are the segment's own length.
+    """
+    out = []
+    for index, seg in enumerate(segs):
+        final = index + 1 == len(segs)
+        end = last_row + 1 if final else segs[index + 1]["row"]
+        row = seg["row"]
+        while row < end and row <= last_row:
+            out.append((row, seg["bar"]))
+            row += seg["bar"]
+    return out
+
+
+def bar_of(bar_list, row):
+    """The 1-based bar a row falls in, and the row's number inside it."""
+    for index in range(len(bar_list) - 1, -1, -1):
+        first, size = bar_list[index]
+        if row >= first:
+            return index + 1, row - first + 1
+    return 1, row + 1
 
 
 def report(path, result, trace, trace_cmd):
@@ -358,22 +427,21 @@ def pitch_name(opt):
 def grid(result, rows):
     """The first `rows` rows of the three lanes, as musedit draws them.
 
-    The row unit is the shortest plain length the tune's opening tempo can
-    express, which is the rule the editor uses: a note's cells run from its onset
-    row to the row its length reaches, a rest shows only its onset.
+    A row is the finest length the tempo in force can express, so the map is one
+    segment per tempo change and a note's cells run from its onset row to the row
+    its length reaches; a rest shows only its onset.
     """
-    model = timing()
-    unit, per_bar = model.unit_and_rows(result["tempo"])
-    print("grid: unit %d jiffies, %d rows per bar" % (unit, per_bar))
+    segs = segments(result["temps"])
+    print("segments: " + ", ".join(
+        "tick %d row %d unit %d bar %d" % (seg["tick"], seg["row"],
+                                           seg["unit"], seg["bar"]) for seg in segs))
+    bar_list = bars(segs, rows)
     blank, bar = 0, 1
     kinds = [[blank] * rows for _ in range(3)]
     text = [[""] * rows for _ in range(3)]
-    row = [0, 0, 0]
-    rem = [0, 0, 0]
     for tick, index, at, cmd, opt, length in result["details"]:
-        total = rem[index] + length
-        span = total // unit
-        here = row[index]
+        here, _seg = row_of(segs, tick)
+        reach, _end = row_of(segs, tick + length)
         if (opt & 0x07) == 0:
             if here < rows:
                 kinds[index][here] = 2
@@ -382,11 +450,8 @@ def grid(result, rows):
             if here < rows:
                 kinds[index][here] = 3
                 text[index][here] = pitch_name(opt)
-            for step in range(1, span):
-                if here + step < rows:
-                    kinds[index][here + step] = bar
-        row[index] += span
-        rem[index] = total % unit
+            for step in range(here + 1, min(reach, rows)):
+                kinds[index][step] = bar
     for at in range(rows):
         line = []
         for index in range(3):
@@ -396,7 +461,8 @@ def grid(result, rows):
                 line.append(" " * 12)
             else:
                 line.append(text[index][at].ljust(3) + "=" * 9)
-        print("  %02d |%s|%s|%s|" % (at + 1, line[0], line[1], line[2]))
+        number, inside = bar_of(bar_list, at)
+        print("  %03d.%02d |%s|%s|%s|" % (number, inside, line[0], line[1], line[2]))
 
 
 
@@ -418,7 +484,7 @@ def layout(result, trace, count):
     from cell 0 and nothing else.
     """
     model = timing()
-    unit, per_bar = model.unit_and_rows(result["tempo"])
+    segs = segments(result["temps"])
     notes = {}
     cmds = [[[], []], [[], []], [[], []]]   # [voice][class]: the two never share a line
     out = []
@@ -449,7 +515,7 @@ def layout(result, trace, count):
         notes.clear()
 
     for clock, voice, at, cmd, opt in trace:
-        here = clock // unit
+        here, _seg = row_of(segs, clock)
         while row < here:
             flush()
             row += 1
@@ -463,12 +529,17 @@ def layout(result, trace, count):
             notes[voice] = (pitch_name(opt) or "...", cmd)
     flush()
 
-    print("lines: unit %d jiffies, %d rows per bar, %d lines" % (unit, per_bar, len(out)))
+    bar_list = bars(segs, row)
+    print("lines: %d segments, %d lines" % (len(segs), len(out)))
     for at, lanes in out[:count]:
         cells = [" " * 11] * 3
         for voice, text in lanes:
             cells[voice] = text
-        label = "  " if at is None else "%02d" % ((at % per_bar) + 1)
+        if at is None:
+            label = "     "
+        else:
+            number, inside = bar_of(bar_list, at)
+            label = "%03d.%02d" % (number, inside)
         print("  %s |%s|%s|%s|" % (label, cells[0], cells[1], cells[2]))
 
 

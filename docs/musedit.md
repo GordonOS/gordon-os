@@ -56,15 +56,20 @@ ROW VOICE 1     VOICE 2     VOICE 3   OVR
 DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q
 ```
 
-**Row 0** — the file name, the tempo in force (in decimal), the bar and the row under the cursor,
-and the **pitch readout** — the note under the pointer, or the note at the cursor. The bar and
-the row are what the playhead moves, so during playback they say where the music is.
+**Row 0** — the file name, the tempo in force **at the cursor's row** (in decimal), the bar and the
+row under the cursor, and the **pitch readout** — the note under the pointer, or the note at the
+cursor. The bar and the row are what the playhead moves, so during playback they say where the
+music is. The tempo figure is the one a note entered here would be measured against, so a tune
+that changes tempo shows the change as the cursor crosses it.
 
 **Row 1** — the three lane headers, and at the right the note-entry mode: `OVR` or `INS`.
 
-**Rows 2-20** — the grid, 19 rows. Each row is one **step** of the current tempo — the shortest
-ordinary note the tempo allows — so a whole note (one 4/4 bar) is 8, 16, 32 or 64 rows
-depending on the tempo. **This is the only part of the screen that scrolls.**
+**Rows 2-20** — the grid, 19 rows. Each row is one **step** of the tempo in force there — the
+shortest ordinary note that tempo allows — so a whole note (one 4/4 bar) is 8, 16, 32 or 64 rows
+depending on the tempo. A `TEM` part-way through a tune starts a new bar and re-scales the rows
+from that row on, so the rows a bar has can differ between one part of a tune and another; the row
+numbers in the left column are counted from the bar's own first row. **This is the only part of
+the screen that scrolls.**
 
 **Rows 21-23** — the piano: **all eight octaves**, C0 to B7, on one screen. The 56 white keys
 share the 320-pixel width, so a key is about 5.7 pixels wide; the black keys are short bars on
@@ -269,7 +274,9 @@ single jiffy per row, taking only the steps that divide the tempo's own unit exa
 tempo 144 offers three — 16, 48 and 144 rows to the bar — because 9 jiffies does not halve). Each
 press goes one step **finer** and, past the finest, wraps back round to the plain grid, so the
 states cycle rather than stop. A tune that contains a triplet is already refined at the third when
-it opens, which means its first press takes you to the finest and the second wraps to plain. Like
+it opens, which means its first press takes you to the finest and the second wraps to plain. Where
+a later tempo cannot divide the chosen refinement, that part of the tune keeps the plain grid
+rather than a broken one. Like
 every other edit it needs the music stopped — the grid is drawn in the unit that was in force when
 it was painted, so refining it mid-pass would leave the rows and the playhead apart, and it answers
 `? stop first`.
@@ -343,7 +350,7 @@ itself works, and it is why the grid never shows overlaps.
 | `INST/DEL` | replace the note at the cursor with a **rest** of the same length |
 | `SHIFT+INST/DEL` | **delete** the event and close the gap; on a command line it removes that command |
 | `I` | **insert a row** at the cursor, pushing everything below down |
-| `SHIFT+I` | **insert a bar** (the rows a bar has at this tempo) |
+| `SHIFT+I` | **insert a bar** (the rows a bar has at the tempo in force where the cursor is) |
 | `M` | **insert/overwrite mode** for entering notes |
 | `C` | **write or edit the command** at the cursor (see *Commands*) |
 | `SHIFT+D` | **follow a phrase**: from a `CALL` to its `DEF`, from a `DEF` to the next `CALL` |
@@ -399,7 +406,9 @@ where another one already sits, or to open a bar in the middle of a tune — ins
   voices**, so the voices stay lined up. A note that is already sounding is cut on the cursor's
   row; it resumes on the same pitch after the gap with a fresh attack.
 - **`SHIFT+I` opens a whole bar** — 8, 16, 32 or 64 rows, whichever a bar is at the tempo in
-  force. Inserting a bar mid-tune therefore leaves every bar number before it unchanged.
+  force where the cursor is (a tune that changes tempo has bars of different lengths, and the
+  bar inserted is the one that fits the part you are in). Inserting a bar mid-tune therefore
+  leaves every bar number before it unchanged.
 - **`M` switches note entry to insert.** With `INS` showing at the right of row 1, entering a
   note pushes the rows below down by that note's length instead of replacing them, so you can
   build a tune from the top down. `M` again returns to `OVR`, where entering a note replaces
@@ -426,8 +435,21 @@ written. The classic case is a 32nd or 64th at a moderate tempo, or a triplet at
 has no triplet table. Choose a longer value, or change the tempo first.
 
 Tempo is **global**: a `TEM` entered in any voice changes the length of every later note in all
-three voices. Rows that become illegal because of a tempo change are flagged on the grid
-rather than silently kept.
+three voices. It is also a **point in the tune**, not a property of the file: a `TEM` at any row
+takes effect there and holds until the next one, so a tune can change tempo as often as you like.
+
+What the grid does about it: from the row a `TEM` sits on, the rows are the new tempo's own step
+and a bar is one whole note counted in those rows, so **a bar's row count can change at a change** —
+a tune at tempo 144 (16 rows to the bar) that moves to 192 has 64 rows to the bar from there on.
+A change that lands between bar lines cuts that bar short, and a change on a bar line starts the
+next one. The head's tempo figure, `SHIFT+I`'s "one bar" and the duration checks all follow the
+row the cursor is on rather than the tune's opening tempo.
+
+`TEM` is one register in the player, so two voices that set different tempos on the **same row**
+do not run at two tempos: each lane's own note is measured with the value that lane set, and from
+the next row the tempo is the **last** of them (voice 3's, since the player processes the voices in
+order). Rows that become illegal because of a tempo change are flagged on the grid rather than
+silently kept.
 
 ## Commands — envelopes, waveforms, vibrato, filter and the rest
 

@@ -293,7 +293,7 @@
 .pc = $5000 + SHIFT
 .import source "src/tasks/dynamic/granim.asm"
 
-// --- musedit - KF_TAKES_ARGS + KF_NOT_EVICTABLE ($49) - the tracker-style .mus editor; no ZP of its own; libMask $01A2 (filesys + sid lazy, sprite + mouse eager); the screen, the layout and the eight-octave piano are drawn with the routed fixed-cell writers ---
+// --- musedit - KF_TAKES_ARGS + KF_NOT_EVICTABLE ($49) - the tracker-style .mus editor; declares ZP $0B-$EA (224 bytes: the state the walk, the draw and the key loop touch most, which is what keeps its code image inside the pool) and leaves $02-$0A to sid.lib's scratch; libMask $01A2 (filesys + sid lazy, sprite + mouse eager); the screen, the layout and the eight-octave piano are drawn with the routed fixed-cell writers ---
 .segmentdef museditOut [outBin="../tasks-out/temp/musedit." + variant + ".bin"]
 .segment museditOut
 .pc = $5000 + SHIFT

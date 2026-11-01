@@ -21,6 +21,66 @@
 
 ---
 
+## Bug #194 — a note that lasts several rows made the playhead stand on the note's LAST row, not the row it starts on 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** In `twotem.mus`'s second section (tempo 192, where a 16th is 12 jiffies and a row is
+3) the cursor sat three rows below the note instead of on it. The first section was correct.
+
+**Root cause.** `muPhSync` finds the playhead's row by looking the player's published tick up in the
+per-line tick table, taking the **deepest** line whose tick the music has reached. A held note has no
+event of its own, so every row it covers records the *same* onset tick: the four rows of one 12-jiffy
+note all read 156. The deepest of those is the note's last row, so the cursor was pinned to the end
+of the note for as long as it sounded. A row that is one note long — the whole first section — has
+strictly increasing ticks, so nothing there could show it.
+
+**Fix.** After the lookup finds the deepest qualifying line, `muPhSync` walks back up while the line
+above carries the same tick (and holds a real row), so the cursor lands on the row the note starts
+on. Command lines share their row's tick and appear above it, so the walk stops on them harmlessly:
+they carry the same row, and `muLnFind` still picks the row's own line.
+
+**Lesson.** "The deepest X" is only the right answer when X is unique per row. Where a producer
+repeats a value across several lines (a held note, a command line and its row), the consumer needs
+the *first* line of the run, and the difference only shows where one row is shorter than one event.
+
+---
+
+## Bug #193 — the walk drew ahead of the playhead and repointed the playhead's own tempo segment, so a tune's second tempo took effect on screen 16 rows early 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** `twotem.mus` (tempo 144 for 16 rows, then `TEM 192`) played correctly, but the
+playhead did not move at all during the first section: the cursor sat still and only began
+following once the music reached the `TEM 192` line. The whole head readout stayed at `R0`. A tune
+whose first `TEM` differs from the player's default (`$90`) was unaffected — `immig` was fine.
+
+**Root cause.** After a tempo change the grid's rows are a piecewise function of the song tick, one
+segment per tempo, and the playhead needed to know which segment to divide in. The walk published
+that segment as it opened each one — including the segments that lie **ahead** of the playhead,
+because the walk always draws below the cursor. The startup draw fills 19 lines, which is enough to
+reach the second tempo of a short tune, so before a note played the playhead's segment was already
+the tick-144 one. `muPhSync` then computed `tick − 144`, which borrows, clamped to zero, and
+reported `segment row` = 16 for every tick in the first section. The guard on that publish asked
+whether the new segment's row was at or past the playhead's row — with the playhead at row 0 and the
+segment at row 16 the answer was **yes**, which is exactly backwards: a segment the music has not
+reached is ahead of the playhead, not behind it. A tune whose opening `TEM` is not `$90` opened its
+first segment at tick 0/row 0 and looked correct, which is why only `twotem` showed it.
+
+**Fix.** The playhead no longer keeps a segment at all: **every drawn line records the song tick its
+row was walked at** (`muLnTick`/`muLnTickHi`, filled in `muLnSpot` from `muClk`, shifted with the
+band), and `muPhSync` finds the deepest line whose tick the music has reached and takes that line's
+row, walking back over any lines that share that tick so a note that lasts several rows puts the
+cursor on the row it starts on (bug #194). The playhead therefore cannot disagree with the rows
+on screen, because it reads them, and it
+needs no ordering assumption, no lookahead and no cap — any number of tempo changes, at any rows,
+including inside phrase bodies, follow for free. A tick above every line clamps to the band's last
+row, which is still below `muFollow1`, so the band keeps scrolling and the next line answers
+correctly. `muPhSegTk`/`muPhSegRw`/`muPhSegU` and the playhead block in `muSegOpen` are gone (5
+bytes of ZP freed).
+
+**Lesson.** A producer that runs **ahead** of its consumer must not publish the consumer's state as
+a side effect: the walk draws below the cursor, so anything it records "for the playhead" is by
+construction about a row the music has not reached. Derive the consumer's answer from what was
+actually emitted (a per-line record), never from the producer's current position.
+
+---
 ## Bug #192 — a `CALL`/`DEF` of phrases **16–23** was drawn as another command, because `muLnDec` never tested the wide form 🔴 ✅ FIXED (2026-11-01)
 
 **Symptoms.** A tune that uses the 16–23 phrase form had its `CALL 16+n` drawn as a **sound

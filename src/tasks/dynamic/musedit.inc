@@ -8,6 +8,217 @@
 //  counters, the drain counter) lives in the code image, which the loader copies
 //  per instance, so it is per-instance RAM.
 
+// --- zero page: the state the code touches most, out of the image ---
+//  A task keeps $02-$EF across a switch (the scheduler DMAs the region the
+//  header declares), so the scalars and arrays the walk, the draw and the key
+//  loop touch hardest live here instead of in the code image -- which is pool
+//  pages -- and every reference to one is a byte shorter (zp,X not abs,X).
+//  $02-$0A stays clear: that is sid.lib's scratch, used by the parent's hush and
+//  declared by the music child in its own SPAWN arguments.
+//  Only zero-initialised state may live here: the boot path zeroes the per-slot
+//  shadow, so a variable that starts at a value has to stay in the image.
+//  Address-taken labels stay in the image too -- a pointer to a ZP byte is not
+//  relocatable -- as does anything the music child reads, because zero page is
+//  per SLOT and a thread child would see its own copy, not the parent's.
+.label muScrPg      = MU_ZP_BASE+0  // the page a scratch walk is on
+.label muScrV       = MU_ZP_BASE+1  // muWinFill/muWinFlush: the voice, across a call
+.label muGapUp      = MU_ZP_BASE+2  // muGapMove: 1 = the tail moves up
+.label muScrN       = MU_ZP_BASE+3  // ...the image's page count
+.label muScrSh      = MU_ZP_BASE+4  // ...the run's start inside the page
+.label muDstLo      = MU_ZP_BASE+5  // ...and where it goes, as an image offset
+.label muDstHi      = MU_ZP_BASE+6
+.label muBarC       = MU_ZP_BASE+7  // the column the bar painter is on
+.label muTid        = MU_ZP_BASE+8  // this task's id, for the display-owner test
+.label muBarHov     = MU_ZP_BASE+9  // the item under the pointer, 0 = none
+.label muBarAct     = MU_ZP_BASE+10  // the item doing something now, 0 = none
+.label muNameLen    = MU_ZP_BASE+11
+.label muNameIdx    = MU_ZP_BASE+12
+.label muPRow       = MU_ZP_BASE+13
+.label muPCell      = MU_ZP_BASE+14
+.label muPCol       = MU_ZP_BASE+15
+.label muNumDig     = MU_ZP_BASE+16
+.label muNumPow     = MU_ZP_BASE+17
+.label muNumSquash  = MU_ZP_BASE+18
+.label muTmpL       = MU_ZP_BASE+19
+.label muTmpH       = MU_ZP_BASE+20
+.label muHeadRowCol = MU_ZP_BASE+21  // the head's row number, for the row-only update
+.label muHeadEnd    = MU_ZP_BASE+22  // ...and the column just past its last digit
+.label muHeadTem    = MU_ZP_BASE+23  // the tempo the head's TEM field is showing
+.label muNeedPage   = MU_ZP_BASE+24
+.label muClrRow     = MU_ZP_BASE+25
+.label muTempo      = MU_ZP_BASE+26  // the tempo in force at the first note
+.label muDotNat     = MU_ZP_BASE+27  // 1 = the note is a white key
+.label muDotS       = MU_ZP_BASE+28  // the ring slot being read
+.label muDotMask    = MU_ZP_BASE+29  // the enable mask the dots last asked for
+.label muDotV       = MU_ZP_BASE+30
+.label muDotOpt     = MU_ZP_BASE+31
+.label muDotSem     = MU_ZP_BASE+32
+.label muDurByte    = MU_ZP_BASE+33
+.label muJifCls     = MU_ZP_BASE+34
+.label muJifBase    = MU_ZP_BASE+35
+.label muUnIdx      = MU_ZP_BASE+36
+.label muScanV      = MU_ZP_BASE+37
+.label muStatT      = MU_ZP_BASE+38  // displayed frames left before the head returns
+.label muStatF      = MU_ZP_BASE+39  // frameCount at the last counted frame
+.label muAudOn      = MU_ZP_BASE+40  // 1 while our own note is sounding on voice 1
+.label muHdOn       = MU_ZP_BASE+41  // 1 while the hover dot is on the keyboard
+.label muHdOld      = MU_ZP_BASE+42  // the key it is on, and the voice it is that voice's
+.label muHdOldV     = MU_ZP_BASE+43
+.label muNoteLin    = MU_ZP_BASE+44  // the pitch being entered: set by both writers
+.label muHdV        = MU_ZP_BASE+45  // the voice being placed
+.label muAudLo      = MU_ZP_BASE+46  // its SID frequency, low and high
+.label muAudHi      = MU_ZP_BASE+47
+.label muGdClip     = MU_ZP_BASE+48  // 1 while only MU_GDLo..MU_GDHi (rows) is drawn
+.label muGdFrom     = MU_ZP_BASE+49  // the band being repainted, in screen rows
+.label muGdTo       = MU_ZP_BASE+50  //   (the end exclusive)
+.label muGdHi       = MU_ZP_BASE+51  // 2 bytes  (the end exclusive)
+.label muFindId     = MU_ZP_BASE+53  // the mnemonic wanted
+.label muFindVal    = MU_ZP_BASE+54  // ...and its operand
+.label muFindAny    = MU_ZP_BASE+55  // 1 = any row, 0 = only one past MU_FINDAFTER
+.label muFindAfter  = MU_ZP_BASE+56  // 2 bytes  the row to pass
+.label muCmdVal     = MU_ZP_BASE+58  // the operand of the command under the cursor
+.label muCmdRow     = MU_ZP_BASE+59  // 2 bytes  ...and the row its line belongs to
+.label muObjId      = MU_ZP_BASE+61  // the command being authored: mnemonic id 1..9
+.label muObjVal     = MU_ZP_BASE+62  // ...its operand
+.label muObjMax     = MU_ZP_BASE+63  // ...and the largest operand it takes
+.label muObjKind    = MU_ZP_BASE+64  // 0 = a pair to add, 1 = the pair at MU_OBJLO/HI
+.label muObjPhase   = MU_ZP_BASE+65  // 0 = picking the mnemonic, 1 = typing the operand
+.label muObjFresh   = MU_ZP_BASE+66  // 0 = the next digit starts the operand afresh
+.label muObjMatch   = MU_ZP_BASE+67  // 1 = a scan matches the operand as well as the id
+.label muObjLo      = MU_ZP_BASE+68  // the pair being found, replaced or added
+.label muObjHi      = MU_ZP_BASE+69
+.label muObjOptB    = MU_ZP_BASE+70
+.label muLinkW      = MU_ZP_BASE+71  // 1 while a search has walked the producer
+.label muWinTop     = MU_ZP_BASE+72  // 1 while the band's top line is the tune's first
+.label muRevText    = MU_ZP_BASE+73  // 1 while muPutC draws reversed (command lines)
+.label muGrpRow     = MU_ZP_BASE+74  // 2 bytes  the row the open group belongs to
+.label muGrpSt      = MU_ZP_BASE+76  // 1 = a group is open, 0 = the next line opens one
+.label muLnVLo      = MU_ZP_BASE+77  // 2 bytes  the value muLnDec rebuilt for the line being drawn
+.label muLnVHi      = MU_ZP_BASE+79
+.label muDecLo      = MU_ZP_BASE+80  // muDec16's operand and its running remainder
+.label muDecHi      = MU_ZP_BASE+81
+.label muDecDig     = MU_ZP_BASE+82  // the digit muDec16 is building
+.label muDecIdx     = MU_ZP_BASE+83  // which decimal weight, or which digit of
+.label muDecAny     = MU_ZP_BASE+84  //   muPutC clobbers X; 1 once a digit is printed
+.label muLogN       = MU_ZP_BASE+85  // 6 bytes  how many that voice and class has logged
+.label muLogSnd     = MU_ZP_BASE+91  // the row's sound lines: the structural ones follow
+.label muLogLns     = MU_ZP_BASE+92  // the sound lines plus the structural, command lines
+.label muLogIx      = MU_ZP_BASE+93  // the command line being drawn
+.label muLnDraw     = MU_ZP_BASE+94  // the line is inside the band being repainted
+.label muLnV        = MU_ZP_BASE+95  // the voice a note line is drawing
+.label muNoteOut    = MU_ZP_BASE+96  // 1 = muStep returned a note, 0 = it halted a voice
+.label muTmp        = MU_ZP_BASE+97
+.label muHRow       = MU_ZP_BASE+98
+.label muXl         = MU_ZP_BASE+99
+.label muXh         = MU_ZP_BASE+100
+.label muOct        = MU_ZP_BASE+101
+.label muSem        = MU_ZP_BASE+102
+.label muHovNew     = MU_ZP_BASE+103
+.label muPrevLeft   = MU_ZP_BASE+104
+.label muRowNew     = MU_ZP_BASE+105
+.label muWinPage    = MU_ZP_BASE+106  // its page, while the seat works
+.label muVRow       = MU_ZP_BASE+107  // 3 bytes  each voice's next event row
+.label muVRowHi     = MU_ZP_BASE+110  // 3 bytes
+.label muSegUnit    = MU_ZP_BASE+113  // the segment's row unit, in jiffies
+.label muFitU       = MU_ZP_BASE+114  // muFit's answer: the unit at a tempo, and
+.label muFitBar     = MU_ZP_BASE+115  //   the rows a bar has there (with the refinement)
+.label muFitBarHi   = MU_ZP_BASE+116
+.label muFitP       = MU_ZP_BASE+117  // muRefine's inputs: the plain unit and bar
+.label muFitPb      = MU_ZP_BASE+118
+.label muGdCol      = MU_ZP_BASE+119
+.label muDurArm     = MU_ZP_BASE+120  // the length a new note is written with
+.label muDurJif     = MU_ZP_BASE+121  // ...and that length in jiffies, at the cursor's tempo
+.label muGapJ       = MU_ZP_BASE+122  // the gap a fill has to cross, in jiffies
+.label muKbdOct     = MU_ZP_BASE+123  // the octave the note keys play in
+.label muNewOpt     = MU_ZP_BASE+124  // the option byte being written
+.label muTgtLo      = MU_ZP_BASE+125  // the row the cursor is on
+.label muTgtHi      = MU_ZP_BASE+126
+.label muSekKind    = MU_ZP_BASE+127  // 0 onset, 1 inside, 2 past the end
+.label muSekLo      = MU_ZP_BASE+128  // that event's offset in the image
+.label muSekHi      = MU_ZP_BASE+129
+.label muSekDur     = MU_ZP_BASE+130  // its duration byte, and
+.label muSekOpt     = MU_ZP_BASE+131  // its option byte
+.label muN1         = MU_ZP_BASE+132  // the events a split writes before the cursor
+.label muN2         = MU_ZP_BASE+133  // ...and from the cursor on
+.label muSekTem     = MU_ZP_BASE+134  // the tempo in force at the recorded event
+.label muJ2Lo       = MU_ZP_BASE+135  // a split's second half, kept across the first run
+.label muSkV        = MU_ZP_BASE+136
+.label muValLo      = MU_ZP_BASE+137
+.label muValHi      = MU_ZP_BASE+138
+.label muLenOpt     = MU_ZP_BASE+139  // its option byte
+.label muLenTie     = MU_ZP_BASE+140  // 1: tie every event after the first
+.label muLenMode    = MU_ZP_BASE+141  // 0 count, 1 write
+.label muLenCnt     = MU_ZP_BASE+142
+.label muLpIdx      = MU_ZP_BASE+143
+.label muLpJ        = MU_ZP_BASE+144
+.label muLpDur      = MU_ZP_BASE+145
+.label muInsLo      = MU_ZP_BASE+146  // where a gap opens, as an image offset
+.label muInsHi      = MU_ZP_BASE+147
+.label muInsN       = MU_ZP_BASE+148  // how many bytes
+.label muInsV       = MU_ZP_BASE+149  // the voice whose length word grows
+.label muCountLo    = MU_ZP_BASE+150  // a byte count, 16 bits
+.label muCountHi    = MU_ZP_BASE+151
+.label muPlainU     = MU_ZP_BASE+152
+.label muUnitRef    = MU_ZP_BASE+153  // 0 plain, 1 half, 2 third, 3 one jiffy
+.label muPtrLo      = MU_ZP_BASE+154  // 3 bytes  where this voice's next event is, as a FILE OFFSET
+.label muPtrHi      = MU_ZP_BASE+157  // 3 bytes
+.label muOn         = MU_ZP_BASE+160  // 3 bytes  a HLT clears this
+.label muDep        = MU_ZP_BASE+163  // 3 bytes  the next free call-stack frame
+.label muPhDf       = MU_ZP_BASE+166  // 3 bytes  the phrase each voice is executing, +1 (0 = the stream)
+.label muPhNo       = MU_ZP_BASE+169  // what the status last named, +1 -- 0 = the top level
+.label muPhPend     = MU_ZP_BASE+170  // a body the cursor has just arrived in, to announce
+.label muPhBad      = MU_ZP_BASE+171  // the phrase an edit was refused for, +1
+.label muPhCnt      = MU_ZP_BASE+172  // 2 bytes  the CALL sites counted for it...
+.label muPhCur      = MU_ZP_BASE+174  // 2 bytes  ...and the scan's own cursor: an image offset...
+.label muPhEnd      = MU_ZP_BASE+176  // 2 bytes  ...and where the three streams end
+.label muClkLo      = MU_ZP_BASE+178  // the tick of the latest event
+.label muClkHi      = MU_ZP_BASE+179
+.label muSimT       = MU_ZP_BASE+180  // the tempo the walk is in
+.label muJifTem     = MU_ZP_BASE+181  // ...and the copy muNoteJiffies reads
+.label muUl         = MU_ZP_BASE+182
+.label muErrV       = MU_ZP_BASE+183  // the voice whose length the tempo refused...
+.label muSv         = MU_ZP_BASE+184
+.label muScmd       = MU_ZP_BASE+185
+.label muSopt       = MU_ZP_BASE+186
+.label muSph        = MU_ZP_BASE+187
+.label muAccLo      = MU_ZP_BASE+188
+.label muAccHi      = MU_ZP_BASE+189
+.label muBestLo     = MU_ZP_BASE+190
+.label muBestHi     = MU_ZP_BASE+191
+.label muTmp2       = MU_ZP_BASE+192  // 2 bytes
+.label muPlayHush   = MU_ZP_BASE+194  // the stop second-hush guard
+.label muPhCurLo    = MU_ZP_BASE+195  // 2 bytes  the row the cursor is on while playing (lo, hi)
+.label muPhWait     = MU_ZP_BASE+197  // 1 until the player publishes THIS pass's count
+//  The pointers below are `.const` rather than `.label` so that the indirect lint can
+//  prove they are zero page: it resolves a .const chain, and an unresolvable pointer
+//  is a failure there, not a warning.
+.const muLogIdP     = MU_ZP_BASE+198  // 2 bytes  pointers into the instance buffer: the row's
+.const muLogLoP     = MU_ZP_BASE+200  // 2 bytes  logged commands (muHeapPtrs fills them)
+.label MU_ZP_END    = MU_ZP_BASE+202
+.label muDirty      = MU_ZP_BASE+203  // an image byte changed since the last save
+.label muWarn       = MU_ZP_BASE+204  // Q warned once; the next Q discards
+.label muRecV       = MU_ZP_BASE+205  // ...voice...
+.label muRecOldN    = MU_ZP_BASE+206  // ...bytes it replaces...
+.label muRecNewN    = MU_ZP_BASE+207  // ...bytes it writes...
+.label muRecTot     = MU_ZP_BASE+208  // the record's total length
+.label muRecCont    = MU_ZP_BASE+209  // 1 = the next push appends to the action in flight
+.label muRecGrpStart = MU_ZP_BASE+210  // bit 7 of the loaded record's voice byte
+.label muInsJif     = MU_ZP_BASE+211  // ...which is this many jiffies...
+.label muItV        = MU_ZP_BASE+212  // ...spliced into this voice...
+.label muInsFirst   = MU_ZP_BASE+213  // ...the first splice opens the grouped action
+.label muItJ1       = MU_ZP_BASE+214  // straddle: the front jiffies before T0
+.label muInsOpt     = MU_ZP_BASE+215  // the opt the splice writes (0 rest, note in INS)
+.label muInsTie     = MU_ZP_BASE+216  // ...and whether its run ties
+.label muInsMode    = MU_ZP_BASE+217  // 0 overwrite, 1 insert (note entry pushes down)
+.label muRrHave     = MU_ZP_BASE+218  // range replace: bytes there now...
+.label muRrWant     = MU_ZP_BASE+219  // ...and bytes wanted
+.label muUcOf       = MU_ZP_BASE+220  // the stack cursor's offset inside its page
+.label muUcPg       = MU_ZP_BASE+221  // ...and its page
+.label muUcDirty    = MU_ZP_BASE+222  // the window has writes the file has not seen
+.label muUcTmp      = MU_ZP_BASE+223  // the byte muUndoGet carries across its own restore
+.assert "the zero page region fits the declared window", (MU_ZP_END - MU_ZP_BASE) <= MU_ZP_LEN ? 1 : 0, 1
+.assert "the zero page region stays below the kernel's IRQ bytes", (MU_ZP_BASE + MU_ZP_LEN) <= $f0 ? 1 : 0, 1
+
 // --- instance data: offsets into the 53-byte instance buffer ---
 //  Offsets 0-11 keep the loader's argument bytes; the name is copied out into
 //  the code image at entry, so state starts at 12.
@@ -30,7 +241,19 @@
 .const MU_LEN       = 41      // bytes in that image (load address included)
 .const MU_FLEN      = 43      // the on-disk size kReuOpen reported
 .const MU_FREC      = 45      // 5-byte file record: size lo/hi, base lo/mid/hi
-.const MU_STATE_TOP = MU_FREC+4  // the highest state byte: the zero loop starts here
+.const MU_STATE_TOP = MU_DATA_SIZE-1  // the highest state byte: the zero loop starts here
+
+// --- instance data: the row's logged commands, one block per voice and class ---
+//  These are the largest arrays the editor holds and the least often touched, so
+//  two of the three live in the instance buffer (which costs pool pages nothing)
+//  rather than in the code image, and a zero-page pointer each keeps the addressing
+//  at a byte per reference. The buffer holds 255 bytes, so the third array stays in
+//  the image -- the assert below is what keeps that honest.
+.const MU_LOGID     = 53
+.const MU_LOGLO     = MU_LOGID+16*6
+.const MU_LOGID_END = MU_LOGLO+16*6
+.assert "the logged-command arrays fit the instance buffer", MU_LOGID_END <= MU_DATA_SIZE ? 1 : 0, 1
+.assert "the instance buffer is one byte", MU_DATA_SIZE <= 255 ? 1 : 0, 1
 
 // --- screen layout ---
 .const MU_GRID_TOP  = 2
@@ -200,6 +423,7 @@ muSidFree:
     jsr muMsgSet
     jmp muPtrRefuse             //   cannot read the image at all
 muWinTaken:
+    jsr muHeapPtrs              // the pointers into the instance buffer's arrays
     jsr muLoad                  // the tune, or a refusal when it cannot be had
     bcc muMainGo
     jmp muPtrRefuse             // muLoad left the reason in MU_STR
@@ -1181,70 +1405,104 @@ muUnitNow:
     stx muPlainBar
     lda #0
     sta muUnitRef
-muUnitApply:
+    jmp muUnitApply             // the opening segment's unit and bar, which the walk
+                                //   seeds from: a tempo with no refinement still
+                                //   needs them set
+
+// --- muRefine -- A = plain unit, X = plain rows a bar -> MU_FITU, MU_FITBAR ---
+//  The armed refinement, applied where it divides: a half needs an even unit, a
+//  third a multiple of three, and one jiffy a row always fits, so its bar is
+//  plainU * plainBar rows. A tempo whose plain unit does not divide keeps plain,
+//  which is what a mid-tune change can do to a refinement chosen elsewhere.
+muRefine:
+    sta muFitP
+    stx muFitPb
+    lda #0
+    sta muFitBarHi
     lda muUnitRef
-    beq muUaPlain
+    beq mrPlain
     cmp #1
-    beq muUaHalf
+    beq mrHalf
     cmp #2
-    beq muUaThird
-    //  --- one jiffy per row: the bar is plainU * plainBar rows ---
+    beq mrThird
+    //  --- one jiffy per row ---
     lda #1
-    sta muUnitVal
+    sta muFitU
     lda #0
-    sta muUnitBar
-    sta muUnitBarHi
-    ldx muPlainBar
-    beq muUaRts                 // a bar of no rows never happens
-muUaMulLp:
-    lda muUnitBar
+    sta muFitBar
+    ldx muFitPb
+    beq mrRts                   // a bar of no rows never happens
+mrMulLp:
+    lda muFitBar
     clc
-    adc muPlainU
-    sta muUnitBar
-    bcc muUaMulN
-    inc muUnitBarHi
-muUaMulN:
+    adc muFitP
+    sta muFitBar
+    bcc mrMulN
+    inc muFitBarHi
+mrMulN:
     dex
-    bne muUaMulLp
-muUaRts:
+    bne mrMulLp
+mrRts:
     rts
-muUaPlain:
-    lda muPlainU
-    sta muUnitVal
-    lda muPlainBar
-    sta muUnitBar
-    lda #0
-    sta muUnitBarHi
+mrPlain:
+    lda muFitP
+    sta muFitU
+    lda muFitPb
+    sta muFitBar
     rts
-muUaHalf:
-    lda muPlainU
+mrHalf:
+    lda muFitP
     lsr
-    sta muUnitVal
-    lda muPlainBar
+    bcs mrPlain                 // an odd unit has no half
+    sta muFitU
+    lda muFitPb
     asl
-    sta muUnitBar
+    sta muFitBar
     lda #0
     rol
-    sta muUnitBarHi
+    sta muFitBarHi
     rts
-muUaThird:
-    lda muPlainU
+mrThird:
+    lda muFitP
     ldx #0
-muUaT3Lp:
+mrT3Lp:
     cmp #3
-    bcc muUaT3D
+    bcc mrT3D
     sec
     sbc #3
     inx
-    jmp muUaT3Lp
-muUaT3D:
-    stx muUnitVal
-    lda muPlainBar
+    jmp mrT3Lp
+mrT3D:
+    bne mrPlain                 // a remainder: no third at this tempo
+    stx muFitU
+    lda muFitPb
     asl                         // the bar is plainBar * 3, and plainBar is a power
     clc                         //   of two, so the doubled value cannot carry
-    adc muPlainBar
-    sta muUnitBar
+    adc muFitPb
+    sta muFitBar
     lda #0
+    sta muFitBarHi
+    rts
+
+// --- muFit -- A = a tempo -> MU_FITU, MU_FITBAR: the grid as it counts there ---
+//  The grid's own MU_UNITVAL/MU_UNITBAR are left alone, because the walk carries
+//  one segment and this answers for a tempo it met somewhere else in the tune.
+//  Clobbers MU_JIFTEM and muNoteJiffies' scratch.
+muFit:
+    sta muJifTem
+    jsr muUnit                 // A = the plain unit, X = the rows a bar has
+    jmp muRefine
+
+// --- muUnitApply -- the opening segment's unit and bar, from MU_PLAINU/PLAINBAR ---
+muUnitApply:
+    lda muPlainU
+    ldx muPlainBar
+    jsr muRefine
+    lda muFitU
+    sta muUnitVal
+    lda muFitBar
+    sta muUnitBar
+    lda muFitBarHi
     sta muUnitBarHi
     rts
 
@@ -1552,6 +1810,118 @@ muSiPtrLp:
     inx
     jmp muSiPtrLp
 muSiPtrRts:
+    //  --- the tempo timeline starts at tick 0 with the opening tempo's segment ---
+    lda muUnitVal               // the unit the grid opens with, from MU_TEMPO
+    sta muSegUnit
+    lda muUnitBar
+    sta muSegBar
+    lda muUnitBarHi
+    sta muSegBar+1
+    lda #0
+    sta muSegTick
+    sta muSegTick+1
+    sta muSegRow
+    sta muSegRow+1
+    sta muBarStart
+    sta muBarStart+1
+    lda #1
+    sta muBarNo
+    lda #0
+    sta muBarNo+1
+    rts
+
+// --- muSegRows -- MU_VALLO/HI = jiffies -> MU_SPAN = rows, MU_VALLO = remainder ---
+//  Repeated subtraction, and the dividend is one event's length at most, so the
+//  loop turns once per row the event covers rather than once per segment.
+muSegRows:
+    lda #0
+    sta muSpan
+    sta muSpan+1
+msrLp:
+    lda muValHi
+    bne msrSub
+    lda muValLo
+    cmp muSegUnit
+    bcc msrDone
+msrSub:
+    lda muValLo
+    sec
+    sbc muSegUnit
+    sta muValLo
+    bcs msrInv
+    dec muValHi
+msrInv:
+    inc muSpan
+    bne msrLp
+    inc muSpan+1
+    jmp msrLp
+msrDone:
+    rts
+
+// --- muSegOpen -- a tempo change opens the next segment of the row map ---
+//  In: A = the new tempo, MU_CLKLO/HI = the tick it takes effect at, MU_SV = the
+//      voice that executed it. That voice's own row is the row of that tick: a
+//      command takes no time, so the voice's next event still starts there, which
+//      is what makes the new segment begin exactly where the old one ended.
+//  Every live voice is re-seeded: its row so far was accumulated under the old
+//  unit, and its next event may be after the change, so the row of that tick has
+//  to be asked of the new segment.
+muSegOpen:
+    jsr muFit                   // A = the tempo -> MU_FITU, MU_FITBAR
+    lda muFitU
+    sta muSegUnit
+    lda muFitBar
+    sta muSegBar
+    lda muFitBarHi
+    sta muSegBar+1
+    lda muClkLo
+    sta muSegTick
+    lda muClkHi
+    sta muSegTick+1
+    ldx muSv
+    lda muVRow,x                // the row this tick is drawn on
+    sta muSegRow
+    lda muVRowHi,x
+    sta muSegRow+1
+    lda muSegRow                // a change ON a bar line has already closed one, so
+    cmp muBarStart              //   the count rises only when it lands inside a bar
+    bne msoCut
+    lda muSegRow+1
+    cmp muBarStart+1
+    beq msoKeep
+msoCut:
+    inc muBarNo
+    bne msoKeep
+    inc muBarNo+1
+msoKeep:
+    lda muSegRow                // the next bar starts here, so a cut one is short
+    sta muBarStart
+    lda muSegRow+1
+    sta muBarStart+1
+    ldx #2
+msoLp:
+    lda muOn,x
+    beq msoNext
+    lda muTkLo,x
+    sec
+    sbc muSegTick
+    sta muValLo
+    lda muTkHi,x
+    sbc muSegTick+1
+    sta muValHi
+    jsr muSegRows               // the rows from the change to that event
+    lda muSegRow
+    clc
+    adc muSpan
+    sta muVRow,x
+    lda muSegRow+1
+    adc muSpan+1
+    sta muVRowHi,x
+    lda muValLo
+    sta muVRem,x
+msoNext:
+    dex
+    bpl msoLp
     rts
 
 // --- muSimNext -- the voice whose next event is earliest ---
@@ -1785,6 +2155,11 @@ muCmD15:
 
 muCmTem:
     lda muSopt
+    cmp muSimT                  // the same tempo opens no segment and re-seeds
+    beq muCmTemSame             //   nothing, which a tune that sets TEM at the top
+    jsr muSegOpen               //   of every pass does once a pass
+muCmTemSame:
+    lda muSopt
     sta muSimT
     jmp muStepRun
 muCmUtl:
@@ -1998,13 +2373,36 @@ mlbHave:
     adc muLogBase,x             // slot = this voice's block + how many it has
     tay
     lda muTmpH
-    sta muLogId,y
+    sta (muLogIdP),y
     lda muLnVLo
-    sta muLogLo,y
+    sta (muLogLoP),y
     lda muLnVHi
     sta muLogHi,y
     inc muLogN,x
 muLlRts:
+    rts
+
+// --- muHeapPtrs -- the pointers into the instance buffer's logged-command arrays ---
+//  The three arrays are the largest thing the editor kept in its code image (108
+//  bytes, which is pool pages); they belong to the instance buffer instead, which
+//  costs no pool pages at all. One zero-page pointer per array keeps every access a
+//  single zp,Y instruction -- a byte shorter than the abs,Y it replaced. dataPtr is
+//  the task's own and does not move, so this runs once, at entry.
+muHeapPtrs:
+    lda dataPtr
+    clc
+    adc #MU_LOGID
+    sta muLogIdP
+    lda dataPtr+1
+    adc #0
+    sta muLogIdP+1
+    lda dataPtr
+    clc
+    adc #MU_LOGLO
+    sta muLogLoP
+    lda dataPtr+1
+    adc #0
+    sta muLogLoP+1
     rts
 
 // --- muLnDec -- A = the mnemonic id for MU_SCMD/MU_SOPT, 0 = the grid hides it ---
@@ -2306,10 +2704,10 @@ moTop3:                     // A = the id; value = the option's top three bits
 muDrawAll:
     lda #MU_C_TEXT
     jsr kSetTextColor
-    jsr muDrawHead
+    jsr muDrawGrid             // the walk fills the line table the head reads its
+    jsr muDrawHead             //   tempo and its bar from, so the grid goes first
     jsr muDrawLanes
     jsr muDrawMode
-    jsr muDrawGrid
     jsr muDrawPiano
     jsr muBarPaint
     jsr muCursorShow
@@ -2318,12 +2716,15 @@ muDrawAll:
 // --- muDrawHead -- the name, the tempo, the bar and the cursor's row ---
 //  BAR is the bar the cursor is in and R its row, both counted in the unit the
 //  grid is drawn in, which is what makes a scrolled window's position legible.
+//  The tempo is the one in force at the cursor's row, so a tune that changes tempo
+//  says so as the cursor crosses the change.
 muDrawHead:
     jsr muClearRow0
     jsr muNameAt
     lda #M_TEM2
     jsr muMsg
-    lda muTempo
+    jsr muCurTem               // the tempo in force at the cursor's own row: a tune
+    sta muHeadTem               //   that changes tempo says so here
     ldx #0
     jsr muNum16
     ldy #MU_CURCOL              // the tail -- BAR, the bar, R, the row -- starts here,
@@ -2331,8 +2732,7 @@ muDrawHead:
     sta muHeadBarCol            //   from here with muHeadTail
     lda #M_BAR2
     jsr muMsg
-    jsr muCursorAbs             // A/X = the cursor's absolute row
-    jsr muBarOf                 // A/X = that row's bar, 1-based
+    jsr muBarOf                 // A/X = the cursor's bar, 1-based
     sta muHeadBar
     stx muHeadBar+1
     jsr muNum16
@@ -2354,9 +2754,16 @@ muDrawHead:
 //  already the right characters in the right cells, so clearing the row and
 //  printing them again is work with nothing to show for it. The tail is
 //  rewritten in place, and whatever a shorter number gave up is blanked.
+//  The tempo is the one exception: it belongs to the row, so a cursor that has
+//  crossed a change brings the whole row back.
 muHeadTail:
     lda muStatT                 // a status owns row 0 until it retires: it is not
     bne muDrawHead              //   ours to write into, so the whole row comes back
+    jsr muCurTem
+    cmp muHeadTem
+    beq mhtTail
+    jmp muDrawHead
+mhtTail:
     ldy #MU_CURROW
     lda #0
     sta (dataPtr),y
@@ -2365,8 +2772,7 @@ muHeadTail:
     sta (dataPtr),y
     lda #M_BAR2
     jsr muMsg
-    jsr muCursorAbs
-    jsr muBarOf
+    jsr muBarOf                 // A/X = the cursor's bar, from its line
     sta muHeadBar
     stx muHeadBar+1
     jsr muNum16
@@ -2415,7 +2821,9 @@ muDrawHeadRow:
 //  rewritten only when its number really changes. Both fields are rewritten
 //  together when it does: the row field's column follows the bar's width.
 muPhHead:
-    jsr muCursorAbs
+    jsr muCurTem
+    cmp muHeadTem
+    bne muPhFull                // the tempo changed: the whole row comes back
     jsr muBarOf
     cmp muHeadBar
     bne muPhBar
@@ -2423,6 +2831,8 @@ muPhHead:
     beq muDrawHeadRow           // the bar has not moved: only the row number
 muPhBar:
     jmp muHeadTail
+muPhFull:
+    jmp muDrawHead
 
 // --- muCursorAbs -- A/X = the cursor's absolute timeline row ---
 //  The screen row names a LINE, and a line may be a command's: MU_LNTB says which
@@ -2441,24 +2851,53 @@ muCursorAbs:
     ldx muTmpH
     rts
 
-// --- muBarOf -- A/X = row; out A/X = the bar it falls in, 1-based ---
-muBarOf:
-    sta kArg
-    stx kArg+1
-    lda muUnitBar
-    sta kArg+2
-    lda muUnitBarHi
-    sta kArg+3
-    jsr kDiv16
-    lda kArg+4                  // the quotient (kResult is kArg+4..+7 in a task)
+// --- muCurLine -- Y = the cursor's line; C=1 when that line holds no row ---
+//  A line below the tune's last one still has a screen row and its table entry is
+//  $ffff, so everything that reads a line's record asks this first.
+muCurLine:
+    ldy #MU_ROW
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    tay
+    lda muLnTbHi,y
+    cmp #$ff
+    beq mclNone
     clc
-    adc #1
-    sta muTmpL
-    lda kArg+5
-    adc #0
-    sta muTmpH
-    lda muTmpL
-    ldx muTmpH
+    rts
+mclNone:
+    sec
+    rts
+
+// --- muBarOf -- A/X = the cursor's bar, 1-based ---
+//  The bar is the line's, read from the walk: a tempo change cuts a bar short, so
+//  the count cannot be divided out of the row index any more.
+muBarOf:
+    jsr muCurLine
+    bcs mboNone
+    lda muLnBarLo,y
+    ldx muLnBarHi,y
+    rts
+mboNone:
+    lda #1
+    ldx #0
+    rts
+
+// --- muCurTem -- A = the tempo in force at the cursor's row ---
+muCurTem:
+    jsr muCurLine
+    bcs mctOpen
+    lda muLnTem,y
+    rts
+mctOpen:
+    lda muTempo                 // below the tune's last line: the opening tempo
+    rts
+
+// --- muCurBar -- A = the rows a bar has at the cursor's row ---
+muCurBar:
+    jsr muCurTem
+    jsr muFit
+    lda muFitBar
     rts
 
 muDrawLanes:
@@ -2572,12 +3011,12 @@ mfcBlock:                       //   below MU_MN_FC, so they are never logged as
     sta muTmpH                  // ...and its depth in the block
 mfcSlot:
     ldy muTmp2
-    lda muLogId,y
+    lda (muLogIdP),y
     cmp muFindId
     bne mfcStep
     lda muLogHi,y
     bne mfcStep                 // a 16-bit operand is never a phrase number
-    lda muLogLo,y
+    lda (muLogLoP),y
     cmp muFindVal
     beq mfcMaybe
 mfcStep:
@@ -2957,9 +3396,9 @@ mchBlock:
     clc
     adc muLogBase,x
     tay
-    lda muLogLo,y
+    lda (muLogLoP),y
     sta muCmdVal
-    lda muLogId,y
+    lda (muLogIdP),y
     clc
     rts
 mchNone:
@@ -3074,9 +3513,10 @@ mwtRts:
     rts
 
 // --- muDrawGrid -- fill the band at MU_TOP from the producer's lines ---
-//  The row unit is fixed for the whole view, so rows are counted in jiffies
-//  whatever a later TEM does; a length that does not divide the unit lands on the
-//  row it falls in, marked. The band is filled from the TOP line down, each line
+//  A row is the finest length the tempo in force can express, and a bar is one
+//  whole note counted in those rows, so the grid follows a mid-tune TEM: the walk
+//  opens a segment wherever the tempo changes and each line records the tempo and
+//  the bar it falls in. The band is filled from the TOP line down, each line
 //  generated in order -- the walk runs once, and the lines it does not reach (a
 //  tune shorter than the band) stay blank.
 //  With MU_GDCLIP set the caller is repainting a band of screen rows: the walk and
@@ -3103,6 +3543,11 @@ muDgTbLp:
     sta muLnPh,x
     sta muLnPh+MU_GRID_ROWS,x
     sta muLnPh+2*MU_GRID_ROWS,x
+    sta muLnBarLo,x
+    sta muLnBarHi,x
+    sta muLnTem,x
+    sta muLnTick,x
+    sta muLnTickHi,x
     lda #$ff
     dex
     bpl muDgTbLp
@@ -3191,7 +3636,9 @@ muRrClrLp:
     cmp muGdTo
     bcc muRrClrLp
     jsr muDrawGrid
-    jmp muCursorShow            // the cleared band may have taken the glyph with it
+    jsr muDrawHead              // the length moved, so the bar and the tempo under
+    jmp muCursorShow            //   the cursor may have: the head reads both from
+                                //   the walk. Its rts balances the jsr that entered
 
 // --- muGridClear -- blank the eighteen grid rows ---
 muGridClear:
@@ -3207,7 +3654,9 @@ muGdClLp:
 
 // --- muGdSpan -- rows the event just consumed covers, into MU_SPAN ---
 //  The leftover jiffies ride into the next event of the same voice, so a run of
-//  short notes is spread over rows without ever losing a fraction.
+//  short notes is spread over rows without ever losing a fraction. The divisor is
+//  the segment's unit: a tempo change re-seeds every voice's remainder, so the
+//  carry never crosses one.
 muGdSpan:
     ldx muSv
     lda muJifOut
@@ -3223,7 +3672,7 @@ muGdSpan:
 muGdSdLp:
     lda muValLo
     sec
-    sbc muUnitVal
+    sbc muSegUnit
     tay
     lda muValHi
     sbc #0
@@ -3981,7 +4430,7 @@ muKeyNotIns:
     bne muKeyNotInsBar
     jsr muPlaying
     bcs muKnibIdle
-    lda muUnitBar               // the rows a bar has at the grid's tempo
+    jsr muCurBar                // the rows a bar has at the cursor's tempo
     jsr muInsertTime
 muKnibIdle:
     jmp muKeyIdle
@@ -4506,12 +4955,21 @@ muNcRts:
     rts
 
 
-// --- muRowsToJif -- A = rows x the row unit, in jiffies ---
+// --- muRowsToJif -- A = rows x the row unit at the cursor, in jiffies ---
 //  In: A/X = rows. Out: A = the jiffies, also left in muValLo; C=1 the value
 //  does not fit one byte, so no duration can express it.
+//  The unit is the one the grid draws the cursor's row with, which a mid-tune TEM
+//  makes local to that row. MU_JIFTEM is handed back because muFit borrows it and
+//  a caller may be holding a tempo of its own for muNoteJiffies.
 muRowsToJif:
     sta muCountLo
     stx muCountHi
+    lda muJifTem
+    pha
+    jsr muCurTem
+    jsr muFit
+    pla
+    sta muJifTem
     lda #0
     sta muValLo
 muRjLp:
@@ -4520,7 +4978,7 @@ muRjLp:
     beq muRjDone
     lda muValLo
     clc
-    adc muUnitVal
+    adc muFitU
     bcs muRjBig
     sta muValLo
     lda muCountLo
@@ -7760,62 +8218,104 @@ muPtRts:
     rts
 
 // --- muPlayhead -- the playhead is the clock ---
-//  The tune plays from its first row, and the player consumes one row per note
-//  unit of ticks, so the row under the playhead is the ticks since the start
-//  divided by that unit. Nothing is looked up and nothing can jump: the cursor
-//  walks down one row at a time, and the window follows it a line at a time.
+//  The player publishes the jiffies it has played in this pass, and a grid row is
+//  a function of that tick, so the row under the playhead is read from the player's
+//  own clock through the same map the walk draws with. Nothing is looked up and
+//  nothing can jump: the cursor walks down one row at a time, and the window
+//  follows it a line at a time.
 muPlayhead:
-    jsr muPhSync                // the row is the player's own song tick / the unit
+    jsr muPhSync                // the row is the player's own song tick, mapped
     jsr muPhFollow
     jmp muPhCursor
 
 // --- muPhSync -- the playhead row, read from the player's own clock ---
-//  The player publishes a 16-bit count of the jiffies it has played in this pass, and
-//  a grid row is a fixed number of jiffies (muUnitVal), so the row is that count,
-//  less the jiffy the player is already counting as it fetches row 0, divided by the
-//  unit -- the same division the walk makes when it draws a span.
-//  Nothing is predicted and nothing is cached, so there is no rate to drift and no
-//  window to fall outside of, and a loop restarts the count with the music.
+//  The map the walk draws with is a segment per tempo, row(tick) = MU_PHSEGRW +
+//  (tick - MU_PHSEGTK) / MU_PHSEGU, and the walk hands the playhead the segment it
+//  is standing in (muSegOpen), so a tune that changes tempo is followed at the
+//  segment's own rate instead of at one rate for the whole tune. The map is
+//  continuous at every boundary, so a segment that is one redraw behind still
+//  gives the row of the boundary itself, and the next walk replaces it.
+//  The count is one jiffy ahead of the row being played: the player starts every
+//  voice's counter at 1 and increments before it processes.
+//  Nothing is predicted and nothing is cached beyond that segment, so there is no
+//  rate to drift and no window to fall outside of, and a loop restarts the count
+//  with the music.
 //  Clobbers A, X, Y, kArg and kResult (kArg+4..).
+// --- muPhSync -- the playhead row, found by the tick the line was walked at ---
+//  The player publishes a 16-bit count of the jiffies it has played in this pass,
+//  and every drawn line records the tick its row was walked at (MU_LNTICK), so the
+//  playhead's row is that line's row: the deepest line whose tick the music has
+//  reached, walked back to the first line that carries that tick. Nothing is divided
+//  and no segment is guessed, which is what makes a tune that changes tempo -- or
+//  that changes it more than once, or inside a phrase body -- follow exactly what the
+//  walk drew, because it IS what the walk drew.
+//  The walk back matters where a row is shorter than a note: a note that lasts four
+//  rows gives all four rows the same onset tick, and the cursor must stand on the row
+//  the note starts on, not on the last row it is held for.
+//  A tick above every line clamps to the band's last row, which is still below the
+//  follow's target, so the band scrolls and the next line answers properly.
+//  The count is one jiffy ahead of the row being played: the player starts every
+//  voice's counter at 1 and increments before it processes.
+//  Clobbers A, X, Y, kArg.
 muPhSync:
-    lda muTempo                 // the row unit in force NOW, not whatever a previous
-    sta muJifTem                //   draw or readout left behind: the divisor and the
-    jsr muUnit                  //   grid must agree or the row rate is wrong
-    sta muPlainU                // muUnit gives the PLAIN unit, so the refinement the
-    stx muPlainBar              //   grid was drawn with has to be applied on top of it
-    jsr muUnitApply             //   -- without that a refined grid and a plain divisor
-    lda muUnitVal               //   run the cursor at a fraction of the row rate
-    bne muPsHaveUnit
-    lda #1                      // a tempo with no unit: one row per jiffy
-    sta muUnitVal
-muPsHaveUnit:
-    sta kArg+2
-    lda #0
-    sta kArg+3
     lda MU_POS_BLOCK+6          // SID_POS_TICK = MU_POS_BLOCK + 6: the block is
-    sec                         //   contiguous, so the low byte is +6, the high +7 and
-    sbc #1                      //   the kernel's tickCount follows at +8.
-    sta kArg                    // The player starts every voice's counter at 1 and
-    lda MU_POS_BLOCK+7          //   increments the count before it processes, so row 0
-    sbc #0                      //   is fetched with the count already at 1: the count is
-    cmp #$ff                    //   one boundary ahead of the row being played, and
-    bne muPsPub                 //   that jiffy comes off before the division
-    lda #0                      // a count of zero wraps: no jiffy has played yet
+    sec                         //   contiguous, so the low byte is +6 and the high +7
+    sbc #1
+    sta kArg
+    lda MU_POS_BLOCK+7
+    sbc #0
+    cmp #$ff                    // a count of zero wraps: no jiffy has played yet
+    bne muPsPub
+    lda #0
     sta kArg
 muPsPub:
     sta kArg+1
     lda muPhWait                // the count belongs to ONE pass, and a stop leaves it
-    beq muPsDiv                 //   where the music stopped: until the player publishes
+    beq muPsLook                //   where the music stopped: until the player publishes
     lda MU_POS_BLOCK+6          //   a different value the view must not chase it. The
     cmp muPhOld                 //   published byte, against the one recorded at the
     beq muPsRts                 //   start -- the adjusted low byte below is a different
     lda #0                      //   number and would never match
     sta muPhWait
-muPsDiv:
-    jsr kDiv16
-    lda kArg+4                  // the quotient is the row
+muPsLook:
+    ldx #MU_GRID_ROWS-1
+muPsLp:
+    lda muLnTbHi,x              // a line past the tune's end holds no row
+    cmp #$ff
+    beq muPsNext
+    lda kArg+1                  // has the music reached this line's tick?
+    cmp muLnTick+MU_GRID_ROWS,x
+    bcc muPsNext
+    bne muPsTake
+    lda kArg
+    cmp muLnTick,x
+    bcc muPsNext
+muPsTake:
+    cpx #0                      // a note that lasts several rows gives every one of
+    beq muPsSet                 //   those rows the same onset tick, so the deepest
+    lda muLnTickHi-1,x          //   qualifying line is the note's LAST row: walk back
+    cmp muLnTickHi,x            //   up to the row the note actually starts on
+    bne muPsSet
+    lda muLnTick-1,x
+    cmp muLnTick,x
+    bne muPsSet
+    lda muLnTbHi-1,x            // a line past the tune's end holds no row
+    cmp #$ff
+    beq muPsSet
+    dex
+    jmp muPsTake
+muPsSet:
+    lda muLnTbLo,x
     sta muPhCurLo
-    lda kArg+5
+    lda muLnTbHi,x
+    sta muPhCurLo+1
+    rts
+muPsNext:
+    dex
+    bpl muPsLp
+    lda muLnTbLo                // before the band's first line: the top row
+    sta muPhCurLo
+    lda muLnTbHi
     sta muPhCurLo+1
 muPsRts:
     rts
@@ -7964,11 +8464,50 @@ muLnNone:
 //  edit target that lands inside the body. Reading it here rather than at the group's
 //  start is what makes such a row read as the body, and an END's own row as the
 //  stream it returns to -- which is the answer an insert at that row needs.
+// --- muGrpBar -- the bar the row being opened falls in ---
+//  A bar is one whole note counted in the segment's own rows, so its size is the
+//  walk's and it changes with the tempo; stepping the count here, once per row, is
+//  what replaces dividing a row by one bar size for the whole tune.
+muGrpBar:
+    lda muSegBar
+    ora muSegBar+1
+    beq mgbRts                  // a bar of no rows never happens
+    lda muGrpRow
+    sec
+    sbc muBarStart
+    sta muValLo
+    lda muGrpRow+1
+    sbc muBarStart+1
+    sta muValHi
+    lda muValHi
+    cmp muSegBar+1
+    bcc mgbRts
+    bne mgbStep
+    lda muValLo
+    cmp muSegBar
+    bcc mgbRts
+mgbStep:
+    inc muBarNo
+    bne mgbN1
+    inc muBarNo+1
+mgbN1:
+    lda muBarStart
+    clc
+    adc muSegBar
+    sta muBarStart
+    lda muBarStart+1
+    adc muSegBar+1
+    sta muBarStart+1
+    jmp muGrpBar                // a row that jumped skips on; muGrpBar ends it
+mgbRts:
+    rts
+
 muGrpOpen:
     inc muGrpRow
     bne mgpFresh
     inc muGrpRow+1
 mgpFresh:
+    jsr muGrpBar                // the bar this row falls in, for BAR and the numbers
     lda #0
     sta muLogIx
     sta muLogN
@@ -8069,6 +8608,16 @@ muLnSpot:
     sta muLnTbHi,y
     lda muTmpL
     sta muLnKind,y
+    lda muBarNo                 // the bar this line's row falls in, and the tempo in
+    sta muLnBarLo,y             //   force on it: neither is a division of the row
+    lda muBarNo+1
+    sta muLnBarHi,y
+    lda muSimT
+    sta muLnTem,y
+    lda muClkLo                 // the tick this line's row was walked at: what the
+    sta muLnTick,y              //   playhead looks its own row up by
+    lda muClkHi
+    sta muLnTickHi,y
     lda muPhDf
     sta muLnPh,y                // the group is complete by now, so this is the phrase
     lda muPhDf+1                //   each voice is in at the END of the row -- which is
@@ -8151,10 +8700,10 @@ mlcHasCmd:
     lda #1                      // the MNEMONIC reads as a bar; the operand below
     sta muRevText               //   stays plain so the value is easy to read
     ldy muTmp2
-    lda muLogId,y
+    lda (muLogIdP),y
     jsr muMnPrint               // leaves MU_REVTEXT at 0
     ldy muTmp2                  // TAL, HLT and END take no operand
-    lda muLogId,y
+    lda (muLogIdP),y
     cmp #MU_MN_TAL
     beq mlcNext
     cmp #MU_MN_HLT
@@ -8166,12 +8715,12 @@ mlcHasCmd:
     ldy muTmp2
     lda muLogHi,y               // a byte for every command but the three wide
     bne mlcWide                 //   ones: P-W, DTN and POR
-    lda muLogLo,y               // every operand is a count, so it prints in decimal
+    lda (muLogLoP),y               // every operand is a count, so it prints in decimal
     jsr muByteDec
     jmp mlcNext
 mlcWide:
     sta muDecHi                 // the high byte is already in A
-    lda muLogLo,y
+    lda (muLogLoP),y
     sta muDecLo
     jsr muDec16
 mlcNext:
@@ -8293,27 +8842,27 @@ mlrNext:
                                 //   not points in time, so they never carry one
 
 // --- muLnNum -- the row's number in its own column, bar-relative ---
+//  The bar's first row is the walk's, not a multiple of one bar size: a tempo
+//  change starts a bar wherever it lands, so the count is a subtraction.
 muLnNum:
     lda muGrpRow
-    sta kArg
+    sec
+    sbc muBarStart
+    sta muDecLo
     lda muGrpRow+1
-    sta kArg+1
-    lda muUnitBar
-    sta kArg+2
-    lda muUnitBarHi
-    sta kArg+3
-    jsr kDiv16
+    sbc muBarStart+1
+    sta muDecHi
     lda muLnScr
     ldy #MU_CURROW
     sta (dataPtr),y
     lda #1
     ldy #MU_CURCOL
     sta (dataPtr),y
-    lda kArg+6
+    lda muDecLo
     clc
     adc #1
     sta muDecLo                 // the row within the bar, one-based
-    lda kArg+7
+    lda muDecHi
     adc #0
     sta muDecHi
     lda muDecHi                 // a bar of a refined grid can hold 100 rows or more,
@@ -8497,6 +9046,16 @@ msbShift:
     sta muLnPh+MU_GRID_ROWS,x
     lda muLnPh+2*MU_GRID_ROWS+1,x
     sta muLnPh+2*MU_GRID_ROWS,x
+    lda muLnBarLo+1,x
+    sta muLnBarLo,x
+    lda muLnBarHi+1,x
+    sta muLnBarHi,x
+    lda muLnTem+1,x
+    sta muLnTem,x
+    lda muLnTick+1,x
+    sta muLnTick,x
+    lda muLnTickHi+1,x
+    sta muLnTickHi,x
     inx
     cpx #MU_GRID_ROWS-1
     bcc msbShift
@@ -8512,6 +9071,11 @@ msbShift:
     sta muLnPh+MU_GRID_ROWS-1
     sta muLnPh+MU_GRID_ROWS+MU_GRID_ROWS-1
     sta muLnPh+2*MU_GRID_ROWS+MU_GRID_ROWS-1
+    sta muLnBarLo+MU_GRID_ROWS-1
+    sta muLnBarHi+MU_GRID_ROWS-1
+    sta muLnTem+MU_GRID_ROWS-1
+    sta muLnTick+MU_GRID_ROWS-1
+    sta muLnTickHi+MU_GRID_ROWS-1
 msbGot:
     lda muLnTbLo                // the window's top is the row now at the top
     sta muTop
@@ -8782,15 +9346,9 @@ muNewTuneEnd:
 muFsName:   .fill 12, 0         // <base>.mus in screen codes + NUL
 muSFName:   .fill 12, 0         // <base>.wrk, the working image
 muSFrec:    .fill 5, 0          // its record: size lo/hi, base lo/mid/hi
-muScrPg:    .byte 0             // the page a scratch walk is on
+//  (the state that lives in zero page is declared at the top of this file)
 muScrCnt:   .byte 0             // ...and a counter for it
-muScrV:     .byte 0             // muWinFill/muWinFlush: the voice, across a call
-muGapUp:    .byte 0             // muGapMove: 1 = the tail moves up
-muScrN:     .byte 0             // ...the image's page count
-muScrSh:    .byte 0             // ...the run's start inside the page
 muScrLen:   .word 0             // ...and its length (256 is stored as a high byte of 1)
-muDstLo:    .byte 0             // ...and where it goes, as an image offset
-muDstHi:    .byte 0
 muDirName:  .fill 12, 0         // kReuDirEntry's name buffer (slot 0 only)
 // The powers muNum16 subtracts: five cover every 16-bit value.
 muPowLo:    .byte <10000, <1000, <100, <10, <1
@@ -8811,10 +9369,6 @@ muDotCh:    .byte ' ', '.', 0, 0, '*', ':'
 muUnitTab:  .byte $00, $1c, $18, $14, $10, $0c, $08
 muUnitRows: .byte 64, 32, 16, 8, 4, 2, 1
 // The bar painter's own bytes: the column, this task's id, and the items
-muBarC:     .byte 0             // the column the bar painter is on
-muTid:      .byte 0             // this task's id, for the display-owner test
-muBarHov:   .byte 0             // the item under the pointer, 0 = none
-muBarAct:   .byte 0             // the item doing something now, 0 = none
 muBarHovP:  .byte 0             // the items the last paint reversed: those cells
 muBarActP:  .byte 0             //   carry a swapped background nibble
 // The control bar's hit map: one code per column of row 24, tested by column.
@@ -8851,39 +9405,18 @@ muBoundHi:  .byte >320, >200
 
 muSlot:     .byte 0
 muName:     .fill 9, 0          // base name + NUL (never more than 7 + 1)
-muNameLen:  .byte 0
-muNameIdx:  .byte 0
-muPRow:     .byte 0
-muPCell:    .byte 0
-muPCol:     .byte 0
 muNumOnes:  .byte 0
 muNumVal:   .word 0
-muNumDig:   .byte 0
-muNumPow:   .byte 0
-muNumSquash: .byte 0
-muTmpL:     .byte 0
-muTmpH:     .byte 0
 muPfN:      .byte 0             // lines the follow path walks in one pass
 muFollow1:  .byte MU_FOLLOW_CENTER+1  // the line the playhead is pinned to, +1: the
                                 //   opening raises it to its own depth (muLnRowDraw)
-muHeadRowCol: .byte 0           // the head's row number, for the row-only update
-muHeadEnd:  .byte 0             // ...and the column just past its last digit
 muHeadBarCol: .byte 0           // where the head's BAR field starts, for the playhead
 muHeadBar:  .word 0
-muNeedPage: .byte 0
 muFreeMid:  .byte 0
 muFreeHi:   .byte 0
-muClrRow:   .byte 0
-muTempo:    .byte 0             // the tempo in force at the first note
-muDotNat:   .byte 0             // 1 = the note is a white key
 muDotTmp:   .byte 0
-muDotS:     .byte 0             // the ring slot being read
 muDotC:     .byte 0             // entries left to scan
 muDotBase:  .byte 0
-muDotMask:  .byte 0             // the enable mask the dots last asked for
-muDotV:     .byte 0
-muDotOpt:   .byte 0
-muDotSem:   .byte 0
 muDotXHi:   .byte 0             // 1 = the dot's x is 256 or more
 muDotX:     .byte 0
 muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
@@ -8921,92 +9454,39 @@ muDecSm:    .byte MU_MN_BMP, MU_MN_FLT, MU_MN_RNG, MU_MN_SNC
 //  command with a sound one: block = voice * 2 + class, class 0 = structural.
 muLogBase:  .byte 0, MU_LOG_SLOTS, 2*MU_LOG_SLOTS
             .byte 3*MU_LOG_SLOTS, 4*MU_LOG_SLOTS, 5*MU_LOG_SLOTS
-muDurByte:  .byte 0
-muJifCls:   .byte 0
 muJifSt:    .byte 0
-muJifBase:  .byte 0
 muJifT:     .byte 0
-muUnIdx:    .byte 0
 muUnitVal:  .byte 0
 muUnitBar:  .byte 0
-muScanV:    .byte 0
 muScanOff:  .word 0
 muScanLen:  .word 0
 muScanN:    .word 0
 muDrain:    .byte 0
-muStatT:    .byte 0             // displayed frames left before the head returns
-muStatF:    .byte 0             // frameCount at the last counted frame
-muAudOn:    .byte 0             // 1 while our own note is sounding on voice 1
 muAudStart: .byte 0             // frameCount when it gated on
-muHdOn:     .byte 0             // 1 while the hover dot is on the keyboard
-muHdOld:    .byte 0             // the key it is on, and the voice it is that voice's
-muHdOldV:   .byte 0
-muNoteLin:  .byte 0             // the pitch being entered: set by both writers
-muHdV:      .byte 0             // the voice being placed
 muHdY:      .byte 0             // its y on the keyboard
-muAudLo:    .byte 0             // its SID frequency, low and high
-muAudHi:    .byte 0
 // The player's own PAL note table, an octave down (see muAudFreq): semitones C..B.
 muAudLoTab: .byte $9C,$C0,$23,$C8,$B4,$EB,$72,$4C,$80,$12,$08,$68
 muAudHiTab: .byte $45,$49,$4E,$52,$57,$5C,$62,$68,$6E,$75,$7C,$83
-muGdClip:   .byte 0             // 1 while only MU_GDLo..MU_GDHi (rows) is drawn
 muGdStepN:  .byte 0             // events left to walk on the row being opened
-muGdFrom:   .byte 0             // the band being repainted, in screen rows
-muGdTo:     .byte 0             //   (the end exclusive)
 muGdLo:     .fill 2, 0          // ...and the rows those screen lines hold
-muGdHi:     .fill 2, 0          //   (the end exclusive)
 // --- searching the walk for the command on a line, and for a phrase's partner ---
-muFindId:   .byte 0             // the mnemonic wanted
-muFindVal:  .byte 0             // ...and its operand
-muFindAny:  .byte 0             // 1 = any row, 0 = only one past MU_FINDAFTER
-muFindAfter: .fill 2, 0         // the row to pass
 muFndRow:   .fill 2, 0          // where it was found
 muFndLine:  .byte 0             // ...and its line index inside that row's group
 muFndVoice: .byte 0             // ...and the voice whose command it is
-muCmdVal:   .byte 0             // the operand of the command under the cursor
-muCmdRow:   .fill 2, 0          // ...and the row its line belongs to
 muCmdK:     .byte 0             // ...and its index in that row's command lines
-muObjId:    .byte 0             // the command being authored: mnemonic id 1..9
-muObjVal:   .byte 0             // ...its operand
-muObjMax:   .byte 0             // ...and the largest operand it takes
-muObjKind:  .byte 0             // 0 = a pair to add, 1 = the pair at MU_OBJLO/HI
-muObjPhase: .byte 0             // 0 = picking the mnemonic, 1 = typing the operand
-muObjFresh: .byte 0             // 0 = the next digit starts the operand afresh
-muObjMatch: .byte 0             // 1 = a scan matches the operand as well as the id
-muObjLo:    .byte 0             // the pair being found, replaced or added
-muObjHi:    .byte 0
 muObjCmdB:  .byte 0             // the encoded pair, ready to write
-muObjOptB:  .byte 0
-muLinkW:    .byte 0             // 1 while a search has walked the producer
-muWinTop:   .byte 0             // 1 while the band's top line is the tune's first
-muRevText:  .byte 0             // 1 while muPutC draws reversed (command lines)
 // --- the line producer: a time row, or one structural command ---
-muGrpRow:   .fill 2, 0          // the row the open group belongs to
-muGrpSt:    .byte 0             // 1 = a group is open, 0 = the next line opens one
-muLogId:    .fill MU_LOG_SLOTS*6, 0  // each voice's commands for the open row,
-muLogLo:    .fill MU_LOG_SLOTS*6, 0  //   one block per voice and class
-muLogHi:    .fill MU_LOG_SLOTS*6, 0  //   (MU_LOGBASE); the value is its operands
-muLnVLo:    .byte 0, 0       // the value muLnDec rebuilt for the line being drawn
-muLnVHi:    .byte 0
-muDecLo:    .byte 0             // muDec16's operand and its running remainder
-muDecHi:    .byte 0
-muDecDig:   .byte 0             // the digit muDec16 is building
-muDecIdx:   .byte 0             // which decimal weight, or which digit of
+//  (muLogId and muLogLo are MU_LOGID/MU_LOGLO in the instance buffer; muLogHi is here
+//  because the buffer has no room for all three)
+muLogHi:    .fill MU_LOG_SLOTS*6, 0  // the row's logged operands' high byte
 muDecCnt:   .byte 0             //   muByteDec's output; both a variable, because
-muDecAny:   .byte 0             //   muPutC clobbers X; 1 once a digit is printed
 muDecBuf:   .fill 3, 0          // kByteToDec's digits
-muLogN:     .fill 6, 0               // how many that voice and class has logged
-muLogSnd:   .byte 0             // the row's sound lines: the structural ones follow
-muLogLns:   .byte 0             // the sound lines plus the structural, command lines
-muLogIx:    .byte 0             // the command line being drawn
 muPendOn:   .fill 3, 0          // that voice has a note on the open group's row
 muPendOpt:  .fill 3, 0          // its option byte
 muPendDur:  .fill 3, 0          // its duration byte
 muPendSp:   .fill 3, 0          // it lasts a whole row or more
 muLnScr:    .byte $ff           // the screen row the next line goes at ($ff: discard)
-muLnDraw:   .byte 0             // the line is inside the band being repainted
 muCurScr:   .byte $ff           // the screen row the cursor glyph is drawn at
-muLnV:      .byte 0             // the voice a note line is drawing
 muLnTbLo:   .fill MU_GRID_ROWS, 0   // the row each visible line holds...
 muLnTbHi:   .fill MU_GRID_ROWS, 0   //   ...16-bit; $ffff = past the tune's end
 muLnKind:   .fill MU_GRID_ROWS, 0   // 1 = the row's own line, 0 = a command's
@@ -9014,17 +9494,14 @@ muLnPh:     .fill MU_GRID_ROWS*3, 0  // each line's phrase body per voice, +1 (0
                                      //   stream); the draw records it, so naming the
                                      //   cursor's row costs a table read, not a walk
 muLnPhBase: .byte 0, MU_GRID_ROWS, 2*MU_GRID_ROWS   // where each voice's block starts
-muNoteOut:  .byte 0             // 1 = muStep returned a note, 0 = it halted a voice
+muLnBarLo:  .fill MU_GRID_ROWS, 0   // the bar each line's row falls in, from the
+muLnBarHi:  .fill MU_GRID_ROWS, 0   //   walk: a tempo change cuts a bar short, so
+                                    //   the bar is not a division of the row
+muLnTem:    .fill MU_GRID_ROWS, 0   // the tempo in force on each line's row
+muLnTick:   .fill MU_GRID_ROWS, 0   // the song tick each line was walked at: the
+muLnTickHi: .fill MU_GRID_ROWS, 0   //   playhead's row is the deepest line whose
+                                    //   tick the music has reached (muPhSync)
 muFoldN:    .byte 0
-muTmp:      .byte 0
-muHRow:     .byte 0
-muXl:       .byte 0
-muXh:       .byte 0
-muOct:      .byte 0
-muSem:      .byte 0
-muHovNew:   .byte 0
-muPrevLeft: .byte 0
-muRowNew:   .byte 0
 
 // --- the grid's state: the window, and each voice's place in the walk ---
 // --- the window service. Code-image state: the music child never reads it, and
@@ -9033,128 +9510,73 @@ muWin:      .fill 12, 0         // the six window pointers, lo/hi interleaved
 muWinPg:    .fill 6, 0          // the page each window holds
 muWinOk:    .fill 6, 0          // 1 = that window has been filled
 muWinOfs:   .word 0             // muWinSeat in: the offset wanted
-muWinPage:  .byte 0             // its page, while the seat works
 
 muTop:      .word 0             // the timeline row at the top of the window
-muVRow:     .fill 3,0          // each voice's next event row
-muVRowHi:   .fill 3,0
 muVRem:     .fill 3,0          // jiffies carried into that voice's next row
-muSpan:     .word 0            // rows the current event covers
+
+// --- the tempo timeline: a row is a function of the song tick ---
+//  row(tick) = MU_SEGROW + (tick - MU_SEGTICK) / MU_SEGUNIT, one segment per tempo.
+//  A TEM that changes the tempo opens the next segment where it is executed, so
+//  the map is continuous at every change and the walk, the head and the playhead
+//  all read the same function.
+muSegTick:  .word 0             // the tick the current segment began at
+muSegRow:   .word 0             // ...and the row that tick is drawn on
+muSegBar:   .word 0             // ...and the rows a bar has in it
+muBarNo:    .word 1             // the bar the row being opened falls in, 1-based
+muBarStart: .word 0             // ...and its first row
+
+muSpan:     .word 0             // rows the current event covers
 muJifOut:   .word 0            // the length muStep just consumed
-muGdCol:    .byte 0
 
 // --- editing state ---
-muDurArm:   .byte 0             // the length a new note is written with
-muDurJif:   .byte 0             // ...and that length in jiffies, at the cursor's tempo
-muGapJ:     .byte 0             // the gap a fill has to cross, in jiffies
-muKbdOct:   .byte 0             // the octave the note keys play in
-muNewOpt:   .byte 0             // the option byte being written
-muTgtLo:    .byte 0             // the row the cursor is on
-muTgtHi:    .byte 0
-muSekKind:  .byte 0             // 0 onset, 1 inside, 2 past the end
-muSekLo:    .byte 0             // that event's offset in the image
-muSekHi:    .byte 0
 muSekSpan:  .word 0
 muSekRow:   .word 0             // the row the recorded event starts on
 muSekEnd:   .word 0             // ...and the row it ends on
-muSekDur:   .byte 0             // its duration byte, and
-muSekOpt:   .byte 0             // its option byte
 muLenJ2:    .word 0             // the event's whole length, for a split
-muN1:       .byte 0             // the events a split writes before the cursor
-muN2:       .byte 0             // ...and from the cursor on
-muSekTem:   .byte 0             // the tempo in force at the recorded event
-muJ2Lo:     .byte 0             // a split's second half, kept across the first run
-muSkV:      .byte 0
-muValLo:    .byte 0
-muValHi:    .byte 0
 muLenJ:     .word 0             // the length being written, in jiffies
-muLenOpt:   .byte 0             // its option byte
-muLenTie:   .byte 0             // 1: tie every event after the first
-muLenMode:  .byte 0             // 0 count, 1 write
-muLenCnt:   .byte 0
-muLpIdx:    .byte 0
-muLpJ:      .byte 0
-muLpDur:    .byte 0
-muInsLo:    .byte 0             // where a gap opens, as an image offset
-muInsHi:    .byte 0
-muInsN:     .byte 0             // how many bytes
-muInsV:     .byte 0             // the voice whose length word grows
 muNeedLo:   .byte 0             // MU_LEN + MU_INSN
 muNeedHi:   .byte 0
-muCountLo:  .byte 0             // a byte count, 16 bits
-muCountHi:  .byte 0
-muPlainU:   .byte 0
 muPlainBar: .byte 0
-muUnitRef:  .byte 0             // 0 plain, 1 half, 2 third, 3 one jiffy
 muTrCur:    .word 0             // muTrScan: the pair whose length is being tested...
 muTrEnd:    .word 0             // ...and one past the last byte of the three streams
 muUnitBarHi: .byte 0
 
 // --- the simulator's state, in the code image so it is per instance ---
 muBaseTab:  .byte 0, 5, 10      // the first call-stack frame of each voice
-muPtrLo:    .fill 3, 0          // where this voice's next event is, as a FILE OFFSET
-muPtrHi:    .fill 3, 0
 muTkLo:     .fill 3, 0          // the tick that event plays on
 muTkHi:     .fill 3, 0
-muOn:       .fill 3, 0          // a HLT clears this
 muUtv:      .fill 3, 0
 muId:       .fill 3, 0          // the phrase identity, as WorkVoiceForCallPhrase
 muHedN:     .fill 3, 0          // HED's repeat count
 muHedLo:    .fill 3, 0          // ...and the offset just after it
 muHedHi:    .fill 3, 0
 muHedId:    .fill 3, 0
-muDep:      .fill 3, 0          // the next free call-stack frame
 muPhLo:     .fill 15, 0         // the call stack, five frames per voice
 muPhHi:     .fill 15, 0
 muPhSt:     .fill 15, 0
 muPhStk:    .fill 15, 0         // ...and the phrase each frame was entered from, +1
-muPhDf:     .fill 3, 0          // the phrase each voice is executing, +1 (0 = the stream)
-muPhNo:     .byte 0             // what the status last named, +1 -- 0 = the top level
-muPhPend:   .byte 0             // a body the cursor has just arrived in, to announce
-muPhBad:    .byte 0             // the phrase an edit was refused for, +1
-muPhCnt:    .fill 2, 0          // the CALL sites counted for it...
-muPhCur:    .fill 2, 0          // ...and the scan's own cursor: an image offset...
-muPhEnd:    .fill 2, 0          // ...and where the three streams end
 muDfLo:     .fill 24, 0         // phrase definitions, as PhraseDef
 muDfHi:     .fill 24, 0
 muDfId:     .fill 24, $ff       // $ff = no DEF has named this phrase: the defined
                                 //   test, because an offset's high byte can be 0
 muEvLo:     .fill 3, 0          // events each voice has played
 muEvHi:     .fill 3, 0
-muClkLo:    .byte 0             // the tick of the latest event
-muClkHi:    .byte 0
-muSimT:     .byte 0             // the tempo the walk is in
-muJifTem:   .byte 0             // ...and the copy muNoteJiffies reads
-muUl:       .byte 0
 muUtvC:     .byte 0
 muErr:      .byte 1
-muErrV:     .byte 0             // the voice whose length the tempo refused...
 muErrRow:   .word 0             // ...and the onset row it died on
-muSv:       .byte 0
-muScmd:     .byte 0
-muSopt:     .byte 0
-muSph:      .byte 0
 muSpun:     .byte 0
-muAccLo:    .byte 0
-muAccHi:    .byte 0
-muBestLo:   .byte 0
-muBestHi:   .byte 0
-muTmp2:     .byte 0, 0
 
 // --- playback: the parent and its music child share these code bytes ---
 muPlayOn:   .byte 0             // 1 = play, 0 = be silent  (parent -- child)
 muPlayEnd:  .byte 0             // the child reached the tune's last row
 muPlayQuit: .byte 0             // 1 = leave for good       (parent -- child)
 muPlaySlot: .byte $ff           // the child's slot, $ff = no child
-muPlayHush: .byte 0             // the stop second-hush guard
 muPlayRefd: .byte 0             // the child sets this when the SID is busy
 muSidOk:    .byte 0             // a play attempt was made (sid.lib may be loaded)
 muReapCnt:  .byte 0             // countdown while waiting for the child to exit
 muSidCfgB:  .fill 9, 0          // kSidPlay mode 1: the file's FS offset, then windows 3-5
 // --- the playhead: the player publishes its own count, the walk rings the dots ---
 muPhFrame:  .byte 0             // frameCount at the last playhead update
-muPhCurLo:  .fill 2, 0          // the row the cursor is on while playing (lo, hi)
-muPhWait:   .byte 0             // 1 until the player publishes THIS pass's count
 muPhOld:    .byte 0             // ...the count the pass started with, to tell them apart
 muHistN:    .fill 3, 0          // next slot per voice
 //  The row an event sounds on and its pitch, per voice, as the renderer walks:
@@ -9165,42 +9587,21 @@ muHistRLo:  .fill 3*MU_HIST, 0
 muHistRHi:  .fill 3*MU_HIST, 0
 
 // --- the undo stack and the dirty guard ---
-muDirty:    .byte 0             // an image byte changed since the last save
-muWarn:     .byte 0             // Q warned once; the next Q discards
 muUndoTop:  .word 0             // the next free byte in muUndoBuf (the stack top)
 muUndoLim:  .word 0             // the redo limit: actions undone are redoable to here
 muRecOff:   .word 0             // the record being built/applied: image offset...
-muRecV:     .byte 0             // ...voice...
-muRecOldN:  .byte 0             // ...bytes it replaces...
-muRecNewN:  .byte 0             // ...bytes it writes...
 muRecOld:   .byte 0, 0          // ...and the old bytes (oldN is 0 or 2)
-muRecTot:   .byte 0             // the record's total length
 muRecStart: .word 0             // the record being undone starts here
-muRecCont:  .byte 0             // 1 = the next push appends to the action in flight
-muRecGrpStart: .byte 0          // bit 7 of the loaded record's voice byte
 muInsRows:  .byte 0             // insert time: rows of silence to open...
 muInsT0:    .word 0             // ...at this absolute row...
-muInsJif:   .byte 0             // ...which is this many jiffies...
-muItV:      .byte 0             // ...spliced into this voice...
-muInsFirst: .byte 0             // ...the first splice opens the grouped action
-muItJ1:     .byte 0             // straddle: the front jiffies before T0
 muItJ2:     .byte 0             // ...and the remainder from T0 on
 muItN1:     .byte 0             // the events the front, silence...
 muItNr:     .byte 0             // ...
 muItN2:     .byte 0             // ...and remainder take
-muInsOpt:   .byte 0             // the opt the splice writes (0 rest, note in INS)
-muInsTie:   .byte 0             // ...and whether its run ties
 muInsNoteV: .byte $ff           // the voice that gets the note ($ff = all rests)
-muInsMode:  .byte 0             // 0 overwrite, 1 insert (note entry pushes down)
-muRrHave:   .byte 0             // range replace: bytes there now...
-muRrWant:   .byte 0             // ...and bytes wanted
 muRrSrc:    .word 0             // ...from this offset in muUndoBuf
 muUndoBuf:  .fill 256, 0            // the window: the one page of the stack that is here
-muUcOf:     .byte 0             // the stack cursor's offset inside its page
-muUcPg:     .byte 0             // ...and its page
 muUcWin:    .byte $ff           // the page the window holds, $ff = none read yet
-muUcDirty:  .byte 0             // the window has writes the file has not seen
-muUcTmp:    .byte 0             // the byte muUndoGet carries across its own restore
 muUndoOk:   .byte 0             // the stack file resolved (0 = edits are not undoable)
 muUndoRec:  .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
 muUndoName: .text "musedit.und"
