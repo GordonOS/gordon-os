@@ -34,7 +34,7 @@
 > clock, repeat-forever). 13.4d and 6.18 (phrase bodies) are **verified on hardware**. 6.13/6.14
 > (mouse-only and keyboard note sessions) are still unbuilt. The `,` tie key and the bar's
 > `DUR`/`TIE` click cells are still unwired; step 7 (the command panel) is untouched. Bug #192 (a
-> `CALL`/`DEF` of phrases 16-23 is drawn as another command) is found, recorded, and not fixed.
+> `CALL`/`DEF` of phrases 16-23 was drawn as another command) is **fixed** and needs its check.
 >
 > **Three harness lessons:** the kernel's
 > 16-entry key ring drops keys pressed faster than a full-grid redraw finishes, so
@@ -910,7 +910,17 @@ the pair, `muObjFind` finds an existing pair at a boundary by id, `muMnPrint` dr
 - [x] **7.5 A command needs a boundary.** *A pair consumes no time, so its line only ever sits above a note or a rest: a row in the middle of a duration answers `? no event here` rather than splitting it, because the format has nothing to split it with. The prompt refuses there too — the editor offers no way to place what the format cannot hold.*
 - [x] **7.6 Utility lengths.** *`8` and `9` arm the duration the next note is written with to UTL and UTV (`muArmKey`), and the armed value round-trips.*
 - [ ] **7.7 The sound commands.** *Not built.* The 37 ids between `FC` and `MS#` need their operand entered, and their operands are up to 14 bits in three shapes (`P-W`, `POR`, `DTN` are two bytes; `MS#` takes its high two bits from the command byte). Neither the prompt nor the draw offers a way in; `mqHave` refuses a sound id with `? not yet`. Wants hex entry and a panel that can show the class.
-- [ ] **7.8 The 16-23 phrase form.** *Built — needs a check.* `muObjEnc` encodes `DEF`/`CALL` below 16 with the plain nibble and 16-23 with the second form (`value - 16 + 8`, shifted into the high nibble, `$03`/`$0B` in the low byte), and `mqMax` caps both at 23. The check needs a tune with a phrase numbered 16 or above: place it, save, and decode the pair.
+- [ ] **7.8 The 16-23 phrase form.** *Built — the drawing half is verified, the save half is not.*
+  `muObjEnc` encodes `DEF`/`CALL` below 16 with the plain nibble and 16-23 with the second form
+  (`value - 16 + 8`, shifted into the high nibble, `$03`/`$0B` in the low byte), and `mqMax` caps
+  both at 23. The player really does read that form — `ro_______11` in `sidplay.inc` falls through
+  to `and #$07 / ora #$10` when the shifted option is 15, with the carry choosing CALL from DEF —
+  so the encoding has to stay in step with `muCmPhr` (the walk) and `muDecOpt` (the renderer, which
+  is what bug #192 was). **Verified on hardware:** `DEF 20` and `CALL 20` typed with `C` on
+  `immig` draw as `DEF 20` and `CALL 20`, and the plain `DEF 0` beside them is unchanged. What
+  remains is the round trip — place one, save, reopen, and decode the pair. A phrase that CALLs its
+  own body is legal but shows one command line per execution (the call stack's five frames), which
+  is the log being faithful rather than a fault.
 - [ ] **7.9 The table gate.** *Not built.* `tools/check-mus-commands.py` — every mnemonic's byte pattern checked against `gen-mus.py`, so the encoder tables and the generator cannot drift. The tables are `mqCmdB`/`mqOptB`/`mqMax`, one row per structural id.
 - [ ] **7.10 The bar's inert cells.** *Not built.* `muBarMap` labels three cells that have nothing behind them — `DUR` (code 5), `TIE-` (code 6) and `UNDO` (code 8) — and a click on any of them answers `? not yet`. `PLAY`, `CMD`, `SAVE` and `Q` are wired.
 

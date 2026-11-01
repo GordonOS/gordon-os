@@ -21,34 +21,30 @@
 
 ---
 
-## Bug #192 — a `CALL`/`DEF` of phrases **16–23** is drawn as another command, because `muLnDec` never tests the form 🔴 OPEN (found 2026-11-01)
+## Bug #192 — a `CALL`/`DEF` of phrases **16–23** was drawn as another command, because `muLnDec` never tested the wide form 🔴 ✅ FIXED (2026-11-01)
 
-**Symptoms.** A tune that uses the 16–23 phrase form has its `CALL 16+n` drawn as a **sound
+**Symptoms.** A tune that uses the 16–23 phrase form had its `CALL 16+n` drawn as a **sound
 command** (the `SW`/`SUS` group) and its `DEF 16+n` drawn as `DEF n` — the wrong number, off by
-sixteen. Nothing else is affected: the walk and the player both execute the form correctly, so the
-notes play and the grid's rows are right; only the command lines lie.
+sixteen. Nothing else was affected: the walk and the player both executed the form correctly, so
+the notes played and the grid's rows were right; only the command lines lied.
 
 **Root cause.** The format has two encodings for a phrase command. The plain one is a `$01`-family
-pair, `nnnn0010` (CALL) or `nnnn0110` (DEF) in the option byte. The wide one is the **mnemonic
-group**: option `& $07 == 3` with **bit 7 set**, where bits 4-6 are `phrase - 16` and bit 3 picks
-call from def. `muSimCmd` tests for it (`muCmO3` -> `bmi muCmPhr`, and `muCmPhr` resolves
-`(opt >> 4) & 7 | 16`), which is why the walk is right. `muLnDec` — the routine that decides what a
-pair *reads as* — has no such test: its option chain tests the same `& $07` values and sends `3` to
-`moSwS`, and `6` to `moPair6` where bit 3 alone chooses DEF from VOL, so a wide DEF comes out as
-DEF with the 0-15 number.
+pair whose *option* carries the phrase in its high nibble: `nnnn0010` (CALL) or `nnnn0110` (DEF).
+The wide one puts a marker in the option's low bits and grows the phrase by sixteen:
+`muObjEnc` writes `((phrase - 16 + 8) << 4) | $03` for a DEF and `| $0B` for a CALL, so `DEF 20` is
+`01 C3`. The player routes option bits 0–3 and, when the shifted value is **15**, falls through to
+`and #$07 / ora #$10` — a phrase of 16–23 with the carry picking CALL from DEF (`ro_______11` in
+`sidplay.inc`, whose comment says "a number from 0-23 for the phrase commands"). `muSimCmd` mirrors
+that (`muCmPhr`), which is why the walk was right. `muLnDec` — the routine that decides what a pair
+*reads as* — had no such test: its option chain sends `& $07 == 3` to `moSwS`, a sound command.
 
-**Why it was not noticed.** No bundled tune uses the wide form: `tools/gen-mus.py` writes the plain
-one, and `immig`'s nine definitions are all below 16. The editor's own encoder (7.8, `muObjEnc`)
-*does* write it for a phrase above 15, so typing `CALL 20` produces a pair the grid then draws
-wrongly — the encoder and the decoder disagree, which is exactly what 7.9's table gate was meant to
-catch.
+**Fix.** `muDecOpt` tests the wide form before its chain: option `& $07 == 3` with **bit 7 set** is
+a phrase command, its value is `((opt >> 4) & 7) + 16`, and bit 3 picks CALL from DEF. Bit 7 is the
+test that keeps an ordinary `& $07 == 3` sound command out of it.
 
-**Fix (not applied).** `muDecOpt` needs the wide test before its chain: `muScmd & $03 == 1` and
-`muSopt & $07 == 3` and `muSopt` bit 7 set -> id = CALL or DEF by bit 3, value =
-`((muSopt >> 4) & 7) + 16`. Roughly 25 bytes in the `$E000`-free task image (`muLnDec` is in
-`musedit.inc`, not the kernel, so no band budget applies). `muPhCount` already carries this decode
-for its own purposes and can be the model. A check needs a tune with a phrase above 15 — none of
-the bundled ones has one, so the test is a `CALL 20` typed into a scratch tune.
+**Why it was not noticed.** No bundled tune uses the wide form — `tools/gen-mus.py` writes the
+plain one, and `immig`'s nine definitions are all below 16 — so only the editor's own encoder
+(7.8) could reach it, and nothing exercised that path.
 
 **Transferable rule.** When a command has two encodings, the *router* and the *renderer* are two
 places that each have to know both, and only the router is exercised by playing the tune. A table

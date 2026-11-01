@@ -2097,6 +2097,31 @@ muDecHide:
 //  the stubs directly below it; the bodies past those are reached by jmp.
 muDecOpt:
     lda muSopt
+    and #$07
+    cmp #$03
+    bne moChain                 // not the mnemonic group
+    lda muSopt
+    bpl moChain                 // bit 7 clear: an ordinary sound command there
+    lda muSopt                  // the wide phrase form: bits 4-6 are phrase - 16, and
+    lsr                         //   bit 3 picks CALL from DEF. muObjEnc writes it, so
+    lsr                         //   the renderer has to read it
+    lsr
+    lsr
+    and #$07
+    ora #16
+    sta muLnVLo
+    lda #0
+    sta muLnVHi
+    lda muSopt
+    and #$08
+    bne moWideCall
+    lda #MU_MN_DEF
+    rts
+moWideCall:
+    lda #MU_MN_CALL
+    rts
+moChain:
+    lda muSopt
     cmp #$0f
     beq moTal
     cmp #$2f
