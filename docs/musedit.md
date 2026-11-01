@@ -86,9 +86,16 @@ A lane is drawn in its own voice's colour — the same red, yellow and cyan — 
 that follows it are one thing seen twice. The row number, the lane headers and the head stay white.
 
 **Row 24** — the control bar: `DUR` with the armed duration and the dot cell, `TIE-` the tie
-toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. PLAY, CMD, SAVE and Q are clickable; `DUR`,
-`TIE-` and `UNDO` answer `? not yet` and are driven from the keys instead (`1`-`9` arm
-the duration a **new** note is written with, `.` cycles the dots, `Z`/`X` undo and redo).
+toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. Every one of them answers the mouse:
+`DUR` steps the armed length on through whole, half, quarter, 8th, 16th, 32nd and 64th (the dot
+or triplet mark rides along, so only the class changes), `TIE-` arms or drops the tie and stays
+reversed while it is set, `UNDO` is the `Z` key, and the rest are the keys they name — `1`-`9`
+arm the duration a **new** note is written with, `.` cycles the dots, `Z`/`X` undo and redo.
+
+The tie is the duration byte's bit 6: the player holds the note into the one after it, so it
+joins two notes into one sound. It applies to a note that is *newly written* — a pitch typed over
+a rest or into a gap — and it stays armed, like the length it rides with, until you drop it. A
+rest never carries a tie, and entering a rest clears the bit from a note that had one.
 
 The bar answers the mouse: the item under the pointer shows in reverse video and goes back to
 plain when the pointer leaves it, and `PLAY` stays reversed for as long as the tune plays, so the
@@ -257,15 +264,20 @@ Every pitch the format allows is on screen at once — there is nothing to page 
 
 ### Duration, dots and tie
 
-The armed duration applies to a **new** note — one entered where no note starts, where a rest
-stands, or inside a longer one. A rest is silence with no length worth keeping, so a pitch
-typed over it takes the armed value and the events below move up into the space the rest gave
-back. An event that already starts on the row as a **note** keeps its own length, so typing a
-pitch over it never re-times the voice. Set the armed value with the number keys `1`–`7`
-(whole … 64th) or `8`/`9` (the utility lengths UTL/UTV). `.` cycles the dots (none, dotted,
+The armed duration applies to **every** note a pitch key writes — one entered where no note
+starts, where a rest stands, inside a longer one, or over a note that is already there. Whatever
+stood on that row keeps its pitch only if you leave it alone; typing a pitch re-times the event to
+the armed value, so the rows below move to suit. Set the armed value with the number keys `1`–`7`
+(whole … 64th), `8`/`9` (the utility lengths UTL/UTV), or by clicking the bar's `DUR`, which
+steps through the seven ordinary lengths in that order. `.` cycles the dots (none, dotted,
 double-dotted, triplet). The armed value is shown in the control bar's `DUR` field — the dot
 cell shows `.` dotted, `:` double-dotted, `*` triplet — and a note already in the grid carries
 the same mark beside its duration, so the lane says which of the three it is.
+
+**The tie** joins a note to the one after it into a single sound, and it is armed with `TIE-` in
+the bar. It rides the armed value the same way the dots do, so it reaches every note a pitch key
+writes, and the cell stays lit while it is armed. The grid shows it as `TIE` after the duration,
+which is also how a tied event already in a tune reads.
 
 Some notes do not land exactly on a row — a triplet or a double-dotted note can be shorter
 than one step. Such an onset is drawn on the row it falls in, with `?` at the right edge.

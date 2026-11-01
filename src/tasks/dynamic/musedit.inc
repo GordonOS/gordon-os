@@ -194,7 +194,8 @@
 //  is a failure there, not a warning.
 .const muLogIdP     = MU_ZP_BASE+198  // 2 bytes  pointers into the instance buffer: the row's
 .const muLogLoP     = MU_ZP_BASE+200  // 2 bytes  logged commands (muHeapPtrs fills them)
-.label MU_ZP_END    = MU_ZP_BASE+202
+.label muDurTie     = MU_ZP_BASE+202  // 1 = the next new note is tied to the one after
+.label MU_ZP_END    = MU_ZP_BASE+224
 .label muDirty      = MU_ZP_BASE+203  // an image byte changed since the last save
 .label muWarn       = MU_ZP_BASE+204  // Q warned once; the next Q discards
 .label muRecV       = MU_ZP_BASE+205  // ...voice...
@@ -217,6 +218,7 @@
 .label muUcDirty    = MU_ZP_BASE+222  // the window has writes the file has not seen
 .label muUcTmp      = MU_ZP_BASE+223  // the byte muUndoGet carries across its own restore
 .assert "the zero page region fits the declared window", (MU_ZP_END - MU_ZP_BASE) <= MU_ZP_LEN ? 1 : 0, 1
+.assert "the declared window covers the last variable", (MU_ZP_END - MU_ZP_BASE) >= 224 ? 1 : 0, 1
 .assert "the zero page region stays below the kernel's IRQ bytes", (MU_ZP_BASE + MU_ZP_LEN) <= $f0 ? 1 : 0, 1
 
 // --- instance data: offsets into the 53-byte instance buffer ---
@@ -382,7 +384,10 @@
 .const MU_BAR_Q     = 2       // hit-map code: this one quits
 .const MU_BAR_SAVE  = 3       // ...and this one writes the image back
 .const MU_BAR_PLAY  = 4       // ...and this one plays or stops
+.const MU_BAR_DUR   = 5       // ...and this one steps the armed length on
+.const MU_BAR_TIE   = 6       // ...and this one arms or drops the tie
 .const MU_BAR_CMD   = 7       // ...and this one authors the row's command line
+.const MU_BAR_UNDO  = 8       // ...and this one undoes the last action
 
 // --- tiny instance helpers (offsets are constants, so these stay inline) ---
 .macro muSet(field, value) {
@@ -3850,6 +3855,12 @@ muBpLp:
     bcs muBpKeep
     lda muBarMap,y
     beq muBpNx
+    cmp #MU_BAR_TIE             // the tie cell shows its own state, always: its light
+    bne muBpOther               //   IS the armed flag, so it needs no history and no
+    lda muDurTie                //   share of muBarAct -- pressing PLAY cannot lose it
+    bne muBpRev
+    jmp muBpNorm
+muBpOther:
     cmp muBarHov
     beq muBpRev
     cmp muBarAct
@@ -3897,6 +3908,19 @@ muBarActive:
     sta muBarAct
     jmp muBarPaint
 muBaRts:
+    rts
+
+// --- muBarPlayOff -- drop the PLAY highlight, leaving any other item lit ---
+//  muBarAct holds the bar's one lit item, and the tie is a sticky one: it stays lit
+//  until it is clicked off. The stopped path runs every frame, so clearing the byte
+//  outright would wipe the tie's own light the frame after it was set.
+muBarPlayOff:
+    lda muBarAct
+    cmp #MU_BAR_PLAY
+    bne mbpRts
+    lda #0
+    jmp muBarActive
+mbpRts:
     rts
 
 muDrawBar:
@@ -4925,14 +4949,11 @@ muNcReplace:
     jsr muCapOld
     jsr muSeekKPtr
     ldy #0
-    lda muRecOld+1              // the pitch that was there: letter 0 means a rest
-    and #$07
-    beq muNcArm
-    lda muRecOld                // a note: it keeps its own length and dots, so the
-    jmp muNcStore               //   rows below it do not move
-muNcArm:
-    lda muDurArm                // silence: nothing to keep, so the note is new and
-muNcStore:                      //   takes the armed length
+    lda muDurArm                // the armed length and tie, whatever the event there
+    ldx muDurTie                //   was: the bar's DUR is what the next note written is
+    beq muNcStore               //   measured with, so it replaces a note's length too
+    ora #$40                    // bit 6: the player holds it into the next note
+muNcStore:
     sta (kPtr),y
     iny
     lda muNewOpt
@@ -7936,7 +7957,9 @@ muClickAct:
     bne muClkGrid
     ldx muXl                    // the bar: one code per column
     lda muBarMap,x
-    beq muClkRts                // a blank cell answers nothing
+    bne muClkHave               // a blank cell answers nothing
+    jmp muClkRts
+muClkHave:
     cmp #MU_BAR_SAVE
     beq muBarSave
     cmp #MU_BAR_PLAY
@@ -7947,6 +7970,18 @@ muClickAct:
     bne muClkNotBarQ
     jmp muQuit                  // out of branch range: invert and jump
 muClkNotBarQ:
+    cmp #MU_BAR_UNDO
+    bne muClkNotU
+    jmp muBarUndo
+muClkNotU:
+    cmp #MU_BAR_DUR
+    bne muClkNotD
+    jmp muBarDur
+muClkNotD:
+    cmp #MU_BAR_TIE
+    bne muClkNotT
+    jmp muBarTie
+muClkNotT:
     lda #M_NOT_YET              // a labelled cell with nothing behind it yet
     jsr muMsgSet
     jmp muStatus
@@ -8004,6 +8039,62 @@ muClkLow:
     jmp muNoteClick
 muClkRts:
     rts
+
+// --- muBarUndo -- the UNDO cell is the Z key ---
+//  Undo repaints the grid and the head itself, so this only has to refuse while the
+//  music runs, exactly as the key does.
+muBarUndo:
+    jsr muPlaying
+    bcs mbuRts
+    jmp muUndo
+mbuRts:
+    rts
+
+// --- muBarDur -- the DUR cell steps the armed length on ---
+//  The order is muDurTab's -- whole, half, quarter, 8th, 16th, 32nd, 64th -- and the
+//  dot or triplet mark rides along, so the cell only ever changes the class. A
+//  utility length (class 1) is not in that table, so it starts the cycle at the
+//  whole note rather than stepping to something that is not a length.
+muBarDur:
+    jsr muPlaying
+    bcs mbdRts
+    ldx #0
+mbdFind:
+    lda muDurArm
+    and #$1c
+    cmp muDurTab,x
+    beq mbdNext
+    inx
+    cpx #7
+    bcc mbdFind
+    ldx #7                      // a utility length: the next step is the whole note
+mbdNext:
+    inx
+    cpx #7
+    bcc mbdHave
+    ldx #0
+mbdHave:
+    lda muDurTab,x
+    sta muTmp
+    lda muDurArm
+    and #$a0                    // the dot or triplet mark is kept
+    ora muTmp
+    sta muDurArm
+    jmp muDrawArm
+mbdRts:
+    rts
+
+// --- muBarTie -- the TIE- cell arms or drops the tie ---
+//  A tie is the duration byte's bit 6, and the player holds the note into the one
+//  after it. It is armed here and stays armed -- like the length it rides with -- so
+//  the cell's light is the flag itself (muBarPaint reads MU_DURTIE for that cell), and
+//  no other item on the bar can take it away. A rest never carries one: muRestKey
+//  clears the bit, and the fill path writes rests with it clear.
+muBarTie:
+    lda muDurTie
+    eor #1
+    sta muDurTie
+    jmp muBarPaint
 
 // ==========================================
 //  Playback
@@ -8120,8 +8211,8 @@ muPlayStop:
 //  for a single pass and always plays from the tune's first row, and it clears its
 //  own jiffy count as it starts (sidInitSong), so the view restarts with it.
 muPlayRewind:
+    jsr muBarPlayOff            // the pass is over: PLAY goes plain in this redraw
     lda #0
-    sta muBarAct                // the pass is over: PLAY goes plain in this redraw
     sta muPhCurLo
     sta muPhCurLo+1
     jmp muRewindView
@@ -8194,8 +8285,7 @@ muPtLost:
     lda #$ff                    //   playing one, and $FF here left the playhead
     sta muPlaySlot              //   walking silently for ever
 muPtNoPlayer:
-    lda #0                      // nothing is playing: the redraw below drops it
-    sta muBarAct
+    jsr muBarPlayOff            // nothing is playing: the redraw below drops it
     lda #M_NO_PLAYER
     jsr muMsgSet
     jsr muStatus
@@ -8208,8 +8298,8 @@ muPtPlaying:
     jsr muDots
     jmp muPlayhead
 muPtStopped:
-    lda #0                      // the child clears muPlayOn itself when the tune
-    jsr muBarActive             //   ends, so the highlight is dropped here
+    jsr muBarPlayOff            // the child clears muPlayOn itself when the tune
+                                //   ends, so the PLAY highlight is dropped here
     lda muPlayHush               // the cursor stays where the music stopped
     bne muPtRts                 // the second hush already landed
     inc muPlayHush

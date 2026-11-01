@@ -12,12 +12,12 @@
 // the body is imported; musedit.inc's zero loop uses the same constant.
 .const MU_DATA_SIZE = 245
 
-// The zero page window this task keeps across a switch: $0b-$eb, leaving $02-$0a
+// The zero page window this task keeps across a switch: $0b-$ea, leaving $02-$0a
 // to sid.lib's scratch (the parent's hush uses it, and the music child declares it
 // in its own SPAWN arguments) and $f0-$ff to the kernel's IRQ. musedit.inc declares
 // the state that lives there.
 .const MU_ZP_BASE   = $0b
-.const MU_ZP_LEN    = 202
+.const MU_ZP_LEN    = 224
 
 museditBinStart:
     .word HDR_MAGIC              // +0:  magic 'G','O' (LE)

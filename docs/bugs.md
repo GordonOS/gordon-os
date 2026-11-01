@@ -21,6 +21,53 @@
 
 ---
 
+## Bug #196 — the bar's lit item is cleared every frame while the music is stopped, so a sticky item could never stay lit 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** Clicking `TIE-` in the control bar did not leave it reversed, so there was no way to
+see — or trust — that the tie was armed.
+
+**Root cause.** `muBarAct` holds *the one item the bar shows reversed*. It was written for PLAY,
+which is the only item whose activity ends by itself: `muPtStopped` runs on every frame the music is
+not playing and did `lda #0 / jsr muBarActive`, i.e. it forced the byte to 0 each frame. That was
+harmless while PLAY was the only user. The tie then reused the same byte for a **sticky** state, and
+the stopped path wiped it on the very next frame — the cell lit for a fraction of a second at most,
+and any later repaint put it back to plain.
+
+**Fix.** `muBarPlayOff` (`lda muBarAct / cmp #MU_BAR_PLAY / bne rts / lda #0 / jmp muBarActive`)
+clears the highlight only when the lit item *is* PLAY, and the three sites that used to clear the
+byte outright (`muPtStopped`, `muPlayRewind`, `muPtNoPlayer`) call it. Verified by poking
+`muBarAct = 6` from the monitor: it now survives, where before it read back 0 within a frame.
+
+**Lesson.** A single "current item" byte can carry a transient (PLAY while running) but not a
+sticky state: any owner that refreshes the byte every frame will erase the other. Two lifetimes in
+one variable need either two variables or an owner that clears only what it set.
+
+---
+
+## Bug #195 — the declared zero page window was shrunk below the variables it held, so 21 of them were silently outside the scheduler's DMA 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** None observed — and that is what made it worth recording. Every one of those bytes
+behaved correctly for as long as no other task wrote `$0b-$ef`, which is the case today: the shell
+keeps to the kernel's bytes and the music child declares only sid.lib's `$02-$0a`.
+
+**Root cause.** When the instance buffers took two pointer pairs the window was narrowed from 229 to
+202 bytes to match the highest *pointer*, but the variable map had already been built with
+`muDurTie`/`muDirty`/`muWarn`/`muRecV`… up at offsets 203-223. A declared window is the region the
+scheduler DMAs on every context switch, so everything above it is ordinary zero page shared with any
+other task that happens to use it — the state would have been overwritten by a successor and the
+fault would have surfaced as a *successor's* misbehaviour in the edit records and the dirty flag.
+
+**Fix.** The window is back to `$0b-$ea` (224 bytes), which covers the highest variable at offset
+223, and two asserts now hold it: `MU_ZP_END - MU_ZP_BASE <= MU_ZP_LEN` (small enough for the header)
+and `>= 224` (big enough for the map). The second is the one that matters: it is the only thing that
+notices a variable being added above the window, because the assembler happily assembles a `.label`
+at any address.
+
+**Lesson.** A window's length is not a total like a pool budget — it is a *coverage* statement about
+a map that grows at the other end of the file. Assert the coverage, not the arithmetic.
+
+---
+
 ## Bug #194 — a note that lasts several rows made the playhead stand on the note's LAST row, not the row it starts on 🟡 ✅ FIXED (2026-11-01)
 
 **Symptoms.** In `twotem.mus`'s second section (tempo 192, where a 16th is 12 jiffies and a row is
