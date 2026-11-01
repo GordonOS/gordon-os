@@ -915,7 +915,40 @@ the pair, `muObjFind` finds an existing pair at a boundary by id, `muMnPrint` dr
 - [x] **7.4 Undo is one action.** *A command edit's undo record is the pair alone, so it undoes as one action and no row moves.*
 - [x] **7.5 A command needs a boundary.** *A pair consumes no time, so its line only ever sits above a note or a rest: a row in the middle of a duration answers `? no event here` rather than splitting it, because the format has nothing to split it with. The prompt refuses there too — the editor offers no way to place what the format cannot hold.*
 - [x] **7.6 Utility lengths.** *`8` and `9` arm the duration the next note is written with to UTL and UTV (`muArmKey`), and the armed value round-trips.*
-- [ ] **7.7 The sound commands.** *Not built.* The 37 ids between `FC` and `MS#` need their operand entered, and their operands are up to 14 bits in three shapes (`P-W`, `POR`, `DTN` are two bytes; `MS#` takes its high two bits from the command byte). Neither the prompt nor the draw offers a way in; `mqHave` refuses a sound id with `? not yet`. Wants hex entry and a panel that can show the class.
+- [ ] **7.7 The sound commands.** *Not built; designed below.* The 37 ids between `FC` and `MS#`
+  need their operand entered, and their operands are up to 14 bits in three shapes `P-W`, `POR`,
+  `DTN` are two bytes, `MS#` takes its high two bits from the command byte). Neither the prompt
+  nor the draw offers a way in; `mqHave` refuses a sound id with `? not yet`. Wants hex entry and a
+  panel that can show the class.
+
+  **The design.** The 40 sound ids are eight encoding shapes, so the tables gain a `mqShape` byte
+  per id and one encoder entry per shape instead of 40 bespoke routines:
+
+  | shape | how the pair is built | ids |
+  |---|---|---|
+  | 0 | `opt = value \| base` | `F-C` `PNT` `RTP` `HLD` `P-S` `F-S` `SCA` `VDP` `VRT` `AUT` `TPS` `PVD` `PVR` `MAX` `FLG` `AUX` |
+  | 1 | `opt = (value << 4) \| base` | `DCY` `REL` `VOL` `RES` |
+  | 2 | `opt = (value << 3) \| base` | `ATK` `SUS` |
+  | 3 | `opt = (value << 5) \| base` | `WAV` `F-M` `SRC` |
+  | 4 | `opt = base \| (on ? bit : 0)` | `SNC` `FLT` `RNG` `LFO` `P&V` `3-O` `BMP` `F-X` `DST` |
+  | 5 | `cmd = ((value >> 8) << 4) \| base`, `opt = value & 255` | `P-W` `DTN` |
+  | 6 | `cmd = ((value >> 8) << 2) \| base`, `opt = value & 255` | `POR` |
+  | 7 | `cmd = ((value >> 8) << 6) \| base`, `opt = value & 255` | `MS#` |
+
+  The exact bases are `gen-mus.py`'s own encoders (`c_fc`, `c_ps`, `c_vrt`, `c_vdp`, `c_vol`,
+  `c_atk`, `c_dcy`, `c_sus`, `c_rel`, `c_wav`, `c_res`, `c_fm`, `c_pw`, `c_voice3_on`) for the ids
+  it has, and its `EXACT` decode table for the fixed-byte ones (`opt = value`, command byte as
+  `EXACT` gives it). Slice 1 is shapes 0-3 (24 ids, all operands <= 255, so the existing decimal
+  entry still fits and no 16-bit work is needed); slice 2 is shapes 5-7, which widen `MU_OBJVAL`
+  and `MU_OBJMAX` to two bytes and add hex entry; slice 3 is shape 4 plus read-back, so `C` on an
+  existing sound line shows its value and can change it.
+
+  **The gate is in place** (`tools/check-mus-commands.py`, 7.9): it reads the tables out of
+  `musedit.inc`, so each slice is checked against `gen-mus.py` as it lands, and the ids that have
+  no reference yet are reported rather than skipped.
+
+  **Cost, measured against the estimate:** ~2 code pages (380-500 bytes), no new pool pressure at
+  the current margin of 10, plus two or three message records in the REU.
 - [ ] **7.8 The 16-23 phrase form.** *Built — the drawing half is verified, the save half is not.*
   `muObjEnc` encodes `DEF`/`CALL` below 16 with the plain nibble and 16-23 with the second form
   (`value - 16 + 8`, shifted into the high nibble, `$03`/`$0B` in the low byte), and `mqMax` caps
