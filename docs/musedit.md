@@ -511,10 +511,11 @@ carries the same command: `OVR` replaces it where it stands, `INS` adds a second
 that line, already filled in and ready to change, and `SHIFT+INST/DEL` removes that pair and
 closes the gap. `Z` takes either back, like any other edit.
 
-A line that shows a *sound* command — `ATK`, `WAV`, `P-W` and the rest of the table below — was
-written by the tune you opened. Those operands are timing and waveform numbers that belong to the
-pattern rather than to a line somebody types, so the prompt writes the nine settings above and the
-grid shows the rest; the reference below says what the player does with each of them.
+**Every** command the picker offers is writable, the sound ones included: `C` on a `P-W` line opens
+the prompt on `P-W` with the operand that line already carries — `CMD P-W 1035` — and taking a new
+value replaces that pair where it stands, so the line never carries two of them. The operands below
+are timing and waveform numbers that belong to the pattern rather than to a line somebody types, so
+they read and write as plain counts; the reference below says what the player does with each of them.
 
 ### The groups
 

@@ -83,6 +83,7 @@
 .label muObjMax     = MU_ZP_BASE+63  // ...and the largest operand it takes
 .label muObjValHi   = MU_ZP_BASE+224  // the high byte of each, for the 14-bit commands
 .label muObjMaxHi   = MU_ZP_BASE+225
+.label muCmdValHi   = MU_ZP_BASE+226  // the high half of a command's operand
 .label muObjKind    = MU_ZP_BASE+64  // 0 = a pair to add, 1 = the pair at MU_OBJLO/HI
 .label muObjPhase   = MU_ZP_BASE+65  // 0 = picking the mnemonic, 1 = typing the operand
 .label muObjFresh   = MU_ZP_BASE+66  // 0 = the next digit starts the operand afresh
@@ -197,7 +198,7 @@
 .const muLogIdP     = MU_ZP_BASE+198  // 2 bytes  pointers into the instance buffer: the row's
 .const muLogLoP     = MU_ZP_BASE+200  // 2 bytes  logged commands (muHeapPtrs fills them)
 .label muDurTie     = MU_ZP_BASE+202  // 1 = the next new note is tied to the one after
-.label MU_ZP_END    = MU_ZP_BASE+226
+.label MU_ZP_END    = MU_ZP_BASE+227
 .label muDirty      = MU_ZP_BASE+203  // an image byte changed since the last save
 .label muWarn       = MU_ZP_BASE+204  // Q warned once; the next Q discards
 .label muRecV       = MU_ZP_BASE+205  // ...voice...
@@ -220,7 +221,7 @@
 .label muUcDirty    = MU_ZP_BASE+222  // the window has writes the file has not seen
 .label muUcTmp      = MU_ZP_BASE+223  // the byte muUndoGet carries across its own restore
 .assert "the zero page region fits the declared window", (MU_ZP_END - MU_ZP_BASE) <= MU_ZP_LEN ? 1 : 0, 1
-.assert "the declared window covers the last variable", (MU_ZP_END - MU_ZP_BASE) >= 226 ? 1 : 0, 1
+.assert "the declared window covers the last variable", (MU_ZP_END - MU_ZP_BASE) >= 227 ? 1 : 0, 1
 .assert "the zero page region stays below the kernel's IRQ bytes", (MU_ZP_BASE + MU_ZP_LEN) <= $f0 ? 1 : 0, 1
 
 // --- instance data: offsets into the 53-byte instance buffer ---
@@ -3407,6 +3408,8 @@ mchBlock:
     tay
     lda (muLogLoP),y
     sta muCmdVal
+    lda muLogHi,y               // the operands that need two bytes (P-W, POR, MS#)
+    sta muCmdValHi
     lda (muLogIdP),y
     clc
     rts
@@ -5734,6 +5737,7 @@ muObjKey:
     sta muObjId
     lda #0
     sta muObjVal
+    sta muObjValHi
     sta muObjKind               // 0 = a pair to be added at the boundary
     jmp mqPick
 mqHave:
@@ -5750,8 +5754,8 @@ mqHave:
 mqHaveOk:
     lda muCmdVal
     sta muObjVal
-    lda #0
-    sta muObjValHi              // a logged operand is one byte
+    lda muCmdValHi
+    sta muObjValHi
     lda #1                      // 1 = the pair exists: its two bytes are replaced
     sta muObjKind
     sta muObjMatch
@@ -5893,6 +5897,7 @@ mqValDigit:
     sta muObjFresh
     lda #0
     sta muObjVal
+    sta muObjValHi
 mqValAcc:
     lda muObjVal                // val * 10 + the digit, in 16 bits, by kMul16
     sta kArg
@@ -6183,6 +6188,9 @@ mqfRead:
     beq mqfHit
     lda muLnVLo
     cmp muObjVal
+    bne mqfLp
+    lda muLnVHi                 // the wide operands need both halves compared
+    cmp muObjValHi
     bne mqfLp
 mqfHit:
     clc

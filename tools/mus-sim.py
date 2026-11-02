@@ -17,6 +17,12 @@ is how the two are compared:
 
     python tools/mus-sim.py music/tetris.mus --trace 20
 
+`--walk` prints the same lines with the song tick each one was walked at -- the
+value musedit records in MU_LNTICK and the playhead looks its own row up by -- so
+a running editor's line ring can be compared against it line for line:
+
+    python tools/mus-sim.py music/commodo.mus --walk 40
+
 The duration arithmetic is not re-derived here: it comes from
 tools/check-mus-timing.py, so the editor, the player and this model share one
 account of how long a note lasts.
@@ -469,7 +475,7 @@ def grid(result, rows):
 DUR_NUM = (64, 0, 1, 2, 4, 8, 16, 32)   # by length class: muDurNum
 
 
-def layout(result, trace, count):
+def layout(result, trace, count, walk=False):
     """The editor's display lines: a time row, or one structural command.
 
     A grid line is one of two things. A **time row** carries every voice's note that
@@ -482,6 +488,13 @@ def layout(result, trace, count):
     The lanes are MU_LANE_W (11) cells: the pitch in 0-2, a space, the duration in
     4-5, and the editor's own mark in the last cell. A command line has its mnemonic
     from cell 0 and nothing else.
+
+    `walk` adds the tick the editor records for the line (MU_LNTICK), which is what
+    the playhead looks its row up by. muStep sets muClkLo/Hi to the clock of the
+    event it runs and muLnRowDraw stores it, so a row's tick is its LAST event's
+    clock -- and every event that starts on the row shares it. A row with no events
+    runs no muStep, so its line keeps the previous row's value; a command line is
+    never consulted (muPhSync skips a line that holds no row) and prints `-`.
     """
     model = timing()
     segs = segments(result["temps"])
@@ -489,6 +502,8 @@ def layout(result, trace, count):
     cmds = [[[], []], [[], []], [[], []]]   # [voice][class]: the two never share a line
     out = []
     row = 0
+    tick = None                 # the clock of the last event in the group being built
+    last = 0                    # ...and the value the previous group's line holds
 
     def lane(voice):
         text, cmd_byte = notes[voice]
@@ -501,14 +516,19 @@ def layout(result, trace, count):
         return "".join(cells)
 
     def flush():
+        nonlocal tick, last
+        stamp = last if tick is None else tick
         for cls in (1, 0):          # the sound commands first, then the structural
             depth = max(len(cmds[voice][cls]) for voice in range(3))
             for k in range(depth):
                 lanes = [(voice, cmds[voice][cls][k])
                          for voice in range(3) if k < len(cmds[voice][cls])]
-                out.append((None, [(voice, (text + " " * 11)[:11]) for voice, text in lanes]))
+                out.append((None, [(voice, (text + " " * 11)[:11]) for voice, text in lanes],
+                            stamp))
         lanes = [(voice, lane(voice)) for voice in range(3) if voice in notes]
-        out.append((row, lanes))
+        out.append((row, lanes, stamp))
+        last = stamp
+        tick = None
         for voice in range(3):
             for cls in (0, 1):
                 del cmds[voice][cls][:]
@@ -519,6 +539,7 @@ def layout(result, trace, count):
         while row < here:
             flush()
             row += 1
+        tick = clock
         if cmd & 3:
             ident, value = decode_cmd(cmd, opt)
             if ident:
@@ -530,8 +551,25 @@ def layout(result, trace, count):
     flush()
 
     bar_list = bars(segs, row)
+    if walk:
+        print("walk: %d segments, %d lines (tick = MU_LNTICK, the row's own clock)"
+              % (len(segs), len(out)))
+        print("  %5s %-6s |%s|%s|%s|" % ("tick", "bar", " " * 11, " " * 11, " " * 11))
+        for at, lanes, stamp in out[:count]:
+            cells = [" " * 11] * 3
+            for voice, text in lanes:
+                cells[voice] = text
+            if at is None:
+                shown, label = "%5s" % "-", "-"   # a command line: no row, no tick
+            else:
+                number, inside = bar_of(bar_list, at)
+                shown = "%5d" % stamp
+                label = "%03d.%02d" % (number, inside)
+            print("  %s %-6s |%s|%s|%s|" % (shown, label, cells[0], cells[1], cells[2]))
+        return
+
     print("lines: %d segments, %d lines" % (len(segs), len(out)))
-    for at, lanes in out[:count]:
+    for at, lanes, _stamp in out[:count]:
         cells = [" " * 11] * 3
         for voice, text in lanes:
             cells[voice] = text
@@ -545,13 +583,15 @@ def layout(result, trace, count):
 
 def main(argv):
     if len(argv) < 2:
-        print("usage: mus-sim.py <file.mus> [--trace N] [--cmd] [--grid N] [--lines N]")
+        print("usage: mus-sim.py <file.mus> [--trace N] [--cmd] [--grid N] [--lines N]"
+              " [--walk N]")
         return 2
     path = argv[1]
     limit = 0
     trace_cmd = False
     grid_rows = 0
     line_rows = 0
+    walk_rows = 0
     index = 2
     while index < len(argv):
         if argv[index] == "--trace":
@@ -565,13 +605,16 @@ def main(argv):
         elif argv[index] == "--lines":
             index += 1
             line_rows = int(argv[index])
+        elif argv[index] == "--walk":
+            index += 1
+            walk_rows = int(argv[index])
         else:
             raise SystemExit("mus-sim: unknown option %s" % argv[index])
         index += 1
     image = open(path, "rb").read()
     if len(image) < 8:
         raise SystemExit("mus-sim: %s is too short to be a tune" % path)
-    if line_rows:
+    if line_rows or walk_rows:
         #  The layout needs every event, not a trace excerpt: notes and commands.
         limit, trace_cmd = 1000000, True
     result, trace = simulate(image, limit, trace_cmd)
@@ -580,6 +623,8 @@ def main(argv):
         grid(result, grid_rows)
     if line_rows:
         layout(result, trace, line_rows)
+    if walk_rows:
+        layout(result, trace, walk_rows, walk=True)
     return 0
 
 

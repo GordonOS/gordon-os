@@ -915,12 +915,18 @@ the pair, `muObjFind` finds an existing pair at a boundary by id, `muMnPrint` dr
 - [x] **7.4 Undo is one action.** *A command edit's undo record is the pair alone, so it undoes as one action and no row moves.*
 - [x] **7.5 A command needs a boundary.** *A pair consumes no time, so its line only ever sits above a note or a rest: a row in the middle of a duration answers `? no event here` rather than splitting it, because the format has nothing to split it with. The prompt refuses there too — the editor offers no way to place what the format cannot hold.*
 - [x] **7.6 Utility lengths.** *`8` and `9` arm the duration the next note is written with to UTL and UTV (`muArmKey`), and the armed value round-trips.*
-- [x] **7.7 The sound commands.** *Built; needs the hardware sitting.* All 49 ids are
-  writable and the gate sweeps 30,463 pairs across every one of them. The 37 ids between `FC` and `MS#`
-  need their operand entered, and their operands are up to 14 bits in three shapes `P-W`, `POR`,
-  `DTN` are two bytes, `MS#` takes its high two bits from the command byte). Neither the prompt
-  nor the draw offers a way in; `mqHave` refuses a sound id with `? not yet`. Wants hex entry and a
-  panel that can show the class.
+- [x] **7.7 The sound commands.** *Built; verified on hardware* (`commodo`: `C` on voice 1's `MS# 1`
+  line opens the prompt on `MS# 1`; CRSR walks to `P-W`, `1035` and `ENT` write it, and re-opening
+  after moving the cursor away and back shows `P-W 1035` where the un-widened chain showed `11`;
+  taking `999` on the same line replaces that pair rather than adding a second; `POR 5000` reads
+  back as `POR 5000`). All 49 ids
+  are writable and the gate sweeps 30,463 pairs across every one of them, including the four whose
+  operand spans two bytes (`P-W` and `DTN` at 12 bits, `POR` at 14, `MS#` with its high two bits in
+  the command byte). `C` on a sound line shows the operand it already has and takes a new one: the
+  value is logged with both halves (`muLogHi`), `mchBlock` returns both, `mqHave` seeds
+  `muObjVal`/`muObjValHi` from them, and `muObjFind` compares the pair 16-bit so the match is the
+  command that is really there. The value is entered in decimal; the first digit typed starts
+  afresh in both halves.
 
   **The design.** The 40 sound ids are eight encoding shapes, so the tables gain a `mqShape` byte
   per id and one encoder entry per shape instead of 40 bespoke routines:
@@ -1319,7 +1325,15 @@ This is the only design of the seven tried whose input *is* the quantity being d
 
 ### 13.3 A gate that keeps them equal
 
-- [ ] **13.3 The walk gate.** *Not built.* `tools/mus-sim.py --walk` would print `row offset` for every event of a voice (its options today are `--trace`, `--cmd`, `--grid`, `--lines`), and `tools/check-musedit-walk.py` would compare the editor's ring dump for the same window against it. That closes §15.1's equivalence risk with a test that can be re-run instead of a one-off listening session.
+- [ ] **13.3 The walk gate.** *Half built: `--walk` prints the reference; the automated comparison
+  is not built.* `tools/mus-sim.py --walk N` prints every line the walk draws with the song tick
+  `MU_LNTICK` records for it — a row's own clock (the last event it ran), the previous row's value
+  for a row that ran none, and `-` on a command line, which `muPhSync` never consults.
+  **Verified against a running editor:** `commodo`'s 19-line window (`--walk 19`) matches musedit's
+  screen line for line — the seven command lines above row 1, the five `PNT` lines and the blank
+  even rows `02`-`10` all sit where the screen puts them. What is left is
+  `tools/check-musedit-walk.py`, which compares the editor's line ring for the same window and so
+  needs the ring dumped over the monitor — a hardware sitting.
 - [ ] **13.3b One contiguous published block.** *Not built.* The player publishes two things a reader needs — each voice's next-command offset (`$54A2-$54A7`) and its song jiffies (`$54A8-$54A9`) — but the kernel's `tickCount` sits at the free space after them, so a reader doing arithmetic on the base reads the wrong thing (the off-by-one that makes a walk run ten times fast). The tidy layout moves `tickCount` to `$54AA` so `$54A2-$54A9` is the player's alone, gives the fields named offsets in `sid.asm` mirrored in `kernel-shared.inc`, and asserts `tickCount == $54AA`. It is its own change, on its own build, with nothing else in flight: done inline it broke a working playhead.
 
 ### 13.4 Phrase-native editing
@@ -1372,9 +1386,9 @@ order:
   its own byte; and a search leaves the producer parked at the row it stopped on, so a refusal
   puts it back **silently** (`muBandRebuild`) -- repainting instead makes a one-second message
   flash the whole grid.
-- [x] **13.4c Author it, for the nine structural commands.** *Partly done — the structural half is in, the sound half is not (7.7, 7.10).* `C` — and `SHIFT+C`, and the `CMD` cell on the bar — opens a
-  **one-line prompt on row 0** rather than a full-screen panel: CRSR up/down picks one of the nine
-  structural commands, `RETURN` takes it and the digits then build its operand, `STOP` cancels and
+- [x] **13.4c Author it, for the nine structural commands.** *Verified on hardware, both halves — the structural nine and, through 7.7, every sound id.* `C` — and `SHIFT+C`, and the `CMD` cell on the bar — opens a
+  **one-line prompt on row 0** rather than a full-screen panel: CRSR up/down picks one of the 49
+  commands, `RETURN` takes it and the digits then build its operand, `STOP` cancels and
   the grid comes back untouched. The prompt writes at most **two bytes**: the pair is inserted at
   the boundary the cursor's row starts (the same `muInsGap` a note uses), or replaced where it
   stands when that boundary already carries the same command and the mode is `OVR`; `SHIFT+INST/DEL`
