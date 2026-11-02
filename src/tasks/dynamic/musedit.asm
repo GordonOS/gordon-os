@@ -17,7 +17,7 @@
 // in its own SPAWN arguments) and $f0-$ff to the kernel's IRQ. musedit.inc declares
 // the state that lives there.
 .const MU_ZP_BASE   = $0b
-.const MU_ZP_LEN    = 224
+.const MU_ZP_LEN    = 226
 
 museditBinStart:
     .word HDR_MAGIC              // +0:  magic 'G','O' (LE)

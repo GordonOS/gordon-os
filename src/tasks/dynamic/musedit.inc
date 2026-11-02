@@ -81,6 +81,8 @@
 .label muObjId      = MU_ZP_BASE+61  // the command being authored: mnemonic id 1..9
 .label muObjVal     = MU_ZP_BASE+62  // ...its operand
 .label muObjMax     = MU_ZP_BASE+63  // ...and the largest operand it takes
+.label muObjValHi   = MU_ZP_BASE+224  // the high byte of each, for the 14-bit commands
+.label muObjMaxHi   = MU_ZP_BASE+225
 .label muObjKind    = MU_ZP_BASE+64  // 0 = a pair to add, 1 = the pair at MU_OBJLO/HI
 .label muObjPhase   = MU_ZP_BASE+65  // 0 = picking the mnemonic, 1 = typing the operand
 .label muObjFresh   = MU_ZP_BASE+66  // 0 = the next digit starts the operand afresh
@@ -195,7 +197,7 @@
 .const muLogIdP     = MU_ZP_BASE+198  // 2 bytes  pointers into the instance buffer: the row's
 .const muLogLoP     = MU_ZP_BASE+200  // 2 bytes  logged commands (muHeapPtrs fills them)
 .label muDurTie     = MU_ZP_BASE+202  // 1 = the next new note is tied to the one after
-.label MU_ZP_END    = MU_ZP_BASE+224
+.label MU_ZP_END    = MU_ZP_BASE+226
 .label muDirty      = MU_ZP_BASE+203  // an image byte changed since the last save
 .label muWarn       = MU_ZP_BASE+204  // Q warned once; the next Q discards
 .label muRecV       = MU_ZP_BASE+205  // ...voice...
@@ -218,7 +220,7 @@
 .label muUcDirty    = MU_ZP_BASE+222  // the window has writes the file has not seen
 .label muUcTmp      = MU_ZP_BASE+223  // the byte muUndoGet carries across its own restore
 .assert "the zero page region fits the declared window", (MU_ZP_END - MU_ZP_BASE) <= MU_ZP_LEN ? 1 : 0, 1
-.assert "the declared window covers the last variable", (MU_ZP_END - MU_ZP_BASE) >= 224 ? 1 : 0, 1
+.assert "the declared window covers the last variable", (MU_ZP_END - MU_ZP_BASE) >= 226 ? 1 : 0, 1
 .assert "the zero page region stays below the kernel's IRQ bytes", (MU_ZP_BASE + MU_ZP_LEN) <= $f0 ? 1 : 0, 1
 
 // --- instance data: offsets into the 53-byte instance buffer ---
@@ -350,6 +352,8 @@
 .const MU_MN_RES    = 32
 .const MU_MN_WAV    = 33
 .const MU_MN_FM     = 34      // filter mode
+.const MU_MN_LAST   = MU_MN_FM  // the last id the picker offers (slices 2-3 raise it)
+.const MQ_WIDE      = 34      // where mqOptB's second block starts: one per id
 .const MU_MN_BMP    = 35      // bump volume
 .const MU_MN_FLT    = 36      // filter through
 .const MU_MN_RNG    = 37      // ring modulation
@@ -5733,11 +5737,23 @@ muObjKey:
     sta muObjKind               // 0 = a pair to be added at the boundary
     jmp mqPick
 mqHave:
-    cmp #MU_MN_END+1            // a sound command is drawn, not written: its
-    bcs mqRefuseCmd             //   operand is the pattern's own timing
     sta muObjId
+    cmp #MU_MN_END+1            // ids above the structural nine are sound commands:
+    bcc mqHaveOk                //   they are writable once their shape is encoded
+    sec
+    sbc #1
+    tay
+    lda mqShape,y
+    cmp #4                      // 4 is the flag family: no encoder yet
+    beq mqRefuseCmd
+    cmp #9                      // 9 is a shape this build cannot write at all
+    beq mqRefuseCmd
+    lda muObjId
+mqHaveOk:
     lda muCmdVal
     sta muObjVal
+    lda #0
+    sta muObjValHi              // a logged operand is one byte
     lda #1                      // 1 = the pair exists: its two bytes are replaced
     sta muObjKind
     sta muObjMatch
@@ -5769,12 +5785,7 @@ mqPick:
     sta muObjFresh
 mqDraw:
     jsr muObjEnc                // the operand's maximum, and the encoded pair
-    lda muObjVal                // a mnemonic picked after a value was typed keeps it
-    cmp muObjMax                //   only as far as the new one takes it
-    bcc mqDrawOk
-    lda muObjMax
-    sta muObjVal
-mqDrawOk:
+    jsr mqClamp                 // a mnemonic picked after a value was typed keeps it
     jsr muClearRow0
     lda #M_CMD
     jsr muMsg
@@ -5792,7 +5803,8 @@ mqDrawOk:
     lda #MU_SPACE
     jsr muPutC
     lda muObjVal
-    jsr muByteDec
+    ldx muObjValHi
+    jsr muNum16
 mqDrawEnd:
     lda muObjPhase
     bne mqValKey
@@ -5817,7 +5829,7 @@ mqIdWait:
     jmp mqIdKey
 mqIdDown:
     lda muObjId
-    cmp #MU_MN_END
+    cmp #MU_MN_LAST
     bcc mqIdInc
     lda #MU_MN_TEM-1            // past the last: wrap to the first
 mqIdInc:
@@ -5829,7 +5841,7 @@ mqIdUp:
     lda muObjId
     cmp #MU_MN_TEM
     bne mqIdDec
-    lda #MU_MN_END+1            // before the first: wrap to the last
+    lda #MU_MN_LAST+1           // before the first: wrap to the last
 mqIdDec:
     sec
     sbc #1
@@ -5858,7 +5870,9 @@ mqIt3:
 // --- the operand step: digits build the value, INST/DEL backs one out ---
 mqValKey:
     jsr kReadKey
-    beq mqValWait
+    bne mqValGot
+    jmp mqValWait
+mqValGot:
     cmp #$81                    // RETURN: write the pair
     beq mqValTake
     cmp #$83                    // STOP: cancel
@@ -5882,27 +5896,44 @@ mqValDigit:
     lda #0
     sta muObjVal
 mqValAcc:
-    lda muObjVal                // val * 10 + the digit, never past the maximum
-    cmp #25                     //   25 is the first value whose *10 no longer fits
-    bcs mqValFull               //   a byte with a digit added to it
-    asl
-    sta muTmpH
-    asl
-    asl
-    clc
-    adc muTmpH
+    lda muObjVal                // val * 10 + the digit, in 16 bits, by kMul16
+    sta kArg
+    lda muObjValHi
+    sta kArg+1
+    lda #10
+    sta kArg+2
+    lda #0
+    sta kArg+3
+    jsr kMul16
+    lda kArg+4                  // the product's low two bytes
     clc
     adc muTmpL
-    cmp muObjMax
-    bcc mqValSet
-    beq mqValSet
-mqValFull:
-    lda muObjMax
-mqValSet:
     sta muObjVal
+    lda kArg+5
+    adc #0
+    sta muObjValHi
+    jsr mqClamp                 // never past the maximum
     jmp mqDraw
+
+// --- mqClamp -- MU_OBJVAL := min(MU_OBJVAL, MU_OBJMAX), both 16-bit ---
+mqClamp:
+    lda muObjValHi
+    cmp muObjMaxHi
+    bcc mqClRts                 // below the maximum
+    bne mqClSet                 // above it
+    lda muObjVal
+    cmp muObjMax
+    bcc mqClRts
+mqClSet:
+    lda muObjMax
+    sta muObjVal
+    lda muObjMaxHi
+    sta muObjValHi
+mqClRts:
+    rts
 mqValBack:
     lda muObjVal
+    ora muObjValHi
     bne mqVbGo                  // a value: drop its last digit
     lda #0                      // nothing left to delete: back to the mnemonic
     sta muObjPhase
@@ -5910,16 +5941,18 @@ mqValBack:
 mqVbGo:
     sta muObjFresh              // a digit typed now extends what is left
     lda muObjVal
-    ldx #0                      // the quotient, by repeated subtraction
-mqVbLp:
-    cmp #10
-    bcc mqVbDone
-    sec
-    sbc #10
-    inx
-    bne mqVbLp
-mqVbDone:
-    stx muObjVal
+    sta kArg
+    lda muObjValHi
+    sta kArg+1
+    lda #10
+    sta kArg+2
+    lda #0
+    sta kArg+3
+    jsr kDiv16
+    lda kArg+4
+    sta muObjVal
+    lda kArg+5
+    sta muObjValHi
     jmp mqDraw
 mqValWait:
     lda #SYS_YIELD
@@ -6021,7 +6054,7 @@ muObjEnc:
     cmp #MU_MN_DEF
     beq mqEncPh
     cmp #MU_MN_CALL
-    bne mqEncVal
+    bne mqEncShape
 mqEncPh:
     lda muObjVal
     cmp #16
@@ -6034,7 +6067,7 @@ mqEncPh:
     asl
     asl
     asl
-    ora mqOptB+9,y              // the phrase low nibble: $03 for DEF, $0B for CALL
+    ora mqOptB+MQ_WIDE,y       // the phrase low nibble: $03 for DEF, $0B for CALL
     sta muObjOptB
     rts
 mqEncNib:
@@ -6045,6 +6078,57 @@ mqEncNib:
     asl
     ora muObjOptB
     sta muObjOptB
+    rts
+mqEncShape:
+    lda mqShape,y
+    beq mqEncVal                // 0: the whole option byte is the operand
+    cmp #5
+    bcs mqEncWide               // 5-7: the high byte rides the command byte
+    cmp #4
+    beq mqEncNoShape            // 4: the flag family, no encoder yet
+    tay                         // the shape, to index the packer's parameters
+    lda mqShMask,y
+    and muObjVal
+    sta muTmp                   // the bits to move, kept across the next read
+    lda mqShShift,y
+    tax                         // the shift count
+    lda muTmp
+mqShLp:
+    dex
+    bmi mqShOr
+    asl
+    jmp mqShLp
+mqShOr:
+    ora muObjOptB
+    sta muObjOptB
+    rts
+
+// --- mqEncWide -- shapes 5-7: the operand's HIGH byte packs into the command byte ---
+//  In: A = the shape, Y = id - 1. The low byte is the option. The maximum comes
+//  from the shape rather than the table, because only these shapes can exceed a
+//  byte: P-W and DTN 4095, POR 16383, MS# 767.
+mqEncWide:
+    tax                         // the shape (5, 6 or 7)
+    lda mqShMaxHi-5,x
+    sta muObjMaxHi
+    lda mqShMaxLo-5,x
+    sta muObjMax
+    lda mqShCmdShift-5,x
+    sta muTmp2
+    lda mqShCmdMask-5,x
+    and muObjValHi
+mqWwLp:
+    dec muTmp2
+    bmi mqWwOr
+    asl
+    jmp mqWwLp
+mqWwOr:
+    ora mqCmdB,y
+    sta muObjCmdB
+    lda muObjVal
+    sta muObjOptB
+    rts
+mqEncNoShape:
     rts
 mqEncVal:
     lda muObjVal                // the whole option byte is the operand
@@ -6148,9 +6232,39 @@ mqMnEnd:
 //  option table's second nine are the PHRASE bases: a phrase the option's top bit
 //  names puts its own low nibble there, where the value 0-15 keeps the first nine.
 mqCmdB:     .byte $06, $16, $F6, $36, $01, $01, $01, $01, $01
+            .byte $0E, $26, $2E, $4E, $56, $66, $6E, $76, $86
+            .byte $96, $A6, $C6, $D6, $E6
+            .byte $02, $0A, $03        // P-W, DTN, POR: the command byte's low bits
+            .byte $01, $01, $01, $01, $01, $01, $01, $01
 mqOptB:     .byte $00, $00, $00, $00, $06, $02, $0F, $4F, $2F
+            .byte $00, $00, $00, $00, $00, $00, $00, $00, $00
+            .byte $00, $00, $00, $00, $00
+            .byte $00, $00, $00
+            .byte $04, $00, $84, $08, $0E, $0A, $07, $17
             .byte $00, $00, $00, $00, $03, $0B, $00, $00, $00
 mqMax:      .byte 255,  255,  255,  255,  23,   23,   0,    0,    0
+            .byte 255,  255,  255,  255,  255,  255,  255,  127,  127
+            .byte 255,  255,  255,  255,  255
+            .byte 0,    0,    0
+            .byte 15,   15,   15,   15,   15,   15,   7,    7
+//  How a value reaches the pair, one byte per id. 0 is "the whole option byte is
+//  the operand"; 1-3 pack it into the option's top bits at 4, 3 and 5; 9 is a shape
+//  that has no encoder yet, so mqHave refuses the id rather than writing nonsense.
+mqShape:    .byte 0,    0,    0,    0,    0,    0,    0,    0,    0
+            .byte 0,    0,    0,    0,    0,    0,    0,    0,    0
+            .byte 0,    0,    0,    0,    0
+            .byte 5,    5,    6        // the 14-bit shapes: value's high byte to the command
+            .byte 2,    1,    2,    1,    1,    1,    3,    3
+//  The packer's parameters, indexed by shape: the bits of the value it keeps, and
+//  how far left they move. Shapes 1-3 are the only packing ones so far.
+mqShMask:   .byte $00, $0f, $0f, $07
+mqShShift:  .byte 0,    4,    3,    5
+//  Shapes 5-7 (P-W, POR, MS#) put the operand's HIGH byte in the command byte, so
+//  they carry their own maximum and their own place for those bits.
+mqShMaxLo:  .byte $ff, $ff, $ff
+mqShMaxHi:  .byte $0f, $3f, $02    // 4095, 16383, 767
+mqShCmdMask:  .byte $0f, $3f, $03
+mqShCmdShift: .byte 4,    2,    6
 
 // ==========================================
 //  Undo -- a stack of range-diff records

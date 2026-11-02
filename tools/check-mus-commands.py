@@ -79,6 +79,31 @@ def read_table(lines, label):
     raise SystemExit("check-mus-commands: no table %r in %s" % (label, EDITOR))
 
 
+_EXACT_CACHE = {}
+
+
+def EXACT_CMD(gen):
+    """name -> command byte, inverted from the generator's EXACT decode table.
+
+    Those commands are the ones whose whole option byte is the operand, so the
+    format's statement of them is just (command byte, value) -- and taking it from
+    the generator's own table keeps this gate independent of the editor's.
+    """
+    if not _EXACT_CACHE:
+        for cmd, (name, _f) in gen.EXACT.items():
+            _EXACT_CACHE.setdefault(name, cmd)
+    return _EXACT_CACHE
+
+
+def read_const(lines, name, default):
+    """A .const NAME = 123 (decimal) from the sources, or a default."""
+    for line in lines:
+        m = re.match(r"^\.const\s+%s\s*=\s*(\S+)" % re.escape(name), strip(line).strip())
+        if m:
+            return int(m.group(1), 0)
+    return default
+
+
 def read_mnemonics(lines):
     """muMnTab -- five characters per mnemonic id, in id order (1-based)."""
     for i, line in enumerate(lines):
@@ -98,21 +123,30 @@ def read_mnemonics(lines):
     raise SystemExit("check-mus-commands: no muMnTab in %s" % EDITOR)
 
 
-def editor_pair(cmd_b, opt_b, max_v, value, is_phrase, wide_b):
+def editor_pair(cmd_b, opt_b, max_v, value, is_phrase, wide_b,
+                shape=0, mask=0x0F, shift=0, cmd_mask=0, cmd_shift=0):
     """muObjEnc, line for line: (command byte, option byte) for one operand."""
     cmd = cmd_b
+    if shape >= 5:                              # the high byte rides the command byte
+        return ((((value >> 8) & cmd_mask) << cmd_shift) | cmd_b, value & 0xFF)
     if is_phrase:
         if value < 16:
             opt = (value << 4) | opt_b
         else:
             opt = ((value - 16 + 8) << 4) | wide_b
-    else:
+    elif shape == 0:
         opt = value | opt_b
+    else:
+        #  shapes 1-3: the low bits of the value move into the option's top bits
+        opt = ((value & mask) << shift) | opt_b
     return (cmd, opt)
 
 
 def reference(gen, mnemonic, value):
     """How the FORMAT encodes this mnemonic at this value, or None if unknown."""
+    fixed = EXACT_CMD(gen).get(mnemonic)
+    if fixed is not None:
+        return (fixed, value)
     if mnemonic == "TEM":
         return gen.c_tem(value)
     if mnemonic == "UTL":
@@ -135,6 +169,12 @@ def reference(gen, mnemonic, value):
         return gen.HLT
     if mnemonic == "END":
         return (0x01, 0x2F)
+    if mnemonic == "P-W":                       # 12 bits: high nibble + option
+        return ((((value >> 8) & 0x0F) << 4) | 0x02, value & 0xFF)
+    if mnemonic == "DTN":                       # 12 bits, as P-W with its own base
+        return ((((value >> 8) & 0x0F) << 4) | 0x0A, value & 0xFF)
+    if mnemonic == "POR":                       # 14 bits: high six bits + option
+        return ((((value >> 8) & 0x3F) << 2) | 0x03, value & 0xFF)
     fn = SOUND.get(mnemonic)
     if fn is not None:
         return getattr(gen, fn)(value)
@@ -181,29 +221,52 @@ def main():
     opt_b = read_table(lines, "mqOptB")
     max_v = read_table(lines, "mqMax")
     names = read_mnemonics(lines)
+    shape = read_table(lines, "mqShape")
+    sh_mask = read_table(lines, "mqShMask")
+    sh_shift = read_table(lines, "mqShShift")
+    sh_max_lo = read_table(lines, "mqShMaxLo")
+    sh_max_hi = read_table(lines, "mqShMaxHi")
+    sh_cmd_mask = read_table(lines, "mqShCmdMask")
+    sh_cmd_shift = read_table(lines, "mqShCmdShift")
 
-    if len(opt_b) != 2 * len(cmd_b):
-        raise SystemExit("check-mus-commands: mqOptB holds %d bytes, expected two "
-                         "blocks of %d (the plain phrases and the 16-23 form)"
-                         % (len(opt_b), len(cmd_b)))
     if len(max_v) != len(cmd_b):
         raise SystemExit("check-mus-commands: mqMax holds %d bytes, mqCmdB %d"
                          % (len(max_v), len(cmd_b)))
-    wide = opt_b[len(cmd_b):]
+    wide_at = read_const(lines, "MQ_WIDE", len(cmd_b))
+    wide = opt_b[wide_at:]
+    if len(wide) < 9:
+        raise SystemExit("check-mus-commands: the wide phrase block holds %d bytes, "
+                         "expected the structural nine" % len(wide))
 
     checked = 0
     uncovered = []
+    pending = []
     for row in range(len(cmd_b)):
         mnemonic = names.get(row + 1, "?")
+        limit = max_v[row]
+        if row < len(shape) and shape[row] in (4, 9):
+            #  no encoder in this slice: muObjEnc writes nothing and mqHave refuses
+            #  the id, so there is no pair to compare yet
+            if mnemonic not in pending:
+                pending.append(mnemonic)
+            continue
         is_phrase = mnemonic in ("DEF", "CALL")
-        for value in range(max_v[row] + 1):
+        sh = shape[row] if row < len(shape) else 0
+        if sh >= 5:                             # the maximum comes from the shape
+            limit = sh_max_hi[sh - 5] * 256 + sh_max_lo[sh - 5]
+        for value in range(limit + 1):
             want = reference(gen, mnemonic, value)
             if want is None:
                 if mnemonic not in uncovered:
                     uncovered.append(mnemonic)
                 continue
             got = editor_pair(cmd_b[row], opt_b[row], max_v[row], value,
-                              is_phrase, wide[row])
+                              is_phrase, wide[row] if row < len(wide) else 0,
+                              sh,
+                              sh_mask[sh] if sh < len(sh_mask) else 0x0F,
+                              sh_shift[sh] if sh < len(sh_shift) else 0,
+                              sh_cmd_mask[sh - 5] if sh >= 5 else 0,
+                              sh_cmd_shift[sh - 5] if sh >= 5 else 0)
             if got != want:
                 print("MISMATCH %s %d: the editor writes %02X %02X, the format %02X %02X"
                       % (mnemonic, value, got[0], got[1], want[0], want[1]))
@@ -223,7 +286,10 @@ def main():
             checked += 1
 
     print("commands: %d pairs checked against gen-mus.py, %d mnemonics covered"
-          % (checked, len(set(names[r + 1] for r in range(len(cmd_b))))))
+          % (checked, len(set(names[r + 1] for r in range(len(cmd_b)))) - len(pending)))
+    if pending:
+        print("commands: %d command(s) still have no encoder: %s"
+              % (len(pending), " ".join(pending)))
     if uncovered:
         print("commands: %d mnemonic(s) the editor offers but this gate cannot "
               "check yet: %s" % (len(uncovered), " ".join(uncovered)))
