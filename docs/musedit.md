@@ -486,15 +486,23 @@ CMD TEM 120
 
 | key | in the prompt |
 |---|---|
-| CRSR up / down | choose one of the nine commands you can write |
+| CRSR up / down | choose any of the 49 commands, in the format's own order |
 | `RETURN` | take it, then finish its value — or write it straight away for `TAL`, `HLT`, `END` |
 | digits | build the value in decimal, never past what that command takes |
 | `INST/DEL` | back one digit out |
 | `STOP` | cancel, and the grid comes back as it was |
 
-The nine are `TEM` `UTL` `UTV` `HED` `DEF` `CALL` `TAL` `HLT` `END` — the tune's own settings,
-and they are listed in that order in the prompt. The pair is written at the boundary the cursor's
-row starts, so every row stays where it is and nothing needs renumbering.
+The list runs from the tune's own settings — `TEM` `UTL` `UTV` `HED` `DEF` `CALL` `TAL` `HLT`
+`END` — through every sound command the format defines, ending with `MS#`, `FLG` and
+`AUX`. The pair is written at the boundary the cursor's row starts, so every row stays where it
+is and nothing needs renumbering.
+
+**Values.** The prompt takes the value in decimal, up to whatever that command allows: most take
+0-255, the one-bit commands (`SNC`, `FLT`, `RNG`, `3-O`, `BMP`, `F-X`, `LFO`, `P&V`) take 0 or 1,
+`WAV` and `F-M` 0-7, the envelope nibbles 0-15, `RUP`/`RDN` 0-31, and three take more than a byte
+— `MS#` up to 767, `P-W` and `DTN` up to 4095, `POR` up to 16383. A value the command cannot
+hold is clamped to its maximum rather than refused, so what the prompt shows is always what gets
+written.
 
 **Overwrite or insert** — the mode `M` shows decides what happens when that boundary already
 carries the same command: `OVR` replaces it where it stands, `INS` adds a second pair.

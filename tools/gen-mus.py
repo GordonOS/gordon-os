@@ -220,6 +220,21 @@ def c_voice3_on(on=True):
 # ----------------------------------------------------------------------------
 
 # Command bytes that the routing labels pin to exactly one command.
+#  The eight one-bit commands, in the order the player's dispatch indexes them (bits
+#  4-6 of the option). See the note in decode_pair about the vendor comments.
+BIT_COMMANDS = ["BMP", "FLT", "RNG", "SNC", "F-X", "3-O", "LFO", "P&V"]
+BIT_COMMAND_TEXT = {
+    "BMP": ("volume up 1", "volume down 1"),
+    "FLT": ("filter off", "filter through on"),
+    "RNG": ("ring mod off", "ring mod on"),
+    "SNC": ("sync off", "sync on"),
+    "F-X": ("external filter off", "external filter on"),
+    "3-O": ("voice 3 on", "voice 3 off"),
+    "LFO": ("lfo off", "lfo on"),
+    "P&V": ("port+vibrato off", "port+vibrato on"),
+}
+
+
 EXACT = {
     0x06: ('TEM', lambda o: f"tempo ${o:02X} (quarter = {o >> 2} jiffies)"),
     0x0E: ('F-C', lambda o: f"filter cutoff {o}"),
@@ -289,8 +304,6 @@ def decode_pair(cmd, opt):
         return ('HLT', 'halt voice')
     if opt == 0x2F:
         return ('END', 'end phrase definition')
-    if opt in (0x53, 0x5B):
-        return ('3-O', f"voice 3 disconnect bit {'set' if opt == 0x5B else 'clear'}")
     if (opt & 0x07) == 0x04:                # ATK / SUS
         if opt & 0x80:
             return ('SUS', f"sustain {(opt >> 3) & 0x0F}")
@@ -307,24 +320,37 @@ def decode_pair(cmd, opt):
         return ('CALL', f"call phrase {opt >> 4}")
     if (opt & 0x0F) == 0x0A:
         return ('RES', f"resonance {opt >> 4}")
+    if (opt & 0x1F) == 0x1F:            # SRC: bits 4-7 are the source, bits 0-4 all set
+        return ('SRC', f"mod source {opt >> 5}")
     if (opt & 0x0F) == 0x0F and opt & 0x80 and opt & 0x08:
         return ('DST', f"mod destination {opt & 0x03}")
-    if (opt & 0x0F) == 0x0B:
-        if opt & 0x40:
-            return ('RNG', f"ring mod {'on' if opt & 0x10 else 'off'}")
-        return ('FLT', f"filter through {'on' if opt & 0x10 else 'off'}")
-    if (opt & 0x0F) == 0x03:
-        if opt & 0x40:                      # 0110c011 LFO / 0111c011 P&V
-            if opt & 0x20:
-                return ('P&V', f"port+vibrato {'on' if opt & 0x10 else 'off'}")
-            return ('LFO', f"lfo {1 if opt & 0x10 else 0}")
-        return ('SNC', f"sync {'on' if opt & 0x10 else 'off'}")
+    #  The eight commands that act on one bit all end in 011. The option's bits 4-6
+    #  name the command and bit 3 is the bit acted on; values 8-15 in that field are
+    #  the wide 16-23 phrase form instead (that is why bit 7 is the phrase test).
+    #
+    #  NOTE ON THE SPECS: the comments in src/libs/sidplay.inc give the option pattern
+    #  "0101n011" for BOTH RNG and 3-O. They cannot both be right, and the vendor
+    #  comment on RNG is the wrong one. What the code actually does is dispatch on the
+    #  index (option >> 3 through the shift chain, i.e. bits 4-6 of the option), which
+    #  is the order in this table -- and 3-O's $53/$5B agrees with it, both here and
+    #  in musedit's renderer (moSw) and encoder (mqOptB).
+    #  RUP and RDN end in 001 or 101: the rate is the option's top five bits and the
+    #  low three bits pick which of the two (musedit's moOne reads them the same way).
+    if (opt & 0x07) == 0x01:
+        return ('RUP', f"lfo ramp up {opt >> 3}")
+    if (opt & 0x07) == 0x05:
+        return ('RDN', f"lfo ramp down {opt >> 3}")
+    if (opt & 0x07) == 0x03:
+        index = opt >> 4
+        if index < 8:
+            name = BIT_COMMANDS[index]
+            on = 1 if opt & 0x08 else 0
+            return (name, f"{BIT_COMMAND_TEXT[name][on]}")
+        # index >= 8 is the wide phrase form, decoded where phrases are
     if (opt & 0x1F) == 0x07:
         return ('WAV', f"waveform {WAV_NAME.get(opt >> 5, opt >> 5)}")
     if (opt & 0x1F) == 0x17:
         return ('F-M', f"filter mode {opt >> 5}")
-    if opt == 0x1F:
-        return ('SRC', f"mod source {opt >> 5}")
     return ('?', f"cmd ${cmd:02X} opt ${opt:02X} (unmodelled)")
 
 

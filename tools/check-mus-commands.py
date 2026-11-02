@@ -175,11 +175,28 @@ def reference(gen, mnemonic, value):
         return ((((value >> 8) & 0x0F) << 4) | 0x0A, value & 0xFF)
     if mnemonic == "POR":                       # 14 bits: high six bits + option
         return ((((value >> 8) & 0x3F) << 2) | 0x03, value & 0xFF)
+    if mnemonic == "MS#":                       # 10 bits: top two in the command byte
+        return ((((value >> 8) & 0x03) << 6) | 0x1E, value & 0xFF)
+    if mnemonic in FLAGS:                       # one bit at option bit 3, index in 4-6
+        return (0x01, (FLAGS[mnemonic] << 4) | ((value & 1) << 3) | 0x03)
+    if mnemonic == "RUP":                       # a five-bit rate at option bit 3
+        return (0x01, (value << 3) | 0x01)
+    if mnemonic == "RDN":
+        return (0x01, (value << 3) | 0x05)
+    if mnemonic == "SRC":                       # the source is the option's top three
+        return (0x01, (value << 5) | 0x1F)
+    if mnemonic == "DST":
+        return (0x01, (value << 5) | 0x8F)
     fn = SOUND.get(mnemonic)
     if fn is not None:
         return getattr(gen, fn)(value)
     return None
 
+
+# The eight that act on one bit: the option's low three bits are 011, bits 4-6 name
+# the command (moSw indexes them that way, and gen-mus.py's c_voice3_on writes $53/$5B
+# for index 5 -- the same pair, from the other direction), and bit 3 is the bit acted on.
+FLAGS = {"BMP": 0, "FLT": 1, "RNG": 2, "SNC": 3, "F-X": 4, "3-O": 5, "LFO": 6, "P&V": 7}
 
 # The sound commands the FORMAT defines, as gen-mus.py's own encoder functions.
 # A mnemonic missing from this table is reported, not silently skipped: it means
@@ -244,7 +261,7 @@ def main():
     for row in range(len(cmd_b)):
         mnemonic = names.get(row + 1, "?")
         limit = max_v[row]
-        if row < len(shape) and shape[row] in (4, 9):
+        if row < len(shape) and shape[row] == 9:
             #  no encoder in this slice: muObjEnc writes nothing and mqHave refuses
             #  the id, so there is no pair to compare yet
             if mnemonic not in pending:

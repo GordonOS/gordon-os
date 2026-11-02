@@ -915,7 +915,8 @@ the pair, `muObjFind` finds an existing pair at a boundary by id, `muMnPrint` dr
 - [x] **7.4 Undo is one action.** *A command edit's undo record is the pair alone, so it undoes as one action and no row moves.*
 - [x] **7.5 A command needs a boundary.** *A pair consumes no time, so its line only ever sits above a note or a rest: a row in the middle of a duration answers `? no event here` rather than splitting it, because the format has nothing to split it with. The prompt refuses there too — the editor offers no way to place what the format cannot hold.*
 - [x] **7.6 Utility lengths.** *`8` and `9` arm the duration the next note is written with to UTL and UTV (`muArmKey`), and the armed value round-trips.*
-- [ ] **7.7 The sound commands.** *Not built; designed below.* The 37 ids between `FC` and `MS#`
+- [x] **7.7 The sound commands.** *Built; needs the hardware sitting.* All 49 ids are
+  writable and the gate sweeps 30,463 pairs across every one of them. The 37 ids between `FC` and `MS#`
   need their operand entered, and their operands are up to 14 bits in three shapes `P-W`, `POR`,
   `DTN` are two bytes, `MS#` takes its high two bits from the command byte). Neither the prompt
   nor the draw offers a way in; `mqHave` refuses a sound id with `? not yet`. Wants hex entry and a
@@ -944,8 +945,16 @@ the pair, `muObjFind` finds an existing pair at a boundary by id, `muMnPrint` dr
   existing sound line shows its value and can change it.
 
   **The gate is in place** (`tools/check-mus-commands.py`, 7.9): it reads the tables out of
-  `musedit.inc`, so each slice is checked against `gen-mus.py` as it lands, and the ids that have
-  no reference yet are reported rather than skipped.
+  `musedit.inc` and sweeps every value the prompt allows against `gen-mus.py`.
+
+  **How the flag family was settled.** The eight one-bit commands all end in `011`; the option's
+  bits 4-6 index the command and bit 3 is the bit acted on, and values 8-15 in that field are the
+  wide 16-23 phrase form (which is why bit 7 is the phrase test). This came from the **verified read
+  side** (`muDecOpt`/`moSw`, which real tunes exercise) and agrees with `gen-mus.py`'s
+  `c_voice3_on` writing `$53`/`$5B` for index 5. **The vendored comments are contradictory**: RNG
+  and 3-O both claim `0101n011`. The RNG comment is the wrong one; the dispatch index says
+  `0010n011`. That note is now in `sidplay.inc` above the RNG handler, and `gen-mus.py`'s decoder
+  follows the index instead of the comment (it also gained SRC/DST and RUP/RDN).
 
   **Cost, measured against the estimate:** ~2 code pages (380-500 bytes), no new pool pressure at
   the current margin of 10, plus two or three message records in the REU.

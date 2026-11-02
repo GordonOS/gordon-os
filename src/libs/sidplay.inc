@@ -1827,6 +1827,12 @@ storeAnswer:            sta WorkFilterControl
 }
 
                         // Command: RNG Ring Modulation (c=0 off    c=1 on)
+                        //  PORT NOTE: the option pattern below reads 0101n011, which is the
+                        //  pattern the 3-O comment four routines down also claims. They cannot
+                        //  both be right, and this one is the wrong one: the dispatch above
+                        //  reaches RNG with option bits 4-6 == 0010, i.e. 0010n011. musedit's
+                        //  renderer (muDecOpt/moSw) and its encoder tables follow the dispatch
+                        //  index, and so does tools/gen-mus.py's decoder.
                         // Pattern Option:  0101n011
                         // n will become the carry bit before this routine is called
                         // x is voice

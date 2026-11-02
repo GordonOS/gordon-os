@@ -352,8 +352,6 @@
 .const MU_MN_RES    = 32
 .const MU_MN_WAV    = 33
 .const MU_MN_FM     = 34      // filter mode
-.const MU_MN_LAST   = MU_MN_FM  // the last id the picker offers (slices 2-3 raise it)
-.const MQ_WIDE      = 34      // where mqOptB's second block starts: one per id
 .const MU_MN_BMP    = 35      // bump volume
 .const MU_MN_FLT    = 36      // filter through
 .const MU_MN_RNG    = 37      // ring modulation
@@ -370,6 +368,8 @@
                               //   bits are its high byte
 .const MU_MN_FLG    = 48      // the player's flag byte
 .const MU_MN_AUX    = 49      // reserved: the player has no hook to run
+.const MU_MN_LAST   = MU_MN_AUX // the last id the picker offers
+.const MQ_WIDE      = 49      // where mqOptB's second block starts: one per id
 .const MU_WIN_PAGES  = 6       // the window service: SIX 256-byte, page-aligned
                                //   windows -- 0-2 are the editor's, one per voice, and
                                //   3-5 are the player's, handed over in kSidPlay's
@@ -5744,8 +5744,6 @@ mqHave:
     sbc #1
     tay
     lda mqShape,y
-    cmp #4                      // 4 is the flag family: no encoder yet
-    beq mqRefuseCmd
     cmp #9                      // 9 is a shape this build cannot write at all
     beq mqRefuseCmd
     lda muObjId
@@ -6084,8 +6082,6 @@ mqEncShape:
     beq mqEncVal                // 0: the whole option byte is the operand
     cmp #5
     bcs mqEncWide               // 5-7: the high byte rides the command byte
-    cmp #4
-    beq mqEncNoShape            // 4: the flag family, no encoder yet
     tay                         // the shape, to index the packer's parameters
     lda mqShMask,y
     and muObjVal
@@ -6236,29 +6232,37 @@ mqCmdB:     .byte $06, $16, $F6, $36, $01, $01, $01, $01, $01
             .byte $96, $A6, $C6, $D6, $E6
             .byte $02, $0A, $03        // P-W, DTN, POR: the command byte's low bits
             .byte $01, $01, $01, $01, $01, $01, $01, $01
+            .byte $01, $01, $01, $01, $01, $01, $01, $01
+            .byte $01, $01, $01, $01, $1e, $46, $b6   // ...RUP RDN SRC DST MS# FLG AUX
 mqOptB:     .byte $00, $00, $00, $00, $06, $02, $0F, $4F, $2F
             .byte $00, $00, $00, $00, $00, $00, $00, $00, $00
             .byte $00, $00, $00, $00, $00
             .byte $00, $00, $00
             .byte $04, $00, $84, $08, $0E, $0A, $07, $17
+            .byte $03, $13, $23, $33, $43, $53, $63, $73  // the eight, index = opt >> 4
+            .byte $01, $05, $1f, $8f, $00, $00, $00   // RUP RDN SRC DST MS# FLG AUX
             .byte $00, $00, $00, $00, $03, $0B, $00, $00, $00
 mqMax:      .byte 255,  255,  255,  255,  23,   23,   0,    0,    0
             .byte 255,  255,  255,  255,  255,  255,  255,  127,  127
             .byte 255,  255,  255,  255,  255
             .byte 0,    0,    0
             .byte 15,   15,   15,   15,   15,   15,   7,    7
+            .byte 1,    1,    1,    1,    1,    1,    1,    1
+            .byte 31,   31,   7,    3,    0,    255,  255
 //  How a value reaches the pair, one byte per id. 0 is "the whole option byte is
-//  the operand"; 1-3 pack it into the option's top bits at 4, 3 and 5; 9 is a shape
-//  that has no encoder yet, so mqHave refuses the id rather than writing nonsense.
+//  the operand"; 1-3 pack it into the option's top bits at 4, 3 and 5; 4 is one bit
+//  at bit 3; 5-7 put the value's HIGH byte in the command byte; 9 has no encoder.
 mqShape:    .byte 0,    0,    0,    0,    0,    0,    0,    0,    0
             .byte 0,    0,    0,    0,    0,    0,    0,    0,    0
             .byte 0,    0,    0,    0,    0
-            .byte 5,    5,    6        // the 14-bit shapes: value's high byte to the command
+            .byte 5,    5,    6
             .byte 2,    1,    2,    1,    1,    1,    3,    3
+            .byte 4,    4,    4,    4,    4,    4,    4,    4
+            .byte 4,    4,    3,    3,    7,    0,    0
 //  The packer's parameters, indexed by shape: the bits of the value it keeps, and
 //  how far left they move. Shapes 1-3 are the only packing ones so far.
-mqShMask:   .byte $00, $0f, $0f, $07
-mqShShift:  .byte 0,    4,    3,    5
+mqShMask:   .byte $00, $0f, $0f, $07, $1f
+mqShShift:  .byte 0,    4,    3,    5,    3
 //  Shapes 5-7 (P-W, POR, MS#) put the operand's HIGH byte in the command byte, so
 //  they carry their own maximum and their own place for those bits.
 mqShMaxLo:  .byte $ff, $ff, $ff
