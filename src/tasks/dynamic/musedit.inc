@@ -92,7 +92,7 @@
 .label muObjHi      = MU_ZP_BASE+69
 .label muObjOptB    = MU_ZP_BASE+70
 .label muLinkW      = MU_ZP_BASE+71  // 1 while a search has walked the producer
-.label muWinTop     = MU_ZP_BASE+72  // 1 while the band's top line is the tune's first
+.label muToff       = MU_ZP_BASE+72  // lines into MU_TOP's group the band's top line is
 .label muRevText    = MU_ZP_BASE+73  // 1 while muPutC draws reversed (command lines)
 .label muGrpRow     = MU_ZP_BASE+74  // 2 bytes  the row the open group belongs to
 .label muGrpSt      = MU_ZP_BASE+76  // 1 = a group is open, 0 = the next line opens one
@@ -3480,6 +3480,8 @@ mlkJump:
     sta muTop
     lda muFndRow+1
     sta muTop+1
+    lda #0                      // the search names a row, so the band starts at its
+    sta muToff                  //   first line and the cursor brings the line in
     ldy #MU_VOICE               // the cursor follows the command into its lane
     lda muFndVoice
     sta (dataPtr),y
@@ -3494,7 +3496,9 @@ mlkSet:
     sta (dataPtr),y
     jmp muCurRedraw
 
-// --- muWalkToTop -- the producer at the first line of the window at MU_TOP ---
+// --- muWalkToTop -- the producer at the line the window's top row starts at ---
+//  In: MU_TOP (the window's row) and MU_TOFF (how many lines into that row's
+//      group the band's own top line is).
 //  Out: C=1 when the tune ended above the window (there is nothing to draw).
 //  Nothing is drawn on the way: MU_LNSCR is $ff, so every line this passes is
 //  discarded and the band's table is left alone.
@@ -3515,35 +3519,54 @@ mwtSkip:
     lda muTmpL
     cmp muTop
     bne mwtGo
+    lda muToff                  // the band starts MU_TOFF lines into this row's
+    beq mwtYes                  //   group: emit and discard exactly those
+mwtOff:
+    jsr muLnNext
+    bcs mwtRts
+    lda muGrpSt
+    beq mwtShort                // the row lost lines since: MU_TOFF is now past it
+    lda muLogIx
+    cmp muToff
+    bcc mwtOff
+mwtYes:
+    clc
+mwtRts:
+    rts
+mwtShort:
+    inc muGrpRow                // the row's group is shorter than the window is into
+    bne mwtShort1               //   it, so the band's top line is the next row's
+    inc muGrpRow+1              //   first one, and the window follows it there
+mwtShort1:
+    lda muGrpRow
+    sta muTop
+    lda muGrpRow+1
+    sta muTop+1
+    lda #0
+    sta muToff
     clc
     rts
 mwtGo:
     jsr muLnNext
     bcs mwtRts
     jmp mwtSkip
-mwtRts:
-    rts
 
-// --- muDrawGrid -- fill the band at MU_TOP from the producer's lines ---
+// --- muDrawGrid -- fill the band at MU_TOP/MU_TOFF from the producer's lines ---
 //  A row is the finest length the tempo in force can express, and a bar is one
 //  whole note counted in those rows, so the grid follows a mid-tune TEM: the walk
 //  opens a segment wherever the tempo changes and each line records the tempo and
 //  the bar it falls in. The band is filled from the TOP line down, each line
 //  generated in order -- the walk runs once, and the lines it does not reach (a
 //  tune shorter than the band) stay blank.
+//  The window is a ROW plus how many lines into that row's group the band starts,
+//  so a redraw lands on the line the band is showing rather than on the row's
+//  first one: the caller owns both halves and a draw never changes them.
 //  With MU_GDCLIP set the caller is repainting a band of screen rows: the walk and
 //  the lines are the same, and only the lines whose row falls in the caller's band
 //  are drawn, which is what an edit repaints.
 muDrawGrid:
     lda muGdClip
     bne muDgWalk
-    lda #0
-    sta muWinTop                // a full draw starts at MU_TOP's FIRST line, so the
-    lda muTop                   //   tune's first line is at the top only from row 0
-    ora muTop+1
-    bne muDgClr
-    inc muWinTop
-muDgClr:
     jsr muGridClear
     ldx #MU_GRID_ROWS-1         // a line the walk never reaches is not a row
     lda #$ff
@@ -4545,18 +4568,18 @@ muCurUp:
     lda (dataPtr),y
     cmp #MU_GRID_TOP
     bne muCurUpIn
-    lda muWinTop
-    bne muCurDone               // the tune's first line is already at the top
+    lda muTop
+    ora muTop+1
+    bne muCurUpPage
+    lda muToff
+    beq muCurDone               // the tune's first line is already at the top
+muCurUpPage:
     //  at the top: the window moves a whole page, so the grid is walked again
     //  once per page rather than once per row. The line above the window has
     //  never been walked -- the interpreter only runs forward -- so a repaint is
     //  the only way to see it, and a page amortises it over MU_GRID_ROWS rows.
-    //  WARNING: MU_TOP is a ROW and the window is a LINE, and one row can be many
-    //  lines (a row's commands each take one), so MU_TOP == 0 does NOT mean the
-    //  first line is at the top: the window can sit several lines inside row 0 and
-    //  still report row 0. MU_WINTOP is the flag that does mean it -- set by a draw
-    //  that starts at row 0, cleared by every scroll -- so the page up below is not
-    //  repeated once it has arrived.
+    //  A page is counted in ROWS, so the window lands on a row's first line and
+    //  the line offset starts again from there.
     lda muTop
     sec
     sbc #MU_GRID_ROWS
@@ -4569,6 +4592,8 @@ muCurUp:
 muCurUpSet:
     sta muTop+1
     sty muTop
+    lda #0
+    sta muToff
     jmp muCurRedraw             // the cursor stays on the TOP line: the window moves
                                 //   under it, so holding UP walks back a page at a
                                 //   time and the clamp to row 0 leaves the cursor on
@@ -8344,14 +8369,17 @@ muPlayRewind:
     jmp muRewindView
 
 // --- muPlayHome -- take the view home for a pass, unless it is already there ---
-//  A window at row 0 with the cursor on the first row is already showing the row 0
-//  score -- a fresh editor, or a pass that has just ended -- so PLAY only has to
-//  start the music. Anything else (a stop mid-tune, a scrolled window) has to be
-//  repainted, which is what makes the notes on screen the notes being played.
+//  A window at row 0 showing that row from its first line, with the cursor on the
+//  first row, is already showing the row 0 score -- a fresh editor, or a pass that
+//  has just ended -- so PLAY only has to start the music. Anything else (a stop
+//  mid-tune, a scrolled window) has to be repainted, which is what makes the notes
+//  on screen the notes being played.
 muPlayHome:
     lda muTop
     ora muTop+1
     bne muPHomeRedraw           // the window is below the first row: it has to move
+    lda muToff
+    bne muPHomeRedraw           // ...or scrolled into it: it has to move
     ldy #MU_ROW
     lda (dataPtr),y
     cmp #MU_GRID_TOP
@@ -8374,6 +8402,7 @@ muRewindView:
     lda #0
     sta muTop
     sta muTop+1
+    sta muToff
     sta muHistN
     sta muHistN+1
     sta muHistN+2
@@ -9240,11 +9269,22 @@ mlnDone:
 //  REU_BOUNCE (the REU does the move) and blanks the line at the bottom; the line
 //  that arrives is drawn, and MU_LNTB moves with the band so a screen row still
 //  names the row it holds. Nothing else in the band is touched.
+//  MU_TOFF follows the line that leaves the top: a command line's successor is the
+//  next line of the same row's group, one further in, and the row's own line is
+//  the group's last, so whatever arrives above is the next row's first line.
 //  The cursor is NOT touched here: it belongs to the caller, which takes it out
 //  once before the scroll and puts it back once after -- the follow scrolls several
 //  lines in a pass, and a hide per line would blank a cell of the line that had
 //  just arrived.
 muScrollBand:
+    lda muLnKind                // the line the band is about to drop
+    bne msbNewRow
+    inc muToff
+    bne msbGo
+msbNewRow:
+    lda #0
+    sta muToff
+msbGo:
     lda #MU_GRID_TOP
     ldx #MU_GRID_BOT
     jsr kScrollScreen
@@ -9299,9 +9339,9 @@ msbGot:
     sta muTop+1
     lda #MU_FOLLOW_CENTER+1     // the opening's own depth was only ever in force
     sta muFollow1               //   while the band still held the opening, and it is
-    lda #0                      //   leaving now: the playhead goes back to the centre,
-    sta muWinTop                //   one line a pass, so the view glides rather than
-    rts                         //   jumping
+                                //   leaving now: the playhead goes back to the
+                                //   centre, one line a pass, so the view glides
+    rts                         //   rather than jumping
 
 // --- muHistAdd -- remember the event the walk just took: its row and pitch ---
 //  In: X = the voice (muSv), muVRow = the onset row of the event just stepped.

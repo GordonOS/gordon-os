@@ -1072,24 +1072,28 @@ not rediscovered from scratch.
   drops below the row last drawn is a restart — and run `muRewindView` (which now only has to
   zero `muHistN`, `muTop` and the cursor's row and repaint) before continuing. Not wanted today;
   a tracker that loops in the editor would need it.
-- [ ] **10.4 The window position is a ROW, not a LINE.** *Not built — parked.* `MU_TOP` names the row the window starts
-  at, but a row is drawn as **one line per command plus its own line** — `immig`'s row 0 is ten
-  command lines — so the window can sit several lines inside a row and still report that row.
-  Three consequences, all live today: (a) a **full repaint** (`muDrawGrid`, and so an edit, undo,
-  `SHIFT+U`) starts at `MU_TOP`'s *first* line, so the view **snaps back** to the top of a row it
-  was scrolled into; (b) a **partial repaint** (`muRedrawRows`) rewrites the band's line table
-  from that first line while the screen still shows the scrolled band, so the cursor's row and a
-  click's row can be off by the offset; (c) `MU_TOP == 0` does not mean the tune's first line is
-  at the top — the page up at the top of the band used that as its "already there" test and
-  refused to move, which is what made scrolling back to the beginning stick (see 13.4b).
-  *Fix:* carry the window as **(row, line offset)** — one byte, `MU_TOFF`: `muWalkToTop` skips
-  that many lines of the group it lands on, `muScrollBand` maintains it (same row -> +1, new row
-  -> 0), a page jump and a full draw zero it, and `mlkJump` sets it to the found line instead of
-  moving the cursor down the band. Roughly 50 bytes. Until then it is worked around rather than
-  fixed: `MU_WINTOP` is a flag meaning "the band's top line is the tune's first line" (set by a
-  draw that starts at row 0, cleared by every scroll) and the page up uses it for its early out.
-  Deferred until the features are in and the pages are known: (a) and (c) are cosmetic-to-annoying,
-  but **(b) is a correctness bug**, so if room runs out it is (b) that must be revisited first.
+- [x] **10.4 The window position is a ROW plus a line offset.** *Built; the repaint half verified on
+  hardware.* `MU_TOP` names the row the window starts at, but a row is drawn as **one line per
+  command plus its own line** — `immig`'s row 0 is ten command lines — so a row alone cannot say
+  where the band's top line is. `MU_TOFF` is the second half: how many lines into that row's group
+  the band starts. `muWalkToTop` walks to the row and then emits and discards exactly that many
+  lines, so a draw lands on the line the band is showing; the offset is derived from the line that
+  leaves the top of the band on every scroll (`muScrollBand` reads `MU_LNKIND` before the shift — a
+  command line's successor is the same group one line further in, the row's own line is the group's
+  last, so whatever arrives above it starts the next row). A page jump, a search jump and a rewind
+  all set it to 0, because each of them names a row. `muWalkToTop` also repairs the pair when a
+  row's group has fewer lines than the offset says — an edit can shorten it — by moving the window
+  to the next row's first line. The three consequences are gone: a full repaint (an edit, undo,
+  `SHIFT+U`) lands where the band already was; a partial repaint rewrites the band's table from the
+  band's own top line, so the cursor's row and a click's row agree with the screen; and the page
+  up's "already there" test is `MU_TOP == 0 && MU_TOFF == 0` rather than a flag, which is what the
+  old `MU_WINTOP` byte stood in for. The offset costs no new zero page: it took `MU_WINTOP`'s byte.
+  Verified: with `immig` scrolled one line so the band's top line is `DCY 9` (row 0's *second*
+  command line), `SHIFT+U` repaints the whole grid and the top line stays `DCY 9` — before the
+  change it snapped back to `ATK 1`; and from the same scrolled state the page up walks home to
+  `ATK 1` with `R0`, which is the offset being cleared. The partial-repaint half rides the same
+  `muWalkToTop` and the same offset, so it is exercised by ordinary use rather than by a dedicated
+  run.
 
 ### Step 11 — The polish pass after the first sitting (done)
 

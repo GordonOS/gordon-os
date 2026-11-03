@@ -384,9 +384,9 @@ Put the cursor on a command line and press **`SHIFT+D`**:
   there is none below it wraps round to the first one in the tune — so pressing it again and
   again tours the call sites.
 
-The window follows: the row that was found becomes the **top line** of the grid, and the head's
-`BAR`/`R` show where you are. Anything else on the line — an `ATK`, a `TEM`, or a row's own
-numbered line — answers `? not a phrase` and moves nothing.
+The window follows: the found row becomes the top of the grid, the line carrying the command is
+brought into the band, and the head's `BAR`/`R` show where you are. Anything else on the line — an
+`ATK`, a `TEM`, or a row's own numbered line — answers `? not a phrase` and moves nothing.
 
 **`SHIFT+D` acts on the lane the cursor is in.** A line carries one command from each lane, so
 the lane decides which one is followed — and the `>` marker in the gap left of the lane tells you
@@ -602,7 +602,10 @@ length. Nothing is predicted between events and nothing is re-anchored: a note t
 simply stays on each row for its share of the count, and a loop restarts the count with the music.
 A scroll down redraws only the newly revealed bottom line — the rows above are moved by the
 kernel's REU screen scroll. Scrolling up moves the window back a whole page and repaints it,
-because the line above the window has not been walked yet.
+because the line above the window has not been walked yet. Either way the window remembers which
+of a row's lines it is standing on, not just the row: a repaint for an edit, an undo or a change
+of row unit puts the score back exactly as it was, and the cursor's row is read from the same
+map the screen was drawn from.
 
 The first release always plays from the start: the format has no seek command, and a voice's
 stream can only be entered at its beginning or at a `HED`. Use sections to structure a long
