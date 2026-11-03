@@ -685,6 +685,7 @@ task's real footprint.
 |---|---|
 | `tools/check-mus-timing.py` | the duration arithmetic: 8,192 cases against the player's algorithm and the published tempo table |
 | `tools/check-mus-commands.py` | the command descriptor table against `gen-mus.py`'s definitions |
+| `tools/check-musedit-walk.py` | the host walk model (`mus-sim.py --walk`) against the editor's own grid lines, held in `tools/fixtures/` and captured from a running musedit |
 | `tools/gen-musedit-tables.py` | emits `musedit-tables.inc` (`DataTempoTable` copy, note letters, mnemonic strings) with a `-Check` mode, like `gen-task-asm.ps1` |
 | `tools/gen-musedit-glyphs.py` | one geometry table → the 15 piano cells and the two 40-byte pixel→semitone hit tables, emitted into `musedit-glyphs.inc` with a `-Check` mode, so a cell and its hit test cannot drift apart |
 | `tools/check-reu-fs.ps1 -Extract <fsName> -Out <path>` | round-trip tests: extract a saved file and hash it against `music/<name>.mus` |
@@ -1329,15 +1330,18 @@ This is the only design of the seven tried whose input *is* the quantity being d
 
 ### 13.3 A gate that keeps them equal
 
-- [ ] **13.3 The walk gate.** *Half built: `--walk` prints the reference; the automated comparison
-  is not built.* `tools/mus-sim.py --walk N` prints every line the walk draws with the song tick
-  `MU_LNTICK` records for it — a row's own clock (the last event it ran), the previous row's value
-  for a row that ran none, and `-` on a command line, which `muPhSync` never consults.
-  **Verified against a running editor:** `commodo`'s 19-line window (`--walk 19`) matches musedit's
-  screen line for line — the seven command lines above row 1, the five `PNT` lines and the blank
-  even rows `02`-`10` all sit where the screen puts them. What is left is
-  `tools/check-musedit-walk.py`, which compares the editor's line ring for the same window and so
-  needs the ring dumped over the monitor — a hardware sitting.
+- [x] **13.3 The walk gate.** *Built.* `tools/mus-sim.py --walk N` prints every line the walk draws
+  with the song tick `MU_LNTICK` records for it — a row's own clock (the last event it ran), the
+  previous row's value for a row that ran none, and `-` on a command line, which `muPhSync` never
+  consults. `tools/check-musedit-walk.py` renders that list in the editor's own columns and compares
+  it, lane by lane, against a grid captured from a running musedit and kept in `tools/fixtures/`
+  — so the comparison is automated and runs in `build-tasks.ps1`, rather than being made by eye.
+  It needed no hardware of its own: the fixture is the editor's grid as text (lane 1 at column 4,
+  lanes twelve apart, a row's number zero-filled in columns 1-2 on the row's own line), which is
+  exactly what a screen dump decodes to. `immig`'s 19-line band matches over all 19 lines — the nine
+  command lines above row 1 (including the lone `DEF 0`), the empty rows `02`-`08`, and the `F#2 8`
+  / `F#2 16` cells in lane 3. Padding inside a lane is ignored, so the two renderers may differ on
+  where a command's operand starts; which lane holds which text is not.
 - [ ] **13.3b One contiguous published block.** *Not built.* The player publishes two things a reader needs — each voice's next-command offset (`$54A2-$54A7`) and its song jiffies (`$54A8-$54A9`) — but the kernel's `tickCount` sits at the free space after them, so a reader doing arithmetic on the base reads the wrong thing (the off-by-one that makes a walk run ten times fast). The tidy layout moves `tickCount` to `$54AA` so `$54A2-$54A9` is the player's alone, gives the fields named offsets in `sid.asm` mirrored in `kernel-shared.inc`, and asserts `tickCount == $54AA`. It is its own change, on its own build, with nothing else in flight: done inline it broke a working playhead.
 
 ### 13.4 Phrase-native editing

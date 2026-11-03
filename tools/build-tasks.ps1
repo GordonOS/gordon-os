@@ -43,6 +43,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & python "$PSScriptRoot/check-mus-commands.py"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# The host walk model against what the editor actually drew. mus-sim.py's walk is
+# what the tunes and the docs are reasoned about with, and it is compared by hand
+# against a captured screen -- so a change to the walk, or to a tune, could drift
+# with nothing to say so. tools/fixtures holds the editor's own grid lines.
+& python "$PSScriptRoot/check-musedit-walk.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # KickAssembler jar location - see tools/toolpaths.ps1
 . "$PSScriptRoot/toolpaths.ps1"                   # machine paths: $KickAssJar
 $kick = $KickAssJar
