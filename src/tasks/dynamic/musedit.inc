@@ -220,6 +220,7 @@
 .label muUcPg       = MU_ZP_BASE+221  // ...and its page
 .label muUcDirty    = MU_ZP_BASE+222  // the window has writes the file has not seen
 .label muUcTmp      = MU_ZP_BASE+223  // the byte muUndoGet carries across its own restore
+.label muInsFrom    = MU_ZP_BASE+224  // 2 bytes  the first row a splice touched
 .assert "the zero page region fits the declared window", (MU_ZP_END - MU_ZP_BASE) <= MU_ZP_LEN ? 1 : 0, 1
 .assert "the declared window covers the last variable", (MU_ZP_END - MU_ZP_BASE) >= 227 ? 1 : 0, 1
 .assert "the zero page region stays below the kernel's IRQ bytes", (MU_ZP_BASE + MU_ZP_LEN) <= $f0 ? 1 : 0, 1
@@ -3770,24 +3771,28 @@ muRrClrLp:
     jmp muCursorShow            //   the cursor may have: the head reads both from
                                 //   the walk. Its rts balances the jsr that entered
 
-// --- muBandFrom -- A = the screen row of the first line of the cursor's group ---
-//  An edit at a row changes that row's command lines too, and they are drawn ABOVE
-//  the row's own line -- a voice's first event takes the place of its HLT line --
-//  so a repaint starts at the group's first line, not at the line the cursor is on.
-muBandFrom:
-    ldy #MU_ROW
-    lda (dataPtr),y
-    sec
-    sbc #MU_GRID_TOP
-    tay
-mbfLp:
-    cpy #0
-    beq mbfDone
-    lda muLnKind-1,y            // 0 = a command's line: still inside this group
-    bne mbfDone
-    dey
-    jmp mbfLp
-mbfDone:
+// --- muBandRow -- A = the screen row of the first line of the group holding MU_TGT ---
+//  The repaint starts at the first row the EDIT touched, not at the cursor's row: a
+//  gap fill writes its rests from the row after the event it found, which can be
+//  several rows ABOVE the cursor, and the line that changes can be any of that row's
+//  lines -- an event's command lines come before its own. The walk's table is what
+//  says which screen lines hold the row, so the first one that does is the group's
+//  first line. A row that is not on screen repaints from the top of the band.
+muBandRow:
+    ldy #0
+mbwLp:
+    lda muLnTbHi,y
+    cmp muTgtHi
+    bne mbwNext
+    lda muLnTbLo,y
+    cmp muTgtLo
+    beq mbwDone
+mbwNext:
+    iny
+    cpy #MU_GRID_ROWS
+    bcc mbwLp
+    ldy #0
+mbwDone:
     tya
     clc
     adc #MU_GRID_TOP
@@ -5113,8 +5118,8 @@ muNcStore:
     sta (kPtr),y
     jsr muWinFlush0             // the pair reaches its page before the record reads it
     jsr muPushEdit             // ...become 2 new bytes there
-    jsr muBandFrom              // the note's length may differ, so every row below
-    ldx #MU_GRID_BOT+1          //   moves: repaint from the group's first line down
+    jsr muBandRow               // the note's length may differ, so every row below
+    ldx #MU_GRID_BOT+1          //   moves: repaint from the note's own row down
     jmp muRedrawRows            // tail: its rts balances the jsr that entered
 muNcIllegal:
     lda #M_ILLEGAL
@@ -5421,9 +5426,13 @@ muFgRest:
     lda muInsN                  // the opened bytes, pushed as one action
     sta muRecNewN
     jsr muPushEdit
-    jsr muBandFrom              // the group's first line, because the voice's HLT line
-    ldx #MU_GRID_BOT+1          //   is drawn above its own and takes the new note's
-    jmp muRedrawRows            //   place when this was the voice's first event
+    lda muSekEnd                // the fill's own first row: the rests start where the
+    sta muTgtLo                 //   event it found ended, which is often above the
+    lda muSekEnd+1              //   cursor, and its line carries the first rest
+    sta muTgtHi
+    jsr muBandRow
+    ldx #MU_GRID_BOT+1
+    jmp muRedrawRows
 
 // ==========================================
 //  Inserting time -- open rows of silence in all three voices at once
@@ -5455,8 +5464,12 @@ muInsertTime:
     jsr muPhBlock               // a body's timing is every call site's timing
     bcs muItPhrase
     jsr muInsLoop
-    jsr muBandFrom              // every voice grew below the cursor: repaint from the
-    ldx #MU_GRID_BOT+1          //   group's first line down
+    lda muInsT0                 // the boundary every voice was opened at: nothing above
+    sta muTgtLo                 //   it changes, so its group is where the band starts
+    lda muInsT0+1
+    sta muTgtHi
+    jsr muBandRow
+    ldx #MU_GRID_BOT+1
     jmp muRedrawRows
 muItIllegal:
     lda #M_ILLEGAL
@@ -5523,8 +5536,12 @@ muNimSet:
     lda (dataPtr),y
     sta muInsNoteV
     jsr muInsLoop
-    jsr muBandFrom              // the rows below the boundary moved, and the group's
-    ldx #MU_GRID_BOT+1          //   own command lines may have changed with them
+    lda muInsFrom               // the first row the splice touched, which for a fill is
+    sta muTgtLo                 //   where the event before the gap ended
+    lda muInsFrom+1
+    sta muTgtHi
+    jsr muBandRow
+    ldx #MU_GRID_BOT+1
     jsr muRedrawRows
     jmp muInsGoStep
 
@@ -5566,6 +5583,10 @@ muInsOneVoice:
     lda muInsT0+1
     sta muTgtHi
     jsr muSeekAt
+    lda muSekRow                // the first row this voice's splice can touch: the
+    sta muInsFrom               //   event's own row, or (in a gap) where the event
+    lda muSekRow+1              //   before it ended -- see muIvAppend
+    sta muInsFrom+1
     lda muSekKind
     bne muIvNot0
     jmp muIvOnset
@@ -5581,6 +5602,10 @@ muIvNot1:
 
 // --- muIvAppend -- INS mode in an empty/past-end voice: fill, then the note ---
 muIvAppend:
+    lda muSekEnd                // the rests start where the event before the gap
+    sta muInsFrom               //   ended, which is above the cursor
+    lda muSekEnd+1
+    sta muInsFrom+1
     lda muSekTem
     sta muJifTem
     jsr muFillPlan              // muGapJ rests, then muN2 note events
@@ -5833,9 +5858,13 @@ muDkGo:
     lda muSkV
     jsr muDelGap
     jsr muPushEdit
-    jsr muBandFrom              // the group's first line: removing a voice's last event
-    ldx #MU_GRID_BOT+1          //   makes its HLT line the group's first, which is
-    jmp muRedrawRows            //   drawn above the cursor's row
+    lda muSekRow                // the row the event was on: its line, and the HLT line
+    sta muTgtLo                 //   above it when this was the voice's first event
+    lda muSekRow+1
+    sta muTgtHi
+    jsr muBandRow
+    ldx #MU_GRID_BOT+1
+    jmp muRedrawRows
 muDkPhrase:
     jmp muPhRefuse
 
@@ -5885,8 +5914,8 @@ mdkCmd:
     lda muSkV
     jsr muDelGap
     jsr muPushEdit
-    jsr muBandFrom              // the line came out of the group, so everything from
-    ldx #MU_GRID_BOT+1          //   its first line down has moved up
+    jsr muBandRow               // the line came out of the group, so everything from
+    ldx #MU_GRID_BOT+1          //   the command's own row down has moved up
     jmp muRedrawRows
 mdkGone:
     jsr muBandRebuild
