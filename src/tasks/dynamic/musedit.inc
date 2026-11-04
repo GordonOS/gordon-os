@@ -5353,10 +5353,10 @@ muFgRest:
     lda muInsN                  // the opened bytes, pushed as one action
     sta muRecNewN
     jsr muPushEdit
-    ldy #MU_ROW                 // rows inserted: redraw from the cursor down
-    lda (dataPtr),y
-    ldx #MU_GRID_BOT+1
-    jmp muRedrawRows
+    //  The whole band, not from the cursor down: writing a voice's FIRST event takes
+    //  the place of its HLT line, which the group draws ABOVE the row the cursor is
+    //  on, so a partial repaint would leave that line behind.
+    jmp muRedrawNoHead
 
 // ==========================================
 //  Inserting time -- open rows of silence in all three voices at once
@@ -5718,10 +5718,9 @@ muDkGo:
     lda muSkV
     jsr muDelGap
     jsr muPushEdit
-    ldy #MU_ROW                 // the gap closed: redraw from the cursor down
-    lda (dataPtr),y
-    ldx #MU_GRID_BOT+1
-    jmp muRedrawRows
+    //  The whole band for the same reason: removing a voice's last event makes its
+    //  HLT line the group's first, which is drawn above the cursor's row.
+    jmp muRedrawNoHead
 muDkPhrase:
     jmp muPhRefuse
 

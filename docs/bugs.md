@@ -21,6 +21,30 @@
 
 ---
 
+## Bug #198 — inserting a voice's first note left that voice's `HLT` on the line it was drawn on, though the file was right 🟡 ✅ FIXED (2026-11-05)
+
+**Symptoms.** A brand-new tune shows one `HLT` per voice, all three on the command line printed
+above row 01. Entering a note into voice 1 puts the note on row 01 — but the `HLT` stays on the
+line above it, so voice 1 reads `HLT` then `C-4 16` then `HLT`: a voice that appears to be
+stopped by a `HLT` before its first note. Saving, quitting and re-opening shows the correct
+picture (the note on row 01, one `HLT` after it), so only the live band was wrong. Deleting the
+note again leaves the band short of the `HLT` that returns when the file is re-opened.
+
+**Root cause.** `muFillNote` and `muDelKey` repainted from the cursor's row **down**
+(`muRedrawRows` seeded with `MU_ROW`). The line an event sits on is the command line *above* the
+row it belongs to, and a voice's only event — its `HLT` — is drawn on the line above row 01, so
+an edit made at row 01 changes a line the partial repaint never reaches. The edit itself was
+correct all along: `muInsSek2` inserts at `muSekLo + 2`, i.e. before the `HLT`.
+
+**Fix.** Both handlers end in `jmp muRedrawNoHead` (the whole band) instead of a repaint scoped
+to the cursor's row.
+
+**Rule.** A repaint scoped from the cursor's row down is only sound for edits that cannot change
+the shape of the band *above* that row. An edit that changes a voice's event count moves the
+whole voice up or down, and the line it moves onto can be the one above the cursor.
+
+---
+
 ## Bug #197 — a save that outgrows its file deleted the tune *before* the create, so a full directory lost it 🔴 ✅ FIXED (2026-11-04)
 
 **Symptoms.** On a filesystem whose directory has no free slot, opening a tune and saving an edit
