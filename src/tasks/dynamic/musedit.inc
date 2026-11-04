@@ -5546,17 +5546,29 @@ muNimSet:
     jmp muInsGoStep
 
 // --- muInsGoStep -- leave the cursor on the row the new note starts on ---
-//  A LINE at a time, because one row can hold command lines of its own. The grid is
-//  redrawn first, so the walk's line table and the band agree with the image the
-//  boundary was measured in and a step taken at the bottom scrolls the window.
-//  A line past the tune's end holds $ffff, which is past every boundary, so the
-//  walk cannot run away.
+//  A LINE at a time, because one row can hold command lines of its own, and the
+//  cursor goes on the row's OWN line -- that is where a note is, and where the next
+//  edit can act on it. The grid is redrawn first, so the walk's line table and the
+//  band agree with the image the boundary was measured in and a step taken at the
+//  bottom scrolls the window. A line past the tune's end holds $ffff, which is past
+//  every boundary and names no own line, so the walk cannot run away.
 muInsGoStep:
     jsr muCursorAbs             // A/X = the cursor's row, also left in muTmpL/H
     cmp muInsT0
     lda muTmpH
     sbc muInsT0+1
     bcc muIgsDown
+    lda muTmpH
+    cmp #$ff
+    beq muIgsRts                // past the tune's end: there is no own line to reach
+    ldy #MU_ROW
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    tay
+    lda muLnKind,y              // the row is reached, but this may be one of its
+    beq muIgsDown               //   command lines: the note is on the row's own
+muIgsRts:
     rts
 muIgsDown:
     jsr muCurDownGo
@@ -5887,9 +5899,15 @@ muDelKey2:
     jmp muStatus
 mdkEvent:
     jmp muDelKey
+mdkKeep:
+    lda #M_KEEP_HLT
+    jsr muMsgSet
+    jmp muStatus
 mdkCmd:
-    sta muObjId                 // its mnemonic names the pair: a removal is the
-    lda muCmdVal                //   nearest one of that id at this boundary, so a
+    cmp #MU_MN_HLT              // the voice's last pair is its terminator: remove it
+    beq mdkKeep                 //   and the walk has no end, so the voice cannot be
+    sta muObjId                 //   read again. The id names the pair: a removal is
+    lda muCmdVal                //   the nearest one of that id at this boundary, so a
     sta muObjVal                //   value wider than a byte cannot hide it
     lda #0
     sta muObjMatch

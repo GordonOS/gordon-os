@@ -6,7 +6,7 @@
 //  holds it as `msgs`, one MU_MSG_SLOT-byte record per index, in this order,
 //  each NUL terminated. muMsg DMAs a record into its buffer and points the
 //  text at it, so a string costs no code page at all.
-.const MU_MSG_COUNT = 31
+.const MU_MSG_COUNT = 32
 .const MU_MSG_SLOT = 64
 .const M_LANES      = 0
 .const M_TEM2       = 1
@@ -20,25 +20,26 @@
 .const M_NOT_YET    = 9
 .const M_ILLEGAL    = 10
 .const M_NO_EVENT   = 11
-.const M_NO_UNDO    = 12
-.const M_NO_REDO    = 13
-.const M_NO_PLAYER  = 14
-.const M_STOP_FIRST = 15
-.const M_UNSAVED    = 16
-.const M_SAVED      = 17
-.const M_NO_ROOM    = 18
-.const M_NO_WIN     = 19
-.const M_NO_FS      = 20
-.const M_NO_WRITE   = 21
-.const M_NO_TUNE    = 22
-.const M_NO_SCR     = 23
-.const M_DIR_FULL   = 24
-.const M_NOT_PHRASE = 25
-.const M_NO_DEF     = 26
-.const M_NO_CALL    = 27
-.const M_CMD        = 28
-.const M_IN_PHRASE  = 29
-.const M_BAD_PHRASE = 30
+.const M_KEEP_HLT   = 12
+.const M_NO_UNDO    = 13
+.const M_NO_REDO    = 14
+.const M_NO_PLAYER  = 15
+.const M_STOP_FIRST = 16
+.const M_UNSAVED    = 17
+.const M_SAVED      = 18
+.const M_NO_ROOM    = 19
+.const M_NO_WIN     = 20
+.const M_NO_FS      = 21
+.const M_NO_WRITE   = 22
+.const M_NO_TUNE    = 23
+.const M_NO_SCR     = 24
+.const M_DIR_FULL   = 25
+.const M_NOT_PHRASE = 26
+.const M_NO_DEF     = 27
+.const M_NO_CALL    = 28
+.const M_CMD        = 29
+.const M_IN_PHRASE  = 30
+.const M_BAD_PHRASE = 31
 
 // The length of each message, for a layout that depends on it: the bar's
 // labels sit in fixed cells, so their width is not decoration.
@@ -54,6 +55,7 @@
 .const M_NOT_YET_LEN = 9
 .const M_ILLEGAL_LEN = 18
 .const M_NO_EVENT_LEN = 15
+.const M_KEEP_HLT_LEN = 20
 .const M_NO_UNDO_LEN = 17
 .const M_NO_REDO_LEN = 17
 .const M_NO_PLAYER_LEN = 11
