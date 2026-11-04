@@ -4584,10 +4584,16 @@ muKeyIdle:
     jmp muKeyLoop
 
 muCurDown:
+    jsr muCurDownGo
+    jmp muKeyIdle
+
+// --- muCurDownGo -- one line down, scrolling the band when the cursor is at the
+//  bottom. The key handler and insert mode's cursor step both walk through this.
+muCurDownGo:
     ldy #MU_ROW
     lda (dataPtr),y
     cmp #MU_GRID_BOT
-    bne muCurDownIn
+    bne muCdgIn
     //  at the bottom: the window moves instead of the cursor, the band shifts up
     //  through the kernel and only the line that arrives at the bottom is drawn.
     //  muScrollBand brings muTop with it, because the line's row is what the window
@@ -4596,9 +4602,8 @@ muCurDown:
     jsr muCursorHide
     jsr muScrollBand
     jsr muHeadTail
-    jsr muCursorShow
-    jmp muKeyIdle
-muCurDownIn:
+    jmp muCursorShow
+muCdgIn:
     jsr muCursorHide
     ldy #MU_ROW
     lda (dataPtr),y
@@ -4606,8 +4611,7 @@ muCurDownIn:
     adc #1
     sta (dataPtr),y
     jsr muCursorShow
-    jsr muHeadTail
-    jmp muKeyIdle
+    jmp muHeadTail
 
 muCurUp:
     ldy #MU_ROW
@@ -5363,7 +5367,7 @@ muFgRest:
 
 // --- muInsertTime -- A = the rows of silence to open at the cursor row ---
 //  The I / SHIFT+I entry: every voice gets rests (muInsNoteV = $ff). Insert mode
-//  enters at muInsGo with muInsNoteV = the cursor voice and muInsJif = the note.
+//  enters muInsLoop with muInsNoteV = the cursor voice and muInsJif = the note.
 muInsertTime:
     sta muInsRows
     jsr muCursorAbs
@@ -5378,7 +5382,17 @@ muInsertTime:
     sta muInsNoteV
     jsr muPhBlock               // a body's timing is every call site's timing
     bcs muItPhrase
-muInsGo:
+    jsr muInsLoop
+    jmp muRedrawNoHead
+muItIllegal:
+    lda #M_ILLEGAL
+    jsr muMsgSet
+    jmp muStatus
+muItPhrase:
+    jmp muPhRefuse              // out of branch range: the refusal prints the phrase
+
+// --- muInsLoop -- the three splices, as one grouped action; the caller repaints ---
+muInsLoop:
     lda #1
     sta muInsFirst              // the first splice opens the grouped action
     lda #0
@@ -5402,27 +5416,52 @@ muItVDo:
     lda muItV
     cmp #3
     bcc muItVLoop
-    jmp muRedrawNoHead
-muItIllegal:
-    lda #M_ILLEGAL
-    jsr muMsgSet
-    jmp muStatus
-muItPhrase:
-    jmp muPhRefuse              // out of branch range: the refusal prints the phrase
+    rts
 
-// --- muNoteInsMode -- insert mode: open the note in all voices, note in ours ---
-//  The cursor voice gets the armed note (muNewOpt), the other two get rests of
-//  the same length, so the lanes stay in step and the tune grows from the top.
+// --- muNoteInsMode -- insert mode: the note goes AFTER the event the cursor is on ---
+//  The cursor voice gets the armed note (muNewOpt), the other two get rests of the
+//  same length, so the lanes stay in step and the tune grows where the cursor is.
+//  The boundary is the END of the event the cursor's line holds, not the line
+//  itself, and the cursor then follows the note: a run of entries in one place
+//  writes the tune forward instead of stacking every note in front of the last. A
+//  gap, a row past the last event and a row inside a longer event have nothing
+//  below them to reorder, so those are entered on the cursor's own row.
 muNoteInsMode:
     jsr muCursorAbs
     sta muInsT0
     stx muInsT0+1
+    lda muSekKind
+    bne muNimSet
+    lda muSekEnd                // the event's onset plus its rows: the next boundary
+    sta muInsT0
+    lda muSekEnd+1
+    sta muInsT0+1
+muNimSet:
     lda muDurJif
     sta muInsJif
     ldy #MU_VOICE
     lda (dataPtr),y
     sta muInsNoteV
-    jmp muInsGo
+    jsr muInsLoop
+    jsr muRedrawAll
+    jmp muInsGoStep
+
+// --- muInsGoStep -- leave the cursor on the row the new note starts on ---
+//  A LINE at a time, because one row can hold command lines of its own. The grid is
+//  redrawn first, so the walk's line table and the band agree with the image the
+//  boundary was measured in and a step taken at the bottom scrolls the window.
+//  A line past the tune's end holds $ffff, which is past every boundary, so the
+//  walk cannot run away.
+muInsGoStep:
+    jsr muCursorAbs             // A/X = the cursor's row, also left in muTmpL/H
+    cmp muInsT0
+    lda muTmpH
+    sbc muInsT0+1
+    bcc muIgsDown
+    rts
+muIgsDown:
+    jsr muCurDownGo
+    jmp muInsGoStep
 
 // --- muInsPush -- push the splice just written, first as a group start ---
 muInsPush:

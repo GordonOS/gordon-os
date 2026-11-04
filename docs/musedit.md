@@ -438,9 +438,10 @@ where another one already sits, or to open a bar in the middle of a tune — ins
   bar inserted is the one that fits the part you are in). Inserting a bar mid-tune therefore
   leaves every bar number before it unchanged.
 - **`M` switches note entry to insert.** With `INS` showing at the right of row 1, entering a
-  note pushes the rows below down by that note's length instead of replacing them, so you can
-  build a tune from the top down. `M` again returns to `OVR`, where entering a note replaces
-  or splits.
+  note writes it **after** the event the cursor's line holds, opening that note's length in all
+  three voices so the rows below move down, and the cursor follows the new note. Entering notes
+  one after another therefore builds the tune forward, in the order you play them. `M` again
+  returns to `OVR`, where entering a note replaces or splits.
 
 An insert writes to all three voices at once — the three lanes are one timeline, so a per-lane
 insert would slide them out of step with no way back. For the same reason an insert is
