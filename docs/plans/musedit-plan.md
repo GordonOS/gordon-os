@@ -872,7 +872,24 @@ then `MU_GRID_STEPS` is what keeps a pathological tune from spinning.
 - [x] **5.3 Cursor.** Cursor keys move the `>`; LEFT/RIGHT change voice; at the bottom row the window
   shifts a line, at the top row it moves back a whole page.
 - [x] **5.4 Click placement.** Clicking a lane cell sets the voice and the row; the lane header row, a separator and the spare column answer nothing.
-- [ ] **5.5 `SHIFT+U` refines.** *Verified on hardware: opens at 48 rows to the bar, and the three reachable states cycle.* `muUnitCycle` (bound to `SHIFT+U`, `$55`) walks the row unit plain -> half -> third -> one jiffy, skipping any refinement that does not divide the tempo's row exactly (`muUcValid`) and wrapping from the finest back to plain, so the reachable states **cycle**. At tempo 144 that is three — 16, 48 and 144 rows to the bar, because 9 jiffies does not halve — and a triplet tune opens already at the third (48), so its first press goes to the finest and the second wraps to plain. It is refused while the player runs (`? stop first`), like every other edit: the grid is drawn in the unit that was in force when it was painted, so refining it mid-pass would leave the rows and the playhead apart. A tune that contains a triplet or a second dot gets the third **at load** (`muTrScan`, called from the startup path right after the tempo's plain unit is known), so its onsets sit on rows without the key being pressed. **No other bundled tune contains one**: a scan of the original twelve finds not a single note length with bit 7 set — the bit-7 bytes they do contain are command bytes, which the player routes on the low two bits (`01`/`10`/`11` are commands, `00` a length).
+- [x] **5.5 `SHIFT+U` refines.** *Verified on hardware: opens at 48 rows to the bar, and the
+  three reachable states cycle.* `muUnitCycle` (bound to `SHIFT+U`, `$55`) walks the row unit plain
+  -> half -> third -> one jiffy, skipping any refinement that does not divide the tempo's row
+  exactly (`muUcValid`) and wrapping from the finest back to plain, so the reachable states
+  **cycle**. At tempo 144 that is three: 16, 48 and 144 rows to the bar, because 9 jiffies does not
+  halve -- and a triplet tune opens already at the third (48), so its first press goes to the finest
+  and the second wraps to plain. It is refused while the player runs (`? stop first`), like every
+  other edit: the grid is drawn in the unit that was in force when it was painted, so refining it
+  mid-pass would leave the rows and the playhead apart. A tune that contains a triplet or a second
+  dot gets the third **at load**: the startup path runs `muUnitNow`, then `muTrScan` (a pair's first
+  byte is a length only when its low two bits are 00, so the test is `& $83 == $80`), sets
+  `muUnitRef = 2`, checks it with the same `muUcValid` and applies it -- all **before** `muDrawAll`,
+  which is the ordering that makes the band open refined rather than repaint into it. A tempo whose
+  plain unit is not a multiple of three keeps plain, because no row grid can express a third of it.
+  **No other bundled tune contains one**: a scan of the original twelve finds not a single note
+  length with bit 7 set -- the bit-7 bytes they do contain are command bytes, which the player
+  routes on the low two bits (`01`/`10`/`11` are commands, `00` a length).
+
 - [x] **5.6 Command markers.** A note's lane carries no command marker: step 13.4a draws every
   command on a line of its own.
 - [x] **5.7 Nothing else is drawn.** `kClearScreen` at start-up and `muGridClear` on every redraw leave nothing behind.
