@@ -3698,16 +3698,23 @@ muDgEnd:
 //  lines, which is the state the draw left -- and draws nothing, because the screen
 //  is already right. It also refills the walk's history ring with the band's own
 //  events, which the search had replaced.
+//  The countdown lives on the STACK because muLnNext clobbers X -- and a counter it
+//  eats never reaches zero: the loop re-emitted lines until the machine was switched
+//  off. X is no register to count in across a call.
 muBandRebuild:
     jsr muWalkStart
     jsr muWalkToTop
     bcs mbrRts
-    ldx #MU_GRID_ROWS
+    lda #MU_GRID_ROWS
+    pha
 mbrLp:
     jsr muLnNext
-    bcs mbrRts
-    dex
+    bcs mbrDrop
+    tsx
+    dec $0101,x                 // the byte just pushed, one under the return address
     bne mbrLp
+mbrDrop:
+    pla
 mbrRts:
     rts
 

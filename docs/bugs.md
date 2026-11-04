@@ -21,6 +21,43 @@
 
 ---
 
+## Bug #201 — `muBandRebuild` counted its lines in X, which `muLnNext` eats, so a refused delete spun the machine with the pointer frozen 🔴 ✅ FIXED (2026-11-05)
+
+**Symptoms.** In `musedit`, after entering some notes, pressing `SHIFT+INST/DEL` (or the
+bar's `DEL`) on a line where there is nothing to delete sometimes freezes the whole machine:
+the grid stops, the pointer sprite stops, the keyboard is dead. It is intermittent — the same
+keystrokes on the same tune can freeze it one time and answer `? no event here` the next.
+
+**Root cause.** `muDelKey2`'s refusal path calls `muBandRebuild`, which re-emits the band's own
+lines to put the walk's producer back where the draw left it. It counted them in **X**:
+
+```asm
+    ldx #MU_GRID_ROWS
+mbrLp:
+    jsr muLnNext          ; ...which runs muGrpOpen -> muSimNext -> muStep, all of which
+    bcs mbrRts            ;    load X (ldx muSv, ldx muLogIx, ...)
+    dex
+    bne mbrLp
+```
+
+So `dex` decremented whatever the walk had last put in X, and the loop ended only when that
+value happened to be 1. The walk's own end never saves it either: past the tune's last event
+`muGrpOpen` still returns C=0 on purpose, because the grid keeps emitting numbered empty rows
+down to the bottom of the band. The freeze is therefore a **very long loop**, which reads as a
+hang — and the frozen machine's `muOn` flags are all zero, i.e. the walk is past the tune.
+
+**How it was found.** The reviewer took a VICE snapshot of the frozen machine. Its `MAINCPU`
+module gives `PC = $74BE`, which `RAM` shows is the `bcc` back-edge of `muSimNext`'s voice loop,
+and the task's stack (`SP = $F5`) holds a return address of `mbrLp + 2` — the loop above.
+
+**Fix.** The countdown lives on the **stack** (`lda #MU_GRID_ROWS / pha` … `tsx / dec $0101,x`),
+where no callee can reach it, and the loop pops it on the way out.
+
+**Rule.** Never count in X across a call. `muLnNext`, `muGrpOpen`, `muStep` and every draw
+routine load X for their own indexing — `tsx`/`dec $0101,x` or a data byte is the counter.
+
+---
+
 ## Bug #200 — a click on voice 2's lane selected voice 3, because `lda #1 / beq` is never taken 🟡 ✅ FIXED (2026-11-05)
 
 **Symptoms.** Clicking in the grid's middle lane puts the cursor on voice 3. Voice 1 and voice 3
