@@ -1065,14 +1065,20 @@ not rediscovered from scratch.
   amount whose *sign*, not its size, decided whether it read as fast or slow — 4, 4.5 and 5 ticks
   per row all failed that way. Never reintroduce a predicted rate between two observed events;
   publish the position instead.*
-- [ ] **10.3 Repeat-forever is not supported by the editor.** *Not built — parked.* The child is spawned for one pass
-  (`MU_MUS_REPEATS = 1`); when it returns the parent rewinds. With `repeats = 0` the tune really
-  restarts, and **two things break**: the walker never rewinds, so the arriving lines come in
-  blank and the dots stop moving; and the view keeps painting the pass that has ended. *Fix:*
-  detect the restart — the published `SID_POS_TICK` is cleared by `sidInitSong`, so a count that
-  drops below the row last drawn is a restart — and run `muRewindView` (which now only has to
-  zero `muHistN`, `muTop` and the cursor's row and repaint) before continuing. Not wanted today;
-  a tracker that loops in the editor would need it.
+- [x] **10.3 Repeat is the tune's business, not the editor's.** *Resolved — no editor-side repeat.*
+  The format's own repeat is the section: a `HED` opens one and a `TAL` closes it back to that
+  `HED`, and `kSidPlay` honours that **inside a pass**. So a tune written to repeat repeats by
+  itself, and the editor must not add a repeat of its own on top — a tune with no section must end
+  at its last row and the score must rewind then, which is what it does.
+  The walk needs nothing special for the looping case either: the walker executes the same
+  `HED`/`TAL`, so the lines it draws loop with the music and each loop carries its own later clock,
+  which is why `muPhSync` — a lookup of the player's published count against the tick each drawn
+  line was walked at — keeps following a section round without a restart to detect.
+  The child therefore stays spawned for one pass (`MU_MUS_REPEATS = 1`): a pass end still means the
+  tune is over, the parent rewinds the score and the PLAY highlight drops. Had the editor looped
+  instead, `repeats = 0` would have stranded the child inside `kSidPlay` for ever, where `SPACE`
+  could only hush the chip — the player would keep advancing silently and the next `SPACE` could
+  not restart from row 0.
 - [x] **10.4 The window position is a ROW plus a line offset.** *Built; the repaint half verified on
   hardware.* `MU_TOP` names the row the window starts at, but a row is drawn as **one line per
   command plus its own line** — `immig`'s row 0 is ten command lines — so a row alone cannot say
