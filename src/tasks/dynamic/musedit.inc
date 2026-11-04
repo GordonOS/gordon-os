@@ -5400,8 +5400,11 @@ muFgRest:
 //  The cursor's row is a shared boundary T0; MU_INSROWS rows of silence open
 //  there in every voice, so the three lanes stay in step. Each voice is seeked
 //  and spliced in turn -- a splice shifts the later voices' offsets, so the next
-//  voice is re-seeked on the grown image -- and the three splices are one grouped
-//  undo action. A voice that has stopped before T0 contributes nothing.
+//  voice is re-seeked on the grown image -- and the splices are one grouped undo
+//  action. A voice that has stopped before T0 contributes nothing.
+//  Insert MODE shares this machinery for a note, and splices the cursor's voice
+//  alone: a note is that voice's own edit, and the other two lanes keep exactly the
+//  events they had.
 
 // --- muInsertTime -- A = the rows of silence to open at the cursor row ---
 //  The I / SHIFT+I entry: every voice gets rests (muInsNoteV = $ff). Insert mode
@@ -5429,27 +5432,34 @@ muItIllegal:
 muItPhrase:
     jmp muPhRefuse              // out of branch range: the refusal prints the phrase
 
-// --- muInsLoop -- the three splices, as one grouped action; the caller repaints ---
+// --- muInsLoop -- the splices, as one grouped action; the caller repaints ---
+//  MU_INSNOTEV names the voice that gets the note: $ff is insert time, where every
+//  voice gets rests and none gets a note, and a real voice is insert mode, where the
+//  other lanes are not touched at all.
 muInsLoop:
     lda #1
     sta muInsFirst              // the first splice opens the grouped action
     lda #0
     sta muItV
 muItVLoop:
-    lda muItV                   // the note voice writes the note, the rest rests
+    lda muItV
     cmp muInsNoteV
-    bne muItVRest
+    beq muItVNote               // the note voice: the note, or a rest in insert time
+    lda muInsNoteV              // the others: insert time rests every voice, while a
+    cmp #$ff                    //   note insert is the cursor voice's edit alone
+    bne muItVNext
+    lda #0
+    sta muInsOpt
+    sta muInsTie
+    jmp muItVDo
+muItVNote:
     lda muNewOpt
     sta muInsOpt
     lda #1
     sta muInsTie
-    jmp muItVDo
-muItVRest:
-    lda #0
-    sta muInsOpt
-    sta muInsTie
 muItVDo:
     jsr muInsOneVoice
+muItVNext:
     inc muItV
     lda muItV
     cmp #3
@@ -5457,13 +5467,12 @@ muItVDo:
     rts
 
 // --- muNoteInsMode -- insert mode: the note goes AFTER the event the cursor is on ---
-//  The cursor voice gets the armed note (muNewOpt), the other two get rests of the
-//  same length, so the lanes stay in step and the tune grows where the cursor is.
-//  The boundary is the END of the event the cursor's line holds, not the line
-//  itself, and the cursor then follows the note: a run of entries in one place
-//  writes the tune forward instead of stacking every note in front of the last. A
-//  gap, a row past the last event and a row inside a longer event have nothing
-//  below them to reorder, so those are entered on the cursor's own row.
+//  Only the cursor's voice is spliced -- a note is that lane's own edit, so the other
+//  two keep exactly the events they had. The boundary is the END of the event the
+//  cursor's line holds, not the line itself, and the cursor then follows the note: a
+//  run of entries in one place writes the tune forward instead of stacking every note
+//  in front of the last. A gap, a row past the last event and a row inside a longer
+//  event have nothing below them to reorder, so those are entered on the cursor's row.
 muNoteInsMode:
     jsr muCursorAbs
     sta muInsT0

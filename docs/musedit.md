@@ -442,17 +442,21 @@ where another one already sits, or to open a bar in the middle of a tune — ins
   leaves every bar number before it unchanged.
 - **`M` switches note entry to insert** — as does a click on the `OVR`/`INS` readout at the right
   of row 1. With `INS` showing, entering a note writes it **after** the event the cursor's line
-  holds, opening that note's length in all three voices so the rows below move down, and the
-  cursor follows the new note. Entering notes one after another therefore builds the tune
-  forward, in the order you play them. `M` again returns to `OVR`, where entering a note replaces
-  or splits.
+  holds, opening that note's length in **that voice only** so its later events move down, and the
+  cursor follows the new note. The other two lanes keep exactly the events they had, so a voice
+  you have not written to yet stays empty. Entering notes one after another therefore builds the
+  tune forward, in the order you play them. `M` again returns to `OVR`, where entering a note
+  replaces or splits.
 
-An insert writes to all three voices at once — the three lanes are one timeline, so a per-lane
-insert would slide them out of step with no way back. For the same reason an insert is
-**refused** when the row belongs to a **phrase body**: `? phrase 3 x5` names the phrase and how
-many `CALL` sites play it, and nothing is written. Those rows are the shared definition, so
-"one extra row" here would be one extra row in every place the phrase is played — and in the
-inline pass as well, because a definition plays on the way past.
+Inserting **time** — `I`, `SHIFT+I`, `INS` — is the operation that touches all three voices: the
+three lanes are one timeline, so opening rows in one lane alone would slide it against the others
+with nothing to line it up again. Inserting a **note** in `INS` mode is that voice's own edit, and
+leaves the other two untouched.
+
+Either kind of insert is **refused** when the row belongs to a **phrase body**: `? phrase 3 x5`
+names the phrase and how many `CALL` sites play it, and nothing is written. Those rows are the
+shared definition, so "one extra row" here would be one extra row in every place the phrase is
+played — and in the inline pass as well, because a definition plays on the way past.
 
 `SHIFT+INST/DEL` (delete the event and close the gap) is refused for the same reason and with the
 same message: it takes time *out* of the body. A **note** written into a body is allowed — that is
