@@ -965,18 +965,31 @@ the pair, `muObjFind` finds an existing pair at a boundary by id, `muMnPrint` dr
 
   **Cost, measured against the estimate:** ~2 code pages (380-500 bytes), no new pool pressure at
   the current margin of 10, plus two or three message records in the REU.
-- [ ] **7.8 The 16-23 phrase form.** *Built — the drawing half is verified, the save half is not.*
+- [x] **7.8 The 16-23 phrase form.** *Verified on hardware, both halves.*
   `muObjEnc` encodes `DEF`/`CALL` below 16 with the plain nibble and 16-23 with the second form
   (`value - 16 + 8`, shifted into the high nibble, `$03`/`$0B` in the low byte), and `mqMax` caps
   both at 23. The player really does read that form — `ro_______11` in `sidplay.inc` falls through
   to `and #$07 / ora #$10` when the shifted option is 15, with the carry choosing CALL from DEF —
   so the encoding has to stay in step with `muCmPhr` (the walk) and `muDecOpt` (the renderer, which
-  is what bug #192 was). **Verified on hardware:** `DEF 20` and `CALL 20` typed with `C` on
-  `immig` draw as `DEF 20` and `CALL 20`, and the plain `DEF 0` beside them is unchanged. What
-  remains is the round trip — place one, save, reopen, and decode the pair. A phrase that CALLs its
-  own body is legal but shows one command line per execution (the call stack's five frames), which
-  is the log being faithful rather than a fault.
-- [ ] **7.9 The table gate.** *Not built.* `tools/check-mus-commands.py` — every mnemonic's byte pattern checked against `gen-mus.py`, so the encoder tables and the generator cannot drift. The tables are `mqCmdB`/`mqOptB`/`mqMax`, one row per structural id.
+  is what bug #192 was). `DEF 20` and `CALL 20` typed with `C` on `immig` draw as `DEF 20` and
+  `CALL 20`, and the plain `DEF 0` beside them is unchanged. **The round trip also holds:** the two
+  pairs were placed at the first boundary of `immig`, `SHIFT+S` answered `? saved`, and after `q`
+  and `run musedit immig` the reopened band drew `DEF 20` and the `CALL 20` lines again, with the
+  rest of the tune — rows, notes, `DEF 0` — unchanged. The renderer can only print 20 from the wide
+  form, and it decides DEF from CALL by that low byte, so a reopen that shows both proves the
+  encoder wrote the form the player reads. A phrase that CALLs its own body is legal but shows one
+  command line per execution (the call stack's five frames): the pair placed at voice 1's first
+  boundary is a self-call, and the band drew five `CALL 20` lines, which is the log being faithful
+  rather than a fault. **The bytes agree.** `check-reu-fs.ps1 -Extract immig.mus` after the quit
+  gives a 1024-byte file (the save recreates it at whole pages) whose voice 1 grew from 358 to 362
+  bytes by exactly `01 C3 01 CB` at image offset 26, and every other byte is the source's — so the
+  pair is `01 C3` = `DEF 20` and `01 CB` = `CALL 20`, the high nibble `(20 - 16 + 8) << 4` with the
+  `$03`/`$0B` base. `gen-mus.py` could not decode that form (it printed `?`); it does now, which
+  also revealed that `immig`'s voice 2 uses it — `DEF 18` and two `CALL 18` — three pairs the host
+  model had been calling unmodelled.
+- [x] **7.9 The table gate.** *Built.* `tools/check-mus-commands.py` — every mnemonic's byte pattern
+  checked against `gen-mus.py`, so the encoder tables and the generator cannot drift. The tables are
+  `mqCmdB`/`mqOptB`/`mqMax`, one row per structural id. It runs from `tools/build-tasks.ps1`.
 - [x] **7.10 The bar's inert cells.** *Verified on hardware* (`commodo`: `DUR` steps the armed
   length, `TIE-` stays lit and writes bit 6 into the next note, `UNDO` undoes). `DUR` (code 5), `TIE-` (code 6)
   and `UNDO` (code 8) had nothing behind them and a click on any of them answered `? not yet`.

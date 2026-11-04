@@ -342,11 +342,16 @@ def decode_pair(cmd, opt):
         return ('RDN', f"lfo ramp down {opt >> 3}")
     if (opt & 0x07) == 0x03:
         index = opt >> 4
-        if index < 8:
-            name = BIT_COMMANDS[index]
-            on = 1 if opt & 0x08 else 0
-            return (name, f"{BIT_COMMAND_TEXT[name][on]}")
-        # index >= 8 is the wide phrase form, decoded where phrases are
+        if index >= 8:
+            # The wide 16-23 phrase form: the option's top bit is the marker, its
+            # bits 4-6 carry (phrase - 16), and bit 3 picks CALL from DEF.
+            value = (index & 0x07) + 16
+            if opt & 0x08:
+                return ('CALL', f"call phrase {value}")
+            return ('DEF', f"define phrase {value}")
+        name = BIT_COMMANDS[index]
+        on = 1 if opt & 0x08 else 0
+        return (name, f"{BIT_COMMAND_TEXT[name][on]}")
     if (opt & 0x1F) == 0x07:
         return ('WAV', f"waveform {WAV_NAME.get(opt >> 5, opt >> 5)}")
     if (opt & 0x1F) == 0x17:

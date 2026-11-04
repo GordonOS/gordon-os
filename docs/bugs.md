@@ -149,9 +149,12 @@ that (`muCmPhr`), which is why the walk was right. `muLnDec` — the routine tha
 a phrase command, its value is `((opt >> 4) & 7) + 16`, and bit 3 picks CALL from DEF. Bit 7 is the
 test that keeps an ordinary `& $07 == 3` sound command out of it.
 
-**Why it was not noticed.** No bundled tune uses the wide form — `tools/gen-mus.py` writes the
-plain one, and `immig`'s nine definitions are all below 16 — so only the editor's own encoder
-(7.8) could reach it, and nothing exercised that path.
+**Why it was not noticed.** The form is used by one bundled tune and by no generator:
+`immig`'s voice 2 defines phrase 18 and calls it twice (`01 A3` at voice-2 offset 100, `01 AB` at
+114 and 124, beside the plain `DEF 15`/`CALL 15` at 96), but that line sits far below the band's
+first nineteen, and `tools/gen-mus.py` wrote the plain form and could not decode the wide one —
+it printed `?` for those three pairs, so the host model was silent about them too. Only the
+editor's own encoder (7.8) and a reader who scrolled reached the form; the decoder now reads it.
 
 **Transferable rule.** When a command has two encodings, the *router* and the *renderer* are two
 places that each have to know both, and only the router is exercised by playing the tune. A table
