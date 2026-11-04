@@ -53,7 +53,7 @@ ROW VOICE 1     VOICE 2     VOICE 3   OVR
 ...
  19 ...         ...         ...
 [rows 21-23: piano, all 8 octaves over 40 cells, black keys as two-row bars]
-DUR 16  TIE-  PLAY  CMD  UNDO  SAVE  Q
+DUR 16 TIE- PLAY REST CMD UNDO SAVE Q
 ```
 
 **Row 0** — the file name, the tempo in force **at the cursor's row** (in decimal), the bar and the
@@ -86,7 +86,7 @@ A lane is drawn in its own voice's colour — the same red, yellow and cyan — 
 that follows it are one thing seen twice. The row number, the lane headers and the head stay white.
 
 **Row 24** — the control bar: `DUR` with the armed duration and the dot cell, `TIE-` the tie
-toggle, and the PLAY, CMD, UNDO, SAVE and Q buttons. Every one of them answers the mouse:
+toggle, `REST`, and the PLAY, CMD, UNDO, SAVE and Q buttons. Every one of them answers the mouse:
 `DUR` steps the armed length on through whole, half, quarter, 8th, 16th, 32nd and 64th (the dot
 or triplet mark rides along, so only the class changes), `TIE-` arms or drops the tie and stays
 reversed while it is set, `UNDO` is the `Z` key, and the rest are the keys they name — `1`-`9`

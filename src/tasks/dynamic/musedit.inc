@@ -393,6 +393,7 @@
 .const MU_BAR_TIE   = 6       // ...and this one arms or drops the tie
 .const MU_BAR_CMD   = 7       // ...and this one authors the row's command line
 .const MU_BAR_UNDO  = 8       // ...and this one undoes the last action
+.const MU_BAR_REST  = 9       // ...and this one turns the event into a rest
 
 // --- tiny instance helpers (offsets are constants, so these stay inline) ---
 .macro muSet(field, value) {
@@ -3920,7 +3921,7 @@ muBpGo:
     sta muBarC
 muBpLp:
     ldy muBarC
-    cpy #38
+    cpy #M_BAR_LEN
     bcs muBpKeep
     lda muBarMap,y
     beq muBpNx
@@ -8172,6 +8173,10 @@ muClkNotD:
     bne muClkNotT
     jmp muBarTie
 muClkNotT:
+    cmp #MU_BAR_REST
+    bne muClkNotR
+    jmp muBarRest
+muClkNotR:
     lda #M_NOT_YET              // a labelled cell with nothing behind it yet
     jsr muMsgSet
     jmp muStatus
@@ -8285,6 +8290,17 @@ muBarTie:
     eor #1
     sta muDurTie
     jmp muBarPaint
+
+// --- muBarRest -- the REST cell is the INST/DEL key ---
+//  A rest keeps the event's length and its option byte becomes zero, which is
+//  muRestKey's work; all this adds is the same refusal the key has while the music
+//  runs.
+muBarRest:
+    jsr muPlaying
+    bcs mbrtRts
+    jmp muRestKey
+mbrtRts:
+    rts
 
 // ==========================================
 //  Playback
@@ -9667,22 +9683,22 @@ muUnitRows: .byte 64, 32, 16, 8, 4, 2, 1
 // The bar painter's own bytes: the column, this task's id, and the items
 muBarHovP:  .byte 0             // the items the last paint reversed: those cells
 muBarActP:  .byte 0             //   carry a swapped background nibble
-// The control bar's hit map: one code per column of row 24, tested by column.
-// The click route acts on 2, 3 and 4; 5-8 name the items that answer "? not yet"
-// today. Hover and the active highlight read the same map, so a highlight and a
-// click can never disagree. A blank cell between two labels is deliberately 0,
-// so nothing answers there.
+// The control bar's hit map: one code per column of row 24, tested by column, and
+// every code in it has a handler. Hover and the active highlight read the same
+// map, so a highlight and a click can never disagree. A blank cell between two
+// labels -- and the two DUR value cells -- are deliberately 0, so nothing answers
+// there.
 muBarMap:
-    .byte 5,5,5, 0, 0,0,0, 0            // 0-7    DUR (the value is a readout)
-    .byte 6,6,6,6, 0,0, 4,4,4,4, 0,0    // 8-19   TIE-, PLAY
-    .byte 7,7,7, 0,0, 8,8,8,8, 0,0      // 20-30  CMD, UNDO
-    .byte 3,3,3,3, 0,0, 2, 0,0          // 31-39  SAVE, Q
+    .byte 5,5,5, 0, 0,0, 0, 6,6,6      // 0-9    DUR (the value is a readout), TIE-
+    .byte 6, 0, 4,4,4,4, 0, 9,9,9      // 10-19  TIE-, PLAY, REST
+    .byte 9, 0, 7,7,7, 0, 8,8,8,8      // 20-29  REST, CMD, UNDO
+    .byte 0, 3,3,3,3, 0, 2, 0,0,0      // 30-39  SAVE, Q
 muBarMapEnd:
 // A code per column, all 40 of them, and the text ends one column before the
 // map's last entry, where Q is -- so an edit to either has to keep up with the
 // other or the build stops.
 .assert "bar map covers the row", (muBarMapEnd - muBarMap) == MU_SCREEN_COLS ? 1 : 0, 1
-.assert "bar text ends at the Q column", M_BAR_LEN == 38 ? 1 : 0, 1
+.assert "bar text ends at the Q column", M_BAR_LEN == 37 ? 1 : 0, 1
 // The three lane headers in row 1 are "ROW VOICE 1     VOICE 2     VOICE 3", so
 // the lanes start at 4, 16 and 28: a note always sits under its own header.
 .assert "voice 1 lane starts under its header", (MU_LANE1_COL == 4) ? 1 : 0, 1
