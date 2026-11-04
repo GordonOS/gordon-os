@@ -85,12 +85,19 @@ row it belongs to, and a voice's only event — its `HLT` — is drawn on the li
 an edit made at row 01 changes a line the partial repaint never reaches. The edit itself was
 correct all along: `muInsSek2` inserts at `muSekLo + 2`, i.e. before the `HLT`.
 
-**Fix.** Both handlers end in `jmp muRedrawNoHead` (the whole band) instead of a repaint scoped
-to the cursor's row.
+**Fix.** The repaint starts at `muBandFrom` — the first line of the *group* the cursor's row
+belongs to, which is where a command line can be — and runs from there to the bottom of the band
+(`muRedrawRows`). That is the narrowest span that can include a line **above** the cursor, and it
+is what `musedit` uses for every note insert, note replace, delete and insert-time instead of a
+whole-band repaint. `muRedrawRows` also had to learn about a band that runs past the tune's end:
+such a band's last line holds `$ffff`, and the "one past the end" conversion turned that into
+row 0, which draws nothing at all.
 
 **Rule.** A repaint scoped from the cursor's row down is only sound for edits that cannot change
 the shape of the band *above* that row. An edit that changes a voice's event count moves the
-whole voice up or down, and the line it moves onto can be the one above the cursor.
+whole voice up or down, and the line it moves onto can be the one above the cursor. Scope the
+repaint to the **group**, not to the row: one row's lines are its command lines first and its own
+line last.
 
 ---
 

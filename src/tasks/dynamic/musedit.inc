@@ -3716,7 +3716,9 @@ mbrRts:
 //  it touched rather than the whole window: those rows are cleared, and the lines
 //  whose row they hold are the only ones the producer draws (MU_GDLo/MU_GDHi).
 //  The walk runs either way -- a window deep in a tune has to be walked from the
-//  start -- so the saving is the clear and the cells, not the walk.
+//  start -- so the saving is the clear and the cells, not the walk. The table is
+//  rebuilt for every line the walk reaches, drawn or not, so a caller may read it
+//  afterwards.
 muRedrawRows:
     sta muGdFrom
     stx muGdTo
@@ -3736,6 +3738,9 @@ muRedrawRows:
     sec
     sbc #1
     tay
+    lda muLnTbHi,y
+    cmp #$ff                    // a line past the tune's end holds $ffff: the band
+    beq muRrNoEnd               //   then runs on to the end of the tune, not to row 0
     lda muLnTbLo,y
     sta muGdHi
     lda muLnTbHi,y
@@ -3746,6 +3751,11 @@ muRedrawRows:
     sta muGdHi
     bcc muRrClr
     inc muGdHi+1
+    jmp muRrClr
+muRrNoEnd:
+    lda #$ff                    // no row is past this, so the band has no end
+    sta muGdHi
+    sta muGdHi+1
 muRrClr:
     lda muGdFrom
     sta muClrRow
@@ -3759,6 +3769,29 @@ muRrClrLp:
     jsr muDrawHead              // the length moved, so the bar and the tempo under
     jmp muCursorShow            //   the cursor may have: the head reads both from
                                 //   the walk. Its rts balances the jsr that entered
+
+// --- muBandFrom -- A = the screen row of the first line of the cursor's group ---
+//  An edit at a row changes that row's command lines too, and they are drawn ABOVE
+//  the row's own line -- a voice's first event takes the place of its HLT line --
+//  so a repaint starts at the group's first line, not at the line the cursor is on.
+muBandFrom:
+    ldy #MU_ROW
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    tay
+mbfLp:
+    cpy #0
+    beq mbfDone
+    lda muLnKind-1,y            // 0 = a command's line: still inside this group
+    bne mbfDone
+    dey
+    jmp mbfLp
+mbfDone:
+    tya
+    clc
+    adc #MU_GRID_TOP
+    rts
 
 // --- muGridClear -- blank the eighteen grid rows ---
 muGridClear:
@@ -5080,9 +5113,8 @@ muNcStore:
     sta (kPtr),y
     jsr muWinFlush0             // the pair reaches its page before the record reads it
     jsr muPushEdit             // ...become 2 new bytes there
-    ldy #MU_ROW                 // the length changed with the pitch, so every row
-    lda (dataPtr),y             //   below moves: redraw from the cursor down
-    ldx #MU_GRID_BOT+1
+    jsr muBandFrom              // the note's length may differ, so every row below
+    ldx #MU_GRID_BOT+1          //   moves: repaint from the group's first line down
     jmp muRedrawRows            // tail: its rts balances the jsr that entered
 muNcIllegal:
     lda #M_ILLEGAL
@@ -5389,10 +5421,9 @@ muFgRest:
     lda muInsN                  // the opened bytes, pushed as one action
     sta muRecNewN
     jsr muPushEdit
-    //  The whole band, not from the cursor down: writing a voice's FIRST event takes
-    //  the place of its HLT line, which the group draws ABOVE the row the cursor is
-    //  on, so a partial repaint would leave that line behind.
-    jmp muRedrawNoHead
+    jsr muBandFrom              // the group's first line, because the voice's HLT line
+    ldx #MU_GRID_BOT+1          //   is drawn above its own and takes the new note's
+    jmp muRedrawRows            //   place when this was the voice's first event
 
 // ==========================================
 //  Inserting time -- open rows of silence in all three voices at once
@@ -5424,7 +5455,9 @@ muInsertTime:
     jsr muPhBlock               // a body's timing is every call site's timing
     bcs muItPhrase
     jsr muInsLoop
-    jmp muRedrawNoHead
+    jsr muBandFrom              // every voice grew below the cursor: repaint from the
+    ldx #MU_GRID_BOT+1          //   group's first line down
+    jmp muRedrawRows
 muItIllegal:
     lda #M_ILLEGAL
     jsr muMsgSet
@@ -5490,7 +5523,9 @@ muNimSet:
     lda (dataPtr),y
     sta muInsNoteV
     jsr muInsLoop
-    jsr muRedrawAll
+    jsr muBandFrom              // the rows below the boundary moved, and the group's
+    ldx #MU_GRID_BOT+1          //   own command lines may have changed with them
+    jsr muRedrawRows
     jmp muInsGoStep
 
 // --- muInsGoStep -- leave the cursor on the row the new note starts on ---
@@ -5798,9 +5833,9 @@ muDkGo:
     lda muSkV
     jsr muDelGap
     jsr muPushEdit
-    //  The whole band for the same reason: removing a voice's last event makes its
-    //  HLT line the group's first, which is drawn above the cursor's row.
-    jmp muRedrawNoHead
+    jsr muBandFrom              // the group's first line: removing a voice's last event
+    ldx #MU_GRID_BOT+1          //   makes its HLT line the group's first, which is
+    jmp muRedrawRows            //   drawn above the cursor's row
 muDkPhrase:
     jmp muPhRefuse
 
@@ -5850,7 +5885,9 @@ mdkCmd:
     lda muSkV
     jsr muDelGap
     jsr muPushEdit
-    jmp muRedrawNoHead
+    jsr muBandFrom              // the line came out of the group, so everything from
+    ldx #MU_GRID_BOT+1          //   its first line down has moved up
+    jmp muRedrawRows
 mdkGone:
     jsr muBandRebuild
     lda #M_NO_EVENT
