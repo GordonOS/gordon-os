@@ -21,6 +21,37 @@
 
 ---
 
+## Bug #197 — a save that outgrows its file deletes the tune *before* the create, so a full directory loses it 🔴 OPEN (found 2026-11-04)
+
+**Symptoms.** On a filesystem whose directory is full, opening a tune and saving an edit that makes
+the image longer answers `? dir full` — and afterwards the tune is not in `dir` at all. The entry is
+a tombstone: flags bit 7 set, name cleared, size still there. The editor keeps working because the
+image lives in `<base>.wrk`, but that file is dropped on exit, so leaving the editor loses the tune
+and the edit together. Reached with all 512 slots carrying a size: `musedit.und` (2048) and
+`<base>.wrk` (65280) take the last two as the editor starts, so the save's create finds none.
+
+**Root cause.** `muSaveNow`'s create path is right about the data area and wrong about the
+directory. `muSvCreate` computes the pages the image needs, asks `muFreeSpace` (capacity minus the
+allocator's high-water mark) whether they fit, and only then calls `kReuDelete` and `kReuCreate`.
+But `fsxDelete` sets the entry's deleted bit and clears its name while keeping its size, and
+`fsxCreate` treats a slot as free only when **both** size bytes are zero — a tombstone frees
+neither slot nor data. So the delete cannot make room for the create, the create fails with
+`kArg+6 = 2`, and the tune is already gone from the directory by then. The space check cannot catch
+this because the data area is not what ran out.
+
+**Fix (suggested).** Require a free directory slot *before* the delete: scan the 512 entries the way
+`fsxCreate` does (a size of zero is a free slot) and take `muSvDirFull` when there is none, so the
+tune is untouched and the message still names the reason. A create must never be attempted on the
+strength of a delete that cannot free a slot.
+
+**Transferable rule.** A check that mirrors an allocator must mirror *every* resource that allocator
+hands out. Here there are two — data area and directory slot — and the delete that precedes the
+create frees neither, so a green space check says nothing about the slot. And refuse before you
+destroy: any path that deletes first and creates second has to know the create cannot fail, or the
+delete is the last thing the user's data sees.
+
+---
+
 ## Bug #196 — the bar's lit item is cleared every frame while the music is stopped, so a sticky item could never stay lit 🟡 ✅ FIXED (2026-11-01)
 
 **Symptoms.** Clicking `TIE-` in the control bar did not leave it reversed, so there was no way to

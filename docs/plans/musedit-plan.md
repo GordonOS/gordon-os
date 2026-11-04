@@ -762,9 +762,39 @@ gone). Both load paths take the pair, and the byte that reads it back is `muImgT
 - [x] **2.3 Byte-identical no-op.** `copy commodo.mus scratch.mus`, open `scratch`, save without editing, extract and hash — identical to `music/commodo.mus`.
 - [x] **2.4 Trailing bytes survive.** The same with `fsonata` (which carries two bytes after the description's NUL) — identical.
 - [x] **2.5 Name rules.** An 8-character base name is refused at start-up and creates nothing.
-- [ ] **2.6 Grow saves.** *Built — needs a check.* An image that outgrew its file takes `muSaveNow`'s create path: `muSvPages` rounds it to pages, `muFreeSpace` is asked **before** the delete, then `kReuDelete` + `kReuCreate` + the page write, and `MU_FLEN` becomes whole pages. The check is the edit-then-save round trip on a tune that grows by a page.
-- [ ] **2.7 In-place save inside the slack.** *Built — needs a check.* When the image's length word still fits the opened record's length, `muSvInPlace` writes it back and no create happens, so the extent is unchanged. The check is `dir` before and after an edit smaller than the slack.
-- [ ] **2.8 Full FS fails safely.** *Built — needs a check.* `muFreeSpace` (capacity minus the allocator's high-water mark) is compared with the pages needed before anything is deleted, and the three refusals are distinct: `? no fs`, `? no space`, `? dir full`. The check needs a filled filesystem.
+- [x] **2.6 Grow saves.** *Verified on hardware.* An image that outgrew its file takes
+  `muSaveNow`'s create path: `muSvPages` rounds it to pages, `muFreeSpace` is asked **before** the
+  delete, then `kReuDelete` + `kReuCreate` + the page write, and `MU_FLEN` becomes whole pages.
+  The check was `arose` (1014 bytes at slot 70, data offset 185178): six command pairs inserted at
+  row 1's boundary took the image to 1016, `SHIFT+S` answered `? saved`, and the file came back as
+  **1024 bytes at slot 148, data offset 3950351**, with slot 70 left tombstoned (flags `$80`, size
+  kept) -- so the delete and the create both ran and the extent is whole pages. The eight bytes
+  between the image's end (1016) and the extent (1024) are zero, and `nextFreeOffset` grew by
+  exactly the editor's two files plus the new one (2048 + 65280 + 1024).
+- [x] **2.7 In-place save inside the slack.** *Verified on hardware, and the sharpest of the
+  three.* When the image's length word still fits the opened record's length, `muSvInPlace` writes
+  it back, no create happens and the extent does not move. Proved on a filesystem with **no room to
+  create anything** (the data area raised to leave 68096 bytes free, which the editor's own
+  `musedit.und` plus `<base>.wrk` take down to 768): inserting a pair on `immig` (936 bytes against
+  a 932-byte record) answered `? no space`, because a create would have needed 1024; deleting the
+  pair and then the `ATK` command (930 bytes) answered `? saved`, which only the in-place path can
+  do with 768 bytes free. Afterwards `immig.mus` is still at slot 75, data offset 189826, size
+  **932**, flags 0 -- and `nextFreeOffset` grew by exactly 2048 + 65280, so the allocator never
+  moved.
+- [ ] **2.8 Full FS fails safely.** *The "no space" half holds; the "dir full" half is
+  destructive.* `muFreeSpace` (capacity minus the allocator's high-water mark) is compared with the
+  pages needed before anything is deleted, so **`? no space` leaves the tune untouched** --
+  verified on the same raised-high-water image, where the refused save left `immig.mus` at slot 75,
+  size 932, flags 0. **`? dir full` does not.** With all 512 directory slots carrying a size, the
+  editor's two files take the last two as it starts, and a growing save answers `? dir full`
+  *after* `kReuDelete` has tombstoned the tune: the entry's name is gone, `dir` no longer lists it,
+  the create found no slot, and the work exists only in `<base>.wrk`, which is dropped on exit. A
+  tombstone frees neither slot nor data, so the delete cannot make room for the create -- the free
+  slot has to be checked *before* the delete. Not fixed: it needs a decision on how much of
+  `muSvCreate` to spend on the scan. **`? no fs` cannot be reached on a booted machine**:
+  `reuFsEnabled` comes from the REU size at boot and the binaries themselves arrive through the
+  filesystem, so a machine without one never reaches the editor. It stays the defensive branch it
+  is.
 
 ### Step 3 — Timing module
 
