@@ -3006,27 +3006,35 @@ muModeHover:
 muMhRts:
     rts
 
-// --- muModePut -- A = the character, X = its column: row 1, reversed under the pointer ---
-//  A reversed cell is a framebuffer write, which belongs to the displayed task, so it
-//  is drawn only while this one holds the display -- the test the bar's cells make.
+// --- muModePut -- A = the character, X = its column: one mode cell, text then background ---
+//  The text writer puts the character down -- the shadow has to carry it, or a task
+//  switch would bring the three cells back blank -- and it keeps the cell's background
+//  nibble, which a reversed cell has as the text colour. So the background is given
+//  its nibble afterwards by a blit: reversed under the pointer, plain when it leaves.
+//  The blits are framebuffer writes and belong to the displayed task.
 muModePut:
+    stx muTmpL                  // every writer takes A = char, X = col, Y = row
+    pha
     ldy #MU_MODE_ROW
-    stx muTmpL                  // kBlitCharRev takes the same inputs: pick the writer
-    pha                         //   first, because A holds the character
-    lda muModeHov
-    beq muMpNorm
+    jsr kPrintCharAt
     lda muTid
     cmp kbFocus
-    beq muMpRev
-muMpNorm:
-    pla
+    bne muMpDrop                // the display is elsewhere: the text is all we write
+    lda muModeHov
+    beq muMpPlain
     ldx muTmpL
-    jsr kPrintCharAt
-    rts
-muMpRev:
+    ldy #MU_MODE_ROW
     pla
-    ldx muTmpL
     jsr kBlitCharRev
+    rts
+muMpPlain:
+    ldx muTmpL
+    ldy #MU_MODE_ROW
+    pla
+    jsr kBlitChar
+    rts
+muMpDrop:
+    pla
     rts
 
 // ==========================================
@@ -8126,6 +8134,8 @@ muHovModeSet:
 // highlight can never disagree with what a click there would do.
 muHovBar:
     jsr muHovNone               // off the keyboard: its hover and readout end
+    lda #0                      // ...and the mode button's highlight, if it had one
+    jsr muModeHover
     ldy #MU_POS+1
     lda (dataPtr),y             // x hi
     beq muHovBarLo
@@ -8336,10 +8346,10 @@ muClkGrid:
     bcs muClkRts
 muClkV0:
     lda #0
-    beq muClkSetVoice
+    jmp muClkSetVoice
 muClkV1:
     lda #1
-    beq muClkSetVoice
+    jmp muClkSetVoice
 muClkV2:
     lda #2
 muClkSetVoice:
