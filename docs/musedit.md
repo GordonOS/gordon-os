@@ -611,9 +611,13 @@ The first release always plays from the start: the format has no seek command, a
 stream can only be entered at its beginning or at a `HED`. Use sections to structure a long
 tune.
 
-A pass is played once. When the tune reaches its last row the music stops by itself and the
-score rewinds to the beginning, cursor and all, ready for the next `SPACE`. Sections still loop
-within a pass (`HED`/`TAL`), and the cursor follows the rewind when they do.
+The tune **loops only if it says so**: a section is a `HED` and the `TAL` that closes back to it, and
+the player honours that inside a pass, so a tune written to repeat repeats by itself and one with no
+section ends at its last row, where the music stops and the score rewinds to the beginning, cursor
+and all, ready for the next `SPACE`. While a section loops, the score keeps **counting up**: the walk
+executes the same `HED`/`TAL`, so each time round is walked as later rows with later clocks rather
+than jumping back to the section's first row — the cursor keeps following the music, and the row
+numbers keep climbing.
 
 Only one player can own the SID, and `run musedit` is refused up front while another task has
 `sid.lib` loaded — so a busy chip never costs you the editor session. If the chip is taken
