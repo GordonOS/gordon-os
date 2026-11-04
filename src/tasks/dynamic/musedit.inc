@@ -263,6 +263,8 @@
 // --- screen layout ---
 .const MU_GRID_TOP  = 2
 .const MU_GRID_BOT  = 20
+.const MU_MODE_ROW  = 1       // the lane-header row carries the mode readout...
+.const MU_MODE_COL  = 37      // ...and these three cells, which are its button
 .const MU_PIANO_ROWS = 3      // keyboard rows (the glyphs are generated for this many)
 .const MU_PIANO_TOP = 21
 .const MU_BAR_ROW   = 24
@@ -2962,7 +2964,7 @@ muDrawLanes:
     sta muRevText
     rts
 
-// --- muInsToggle -- insert/overwrite mode, from the M key or the bar's INS cell ---
+// --- muInsToggle -- insert/overwrite mode, from the M key or the mode button ---
 muInsToggle:
     lda muInsMode
     eor #1
@@ -2970,35 +2972,61 @@ muInsToggle:
     jmp muDrawMode
 
 // --- muDrawMode -- OVR or INS at the right of row 1 (outside the scroll area) ---
+//  The three cells ARE the mode button: the pointer reverses them and a click there
+//  toggles, so the readout and what the next note entry does cannot disagree.
 muDrawMode:
     lda muInsMode
     beq muDmOvr
     lda #'I'
-    ldx #37
-    ldy #1
-    jsr kPrintCharAt
+    ldx #MU_MODE_COL
+    jsr muModePut
     lda #'N'
-    ldx #38
-    ldy #1
-    jsr kPrintCharAt
+    ldx #MU_MODE_COL+1
+    jsr muModePut
     lda #'S'
-    ldx #39
-    ldy #1
-    jsr kPrintCharAt
-    rts
+    ldx #MU_MODE_COL+2
+    jmp muModePut
 muDmOvr:
     lda #'O'
-    ldx #37
-    ldy #1
-    jsr kPrintCharAt
+    ldx #MU_MODE_COL
+    jsr muModePut
     lda #'V'
-    ldx #38
-    ldy #1
-    jsr kPrintCharAt
+    ldx #MU_MODE_COL+1
+    jsr muModePut
     lda #'R'
-    ldx #39
-    ldy #1
+    ldx #MU_MODE_COL+2
+    jmp muModePut
+
+// --- muModeHover -- A = 1 while the pointer is on the mode button; repaint on change ---
+muModeHover:
+    cmp muModeHov
+    beq muMhRts
+    sta muModeHov
+    jmp muDrawMode
+muMhRts:
+    rts
+
+// --- muModePut -- A = the character, X = its column: row 1, reversed under the pointer ---
+//  A reversed cell is a framebuffer write, which belongs to the displayed task, so it
+//  is drawn only while this one holds the display -- the test the bar's cells make.
+muModePut:
+    ldy #MU_MODE_ROW
+    stx muTmpL                  // kBlitCharRev takes the same inputs: pick the writer
+    pha                         //   first, because A holds the character
+    lda muModeHov
+    beq muMpNorm
+    lda muTid
+    cmp kbFocus
+    beq muMpRev
+muMpNorm:
+    pla
+    ldx muTmpL
     jsr kPrintCharAt
+    rts
+muMpRev:
+    pla
+    ldx muTmpL
+    jsr kBlitCharRev
     rts
 
 // ==========================================
@@ -4382,7 +4410,9 @@ muCursorShow:
     ldy #MU_ROW
     lda (dataPtr),y
     sta muCurScr
-    jsr muCurCol
+    jsr muCurCol                // X = the column the glyph goes in
+    stx muCurX                  // remembered: a hide blanks THAT cell, and the voice
+                                //   may have changed by the time it runs
     lda #'>'
     ldy muCurScr
     jsr kPrintCharAt
@@ -4392,7 +4422,7 @@ muCursorHide:
     lda muCurScr
     cmp #$ff
     beq muChRts                 // not drawn: there is no cell to take it out of
-    jsr muCurCol
+    ldx muCurX
     lda #MU_SPACE
     ldy muCurScr
     jsr kPrintCharAt
@@ -8002,6 +8032,11 @@ muHovNotBar:
     lda #0                      // off the bar: any highlight there ends
     jsr muBarHover
     lda muHRow
+    cmp #MU_MODE_ROW
+    beq muHovMode               // the header row: the mode button
+    lda #0
+    jsr muModeHover             // anywhere else: its highlight ends
+    lda muHRow
     cmp #MU_PIANO_TOP
     bcc muHovOff
     cmp #MU_PIANO_TOP+MU_PIANO_ROWS
@@ -8060,6 +8095,33 @@ muHovTable:
     jmp muHovSet
 muHovOff:
     jmp muHovNone
+// The mode readout: its three cells reverse under the pointer, and a click there
+// toggles. The row is not the keyboard, so the pitch readout goes blank.
+muHovMode:
+    ldy #MU_POS                 // the column = x / 8, 16-bit
+    lda (dataPtr),y
+    sta muXl
+    ldy #MU_POS+1
+    lda (dataPtr),y
+    sta muXh
+    lsr muXh
+    ror muXl
+    lsr muXh
+    ror muXl
+    lsr muXh
+    ror muXl
+    lda muXl
+    cmp #MU_MODE_COL
+    bcc muHovModeOff
+    cmp #MU_MODE_COL+3
+    bcs muHovModeOff
+    lda #1
+    bne muHovModeSet
+muHovModeOff:
+    lda #0
+muHovModeSet:
+    jsr muModeHover
+    jmp muHovOff
 // The control bar: the pointer's column picks the item out of the hit map, so a
 // highlight can never disagree with what a click there would do.
 muHovBar:
@@ -8188,6 +8250,10 @@ muClickAct:
     lsr muXh
     ror muXl
     lda muRowNew
+    cmp #MU_MODE_ROW
+    bne muClkNotModeRow
+    jmp muClkMode               // the mode button
+muClkNotModeRow:
     cmp #MU_BAR_ROW
     bne muClkGrid
     ldx muXl                    // the bar: one code per column
@@ -8239,6 +8305,16 @@ muBarPlay:
     jmp muPlayToggle
 muBarCmd:
     jmp muObjKey
+
+// --- muClkMode -- the mode readout is a button: its three cells toggle the mode ---
+muClkMode:
+    lda muXl                    // the header is inside the first 40 columns
+    cmp #MU_MODE_COL
+    bcc muClkRts
+    cmp #MU_MODE_COL+3
+    bcs muClkRts
+    jmp muInsToggle
+
 muClkGrid:
     cmp #MU_GRID_TOP
     bcc muClkLow
@@ -9870,6 +9946,10 @@ muPendDur:  .fill 3, 0          // its duration byte
 muPendSp:   .fill 3, 0          // it lasts a whole row or more
 muLnScr:    .byte $ff           // the screen row the next line goes at ($ff: discard)
 muCurScr:   .byte $ff           // the screen row the cursor glyph is drawn at
+muCurX:     .byte 0             // ...and the column, which a hide must blank: the
+                                //   voice can change before the hide runs
+muModeHov:  .byte 0             // the pointer is on the mode button: its cells are
+                                //   drawn reversed
 muLnTbLo:   .fill MU_GRID_ROWS, 0   // the row each visible line holds...
 muLnTbHi:   .fill MU_GRID_ROWS, 0   //   ...16-bit; $ffff = past the tune's end
 muLnKind:   .fill MU_GRID_ROWS, 0   // 1 = the row's own line, 0 = a command's

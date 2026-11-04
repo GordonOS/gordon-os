@@ -498,11 +498,13 @@ The note map is a **table**, not a chain of compares — SID-Wizard's three keyb
 the lesson. `Q R I Z X C V B N M` are the only letters not used by the piano.
 
 **Insert/overwrite mode** is a byte, shown at the right of row 1 as `OVR` or `INS` (columns
-37-39, outside the scroll region, so nothing can scroll it away). Overwrite is the default:
-entering a note replaces or splits. `INS` writes the note after the event the cursor's line
-holds and opens the armed duration in all three voices, then leaves the cursor on the new note,
-so a run of entries continues the tune forward. The mode changes nothing but what the next
-note entry does — switching it does not touch the image and does not dirty the tune.
+37-39, outside the scroll region, so nothing can scroll it away). Those three cells are also the
+mode button: the pointer reverses them and a click toggles, so the readout is the control.
+Overwrite is the default: entering a note replaces or splits. `INS` writes the note after the
+event the cursor's line holds and opens the armed duration in all three voices, then leaves the
+cursor on the new note, so a run of entries continues the tune forward. The mode changes nothing
+but what the next note entry does — switching it does not touch the image and does not dirty the
+tune.
 
 **Control bar** (row 24) is clickable through one hit table: a cell range plus a code, tested
 in row order. The bar's `DUR` field has `-`/`+` cells and shows the armed value; `TIE` toggles;

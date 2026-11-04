@@ -62,7 +62,10 @@ cursor. The bar and the row are what the playhead moves, so during playback they
 music is. The tempo figure is the one a note entered here would be measured against, so a tune
 that changes tempo shows the change as the cursor crosses it.
 
-**Row 1** — the three lane headers, and at the right the note-entry mode: `OVR` or `INS`.
+**Row 1** — the three lane headers, and at the right the note-entry mode: `OVR` or `INS`. Those
+three cells are a button: the pointer reverses them while it is on them, and a click toggles the
+mode — the `M` key by another route. The readout is the button, so what it says and what the next
+note entry does cannot disagree.
 
 **Rows 2-20** — the grid, 19 rows. Each row is one **step** of the tempo in force there — the
 shortest ordinary note that tempo allows — so a whole note (one 4/4 bar) is 8, 16, 32 or 64 rows
@@ -105,8 +108,8 @@ every item on one row; each does the work of the key it names. Every one of them
 `RST`, `INS` and `DEL` are what make an editing session possible without the keyboard: with the
 piano below for pitches and the grid for the cursor, entering notes, inserting time, changing one,
 resting or deleting it, undoing and saving all happen from the pointer alone. `1`-`9` (arming a
-specific length), `.` (the dots), `X` (redo), `M` (insert/overwrite mode) and `SHIFT+I` (insert a
-whole bar) are still keyboard-only.
+specific length), `.` (the dots), `X` (redo) and `SHIFT+I` (insert a whole bar) are still
+keyboard-only.
 
 The tie is the duration byte's bit 6: the player holds the note into the one after it, so it
 joins two notes into one sound. It applies to a note that is *newly written* — a pitch typed over
@@ -437,11 +440,12 @@ where another one already sits, or to open a bar in the middle of a tune — ins
   force where the cursor is (a tune that changes tempo has bars of different lengths, and the
   bar inserted is the one that fits the part you are in). Inserting a bar mid-tune therefore
   leaves every bar number before it unchanged.
-- **`M` switches note entry to insert.** With `INS` showing at the right of row 1, entering a
-  note writes it **after** the event the cursor's line holds, opening that note's length in all
-  three voices so the rows below move down, and the cursor follows the new note. Entering notes
-  one after another therefore builds the tune forward, in the order you play them. `M` again
-  returns to `OVR`, where entering a note replaces or splits.
+- **`M` switches note entry to insert** — as does a click on the `OVR`/`INS` readout at the right
+  of row 1. With `INS` showing, entering a note writes it **after** the event the cursor's line
+  holds, opening that note's length in all three voices so the rows below move down, and the
+  cursor follows the new note. Entering notes one after another therefore builds the tune
+  forward, in the order you play them. `M` again returns to `OVR`, where entering a note replaces
+  or splits.
 
 An insert writes to all three voices at once — the three lanes are one timeline, so a per-lane
 insert would slide them out of step with no way back. For the same reason an insert is
