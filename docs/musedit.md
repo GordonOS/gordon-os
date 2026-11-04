@@ -617,7 +617,7 @@ section ends at its last row, where the music stops and the score rewinds to the
 and all, ready for the next `SPACE`. While a section loops, the score keeps **counting up**: the walk
 executes the same `HED`/`TAL`, so each time round is walked as later rows with later clocks rather
 than jumping back to the section's first row — the cursor keeps following the music, and the row
-numbers keep climbing.
+numbers keep climbing, with the bar number climbing with them.
 
 Only one player can own the SID, and `run musedit` is refused up front while another task has
 `sid.lib` loaded — so a busy chip never costs you the editor session. If the chip is taken
