@@ -21,6 +21,55 @@
 
 ---
 
+## Bug #200 — a click on voice 2's lane selected voice 3, because `lda #1 / beq` is never taken 🟡 ✅ FIXED (2026-11-05)
+
+**Symptoms.** Clicking in the grid's middle lane puts the cursor on voice 3. Voice 1 and voice 3
+are correct.
+
+**Root cause.** The lane hit test ended each arm with a branch that is only unconditional when the
+value loaded is zero:
+
+```asm
+muClkV0:  lda #0
+          beq muClkSetVoice    ; Z set: taken
+muClkV1:  lda #1
+          beq muClkSetVoice    ; Z CLEAR: not taken, falls into muClkV2
+muClkV2:  lda #2
+```
+
+So voice 2's arm always fell through and overwrote A with 2. `lda` sets N and Z, so `beq` after a
+non-zero load never branches — the `beq` idiom is only valid after `lda #0`, where it is a plain
+`jmp` that happens to be shorter.
+
+**Fix.** Both arms `jmp muClkSetVoice`.
+
+**Rule.** A branch whose "always" reading depends on the loaded value is a bug waiting for a
+constant to change. Use `jmp` — and when a `beq`/`bne` looks unconditional, check what set Z.
+
+---
+
+## Bug #199 — a reversed cell could not be un-reversed by the text writer, so the mode button stayed three white blocks 🟡 ✅ FIXED (2026-11-05)
+
+**Symptoms.** The `OVR`/`INS` readout at the right of row 1 reverses under the pointer as it
+should, but leaving it leaves three blank white cells: the letters are still there, drawn in the
+text colour on the text colour.
+
+**Root cause.** The cell was put back with `kPrintCharAt`, and that writer **keeps the cell's
+background nibble**. A reversed cell's background IS the text colour (`kBlitCharRev` writes
+`(bg << 4) | text`), so the text writer restored the character over a white background and left it
+white-on-white. `kBlitChar` writes `(text << 4) | bg`, which is what puts a plain cell back — the
+bar's own paint already restores its reversed cells that way.
+
+**Fix.** `muModePut` writes the character with `kPrintCharAt` (so the shadow carries it, which the
+blits do not) and then gives the cell its background with a blit: `kBlitCharRev` while the pointer
+is on it, `kBlitChar` otherwise. Both are framebuffer writes, so both are gated on holding the
+display.
+
+**Rule.** A cell that has been drawn in reverse is only restored by a **blit**: the text writers
+keep the existing background nibble by design, so they cannot undo an inverse-video write.
+
+---
+
 ## Bug #198 — inserting a voice's first note left that voice's `HLT` on the line it was drawn on, though the file was right 🟡 ✅ FIXED (2026-11-05)
 
 **Symptoms.** A brand-new tune shows one `HLT` per voice, all three on the command line printed
