@@ -394,6 +394,8 @@
 .const MU_BAR_CMD   = 7       // ...and this one authors the row's command line
 .const MU_BAR_UNDO  = 8       // ...and this one undoes the last action
 .const MU_BAR_REST  = 9       // ...and this one turns the event into a rest
+.const MU_BAR_DEL   = 10      // ...and this one removes the event, closing the gap
+.const MU_BAR_INS   = 11      // ...and this one toggles insert/overwrite
 
 // --- tiny instance helpers (offsets are constants, so these stay inline) ---
 .macro muSet(field, value) {
@@ -2960,6 +2962,13 @@ muDrawLanes:
     sta muRevText
     rts
 
+// --- muInsToggle -- insert/overwrite mode, from the M key or the bar's INS cell ---
+muInsToggle:
+    lda muInsMode
+    eor #1
+    sta muInsMode
+    jmp muDrawMode
+
 // --- muDrawMode -- OVR or INS at the right of row 1 (outside the scroll area) ---
 muDrawMode:
     lda muInsMode
@@ -3925,9 +3934,15 @@ muBpLp:
     bcs muBpKeep
     lda muBarMap,y
     beq muBpNx
-    cmp #MU_BAR_TIE             // the tie cell shows its own state, always: its light
-    bne muBpOther               //   IS the armed flag, so it needs no history and no
-    lda muDurTie                //   share of muBarAct -- pressing PLAY cannot lose it
+    cmp #MU_BAR_TIE             // the two state cells show their own flag, always: the
+    bne muBpNotState            //   light IS the flag, so they need no history and no
+    lda muDurTie                //   share of muBarAct -- pressing PLY cannot lose it
+    bne muBpRev
+    jmp muBpNorm
+muBpNotState:
+    cmp #MU_BAR_INS
+    bne muBpOther
+    lda muInsMode
     bne muBpRev
     jmp muBpNorm
 muBpOther:
@@ -4531,10 +4546,7 @@ muKnibIdle:
 muKeyNotInsBar:
     cmp #'m'                    // M: toggle insert/overwrite mode
     bne muKeyNotMode
-    lda muInsMode
-    eor #1
-    sta muInsMode
-    jsr muDrawMode
+    jsr muInsToggle
     jmp muKeyIdle
 muKeyNotMode:
     cmp #MU_SPACE               // SPACE: toggle play/stop
@@ -8174,8 +8186,16 @@ muClkNotD:
     jmp muBarTie
 muClkNotT:
     cmp #MU_BAR_REST
-    bne muClkNotR
+    bne muClkNotRu
     jmp muBarRest
+muClkNotRu:
+    cmp #MU_BAR_DEL
+    bne muClkNotDel
+    jmp muBarDel
+muClkNotDel:
+    cmp #MU_BAR_INS
+    bne muClkNotR
+    jmp muBarIns
 muClkNotR:
     lda #M_NOT_YET              // a labelled cell with nothing behind it yet
     jsr muMsgSet
@@ -8301,6 +8321,21 @@ muBarRest:
     jmp muRestKey
 mbrtRts:
     rts
+
+// --- muBarDel -- the DEL cell is SHIFT+INST/DEL: the command on the line, else the
+//  event, and the gap closes ---
+muBarDel:
+    jsr muPlaying
+    bcs mbdlRts
+    jmp muDelKey2
+mbdlRts:
+    rts
+
+// --- muBarIns -- the INS cell is the M key ---
+//  A mode, not an edit: nothing in the image changes, so it is allowed while the
+//  music runs, exactly as the key is.
+muBarIns:
+    jmp muInsToggle
 
 // ==========================================
 //  Playback
@@ -9686,19 +9721,18 @@ muBarActP:  .byte 0             //   carry a swapped background nibble
 // The control bar's hit map: one code per column of row 24, tested by column, and
 // every code in it has a handler. Hover and the active highlight read the same
 // map, so a highlight and a click can never disagree. A blank cell between two
-// labels -- and the two DUR value cells -- are deliberately 0, so nothing answers
-// there.
+// labels -- and the DUR value and dot cells -- are deliberately 0, so nothing
+// answers there.
 muBarMap:
-    .byte 5,5,5, 0, 0,0, 0, 6,6,6      // 0-9    DUR (the value is a readout), TIE-
-    .byte 6, 0, 4,4,4,4, 0, 9,9,9      // 10-19  TIE-, PLAY, REST
-    .byte 9, 0, 7,7,7, 0, 8,8,8,8      // 20-29  REST, CMD, UNDO
-    .byte 0, 3,3,3,3, 0, 2, 0,0,0      // 30-39  SAVE, Q
+    .byte 5,5,5, 0, 0,0,0, 6,6,6      // 0-9    DUR (the value is a readout), TIE
+    .byte 0, 4,4,4, 0, 9,9,9, 0, 11   // 10-19  PLY, RST, INS
+    .byte 11,11, 0, 10,10,10, 0, 7,7,7 // 20-29 INS, DEL, CMD
+    .byte 0, 8,8,8, 0, 3,3,3, 0, 2    // 30-39  UND, SAV, Q
 muBarMapEnd:
-// A code per column, all 40 of them, and the text ends one column before the
-// map's last entry, where Q is -- so an edit to either has to keep up with the
-// other or the build stops.
+// A code per column, all 40 of them, and the text fills the row to the Q column --
+// so an edit to either has to keep up with the other or the build stops.
 .assert "bar map covers the row", (muBarMapEnd - muBarMap) == MU_SCREEN_COLS ? 1 : 0, 1
-.assert "bar text ends at the Q column", M_BAR_LEN == 37 ? 1 : 0, 1
+.assert "bar text fills the row to Q", M_BAR_LEN == 40 ? 1 : 0, 1
 // The three lane headers in row 1 are "ROW VOICE 1     VOICE 2     VOICE 3", so
 // the lanes start at 4, 16 and 28: a note always sits under its own header.
 .assert "voice 1 lane starts under its header", (MU_LANE1_COL == 4) ? 1 : 0, 1

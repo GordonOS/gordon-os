@@ -53,7 +53,7 @@ ROW VOICE 1     VOICE 2     VOICE 3   OVR
 ...
  19 ...         ...         ...
 [rows 21-23: piano, all 8 octaves over 40 cells, black keys as two-row bars]
-DUR 16 TIE- PLAY REST CMD UNDO SAVE Q
+DUR 16 TIE PLY RST INS DEL CMD UND SAV Q
 ```
 
 **Row 0** — the file name, the tempo in force **at the cursor's row** (in decimal), the bar and the
@@ -85,12 +85,28 @@ the black keys; an accidental's sits up on the black key itself.
 A lane is drawn in its own voice's colour — the same red, yellow and cyan — so a note and the dot
 that follows it are one thing seen twice. The row number, the lane headers and the head stay white.
 
-**Row 24** — the control bar: `DUR` with the armed duration and the dot cell, `TIE-` the tie
-toggle, `REST`, and the PLAY, CMD, UNDO, SAVE and Q buttons. Every one of them answers the mouse:
-`DUR` steps the armed length on through whole, half, quarter, 8th, 16th, 32nd and 64th (the dot
-or triplet mark rides along, so only the class changes), `TIE-` arms or drops the tie and stays
-reversed while it is set, `UNDO` is the `Z` key, and the rest are the keys they name — `1`-`9`
-arm the duration a **new** note is written with, `.` cycles the dots, `Z`/`X` undo and redo.
+**Row 24** — the control bar: `DUR` with the armed duration and the dot cell, `TIE` the tie
+toggle, `PLY` play, `RST`, `INS`, `DEL`, `CMD`, `UND`, `SAV` and `Q`. The labels are short to keep
+every item on one row; each does the work of the key it names. Every one of them answers the mouse:
+
+| cell | what it does |
+|---|---|
+| `DUR` | steps the armed length on through whole, half, quarter, 8th, 16th, 32nd and 64th; the dot or triplet mark rides along, so only the class changes |
+| `TIE` | arms or drops the tie, and stays reversed while it is set |
+| `PLY` | plays and stops, and stays reversed for as long as the tune plays |
+| `RST` | turns the event on the cursor's row into a rest — the `INST/DEL` key |
+| `INS` | insert or overwrite mode, the `M` key, and stays reversed while insert mode is on |
+| `DEL` | removes the command on the line, else the event, and closes the gap — `SHIFT+INST/DEL` |
+| `CMD` | authors the row's command line, the `C` key |
+| `UND` | undoes the last action, the `Z` key |
+| `SAV` | saves, `SHIFT+S` |
+| `Q` | quits, and answers `? unsaved` first if there are changes |
+
+`RST`, `INS` and `DEL` are what make an editing session possible without the keyboard: with the
+piano below for pitches and the grid for the cursor, entering notes, changing one, resting or
+deleting it, undoing and saving all happen from the pointer alone. `1`-`9` (arming a
+specific length), `.` (the dots), `X` (redo) and `i`/`SHIFT+I` (insert a row or a bar) are still
+keyboard-only.
 
 The tie is the duration byte's bit 6: the player holds the note into the one after it, so it
 joins two notes into one sound. It applies to a note that is *newly written* — a pitch typed over

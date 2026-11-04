@@ -361,7 +361,7 @@ ROW VOICE 1    |VOICE 2    |VOICE 3
 ...
  19 ...        |...        |...
 [rows 20-23: piano, 8 octaves over 40 cells, black keys as three-row bars]
-DUR 16. TIE- PLAY REST CMD UNDO SAVE Q
+DUR 16. TIE PLY RST INS DEL CMD UND SAV Q
 ```
 
 | rows | content |
@@ -391,8 +391,9 @@ DUR 16. TIE- PLAY REST CMD UNDO SAVE Q
   the row the music is on, and stop leaves it there. The window follows it, always.
 - **The control bar answers the mouse**: the item under the pointer is redrawn in reverse video
   and returns to plain when the pointer leaves it, and `PLAY` stays reversed for the whole pass.
-  Its items are `DUR`, `TIE-`, `REST`, `PLAY`, `CMD`, `UNDO`, `SAVE` and `Q`, one code each in
-  `muBarMap`, so every labelled cell has a handler.
+  Its items are `DUR`, `TIE`, `PLY`, `RST`, `INS`, `DEL`, `CMD`, `UND`, `SAV` and `Q`, one code
+  each in `muBarMap`, so every labelled cell has a handler, and the row is exactly 40 columns
+  wide with the text filling it.
   Hover and "doing something now" both read the same per-column hit map the click route uses, so
   a highlight cannot name a different cell than a click would act on. The reversed cells are
   framebuffer writes (`kBlitCharRev`), drawn only while the task holds the display; the plain
