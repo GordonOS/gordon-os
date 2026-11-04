@@ -21,28 +21,45 @@
 
 ---
 
-## Bug #197 — a save that outgrows its file deletes the tune *before* the create, so a full directory loses it 🔴 OPEN (found 2026-11-04)
+## Bug #197 — a save that outgrows its file deleted the tune *before* the create, so a full directory lost it 🔴 ✅ FIXED (2026-11-04)
 
-**Symptoms.** On a filesystem whose directory is full, opening a tune and saving an edit that makes
-the image longer answers `? dir full` — and afterwards the tune is not in `dir` at all. The entry is
-a tombstone: flags bit 7 set, name cleared, size still there. The editor keeps working because the
-image lives in `<base>.wrk`, but that file is dropped on exit, so leaving the editor loses the tune
-and the edit together. Reached with all 512 slots carrying a size: `musedit.und` (2048) and
-`<base>.wrk` (65280) take the last two as the editor starts, so the save's create finds none.
+**Symptoms.** On a filesystem whose directory has no free slot, opening a tune and saving an edit
+that makes the image longer answers `? dir full` — and the tune is then not in `dir` at all. The
+entry is a tombstone: flags bit 7 set, name cleared, size still there. The editor keeps working
+because the image lives in `<base>.wrk`, but that file is dropped on exit, so leaving the editor
+loses the tune and the edit together.
 
-**Root cause.** `muSaveNow`'s create path is right about the data area and wrong about the
-directory. `muSvCreate` computes the pages the image needs, asks `muFreeSpace` (capacity minus the
-allocator's high-water mark) whether they fit, and only then calls `kReuDelete` and `kReuCreate`.
+**Root cause.** `muSaveNow`'s create path was right about the data area and wrong about the
+directory. `muSvCreate` computed the pages the image needed, asked `muFreeSpace` (capacity minus the
+allocator's high-water mark) whether they fit, and only then called `kReuDelete` and `kReuCreate`.
 But `fsxDelete` sets the entry's deleted bit and clears its name while keeping its size, and
-`fsxCreate` treats a slot as free only when **both** size bytes are zero — a tombstone frees
-neither slot nor data. So the delete cannot make room for the create, the create fails with
-`kArg+6 = 2`, and the tune is already gone from the directory by then. The space check cannot catch
-this because the data area is not what ran out.
+`fsxCreate` treats a slot as free only when **both** size bytes are zero — a tombstone frees neither
+slot nor data. So the delete could not make room for the create, the create failed with
+`kArg+6 = 2`, and the tune was already gone from the directory by then. The space check could not
+catch it because the data area was not what ran out: the filesystem has two resources, a 16 KB
+directory of 512 slots and the data area, and the save path only ever asked about the second.
 
-**Fix (suggested).** Require a free directory slot *before* the delete: scan the 512 entries the way
-`fsxCreate` does (a size of zero is a free slot) and take `muSvDirFull` when there is none, so the
-tune is untouched and the message still names the reason. A create must never be attempted on the
-strength of a delete that cannot free a slot.
+**Fix.** The replacement is built under a scratch name and the tune is deleted only once that file
+is whole: `muTmpArg` names `<base>.tmp` (a third 12-byte name from `muNameSetup`), `kReuCreate` and
+the page write fill it, `kReuDelete` then tombstones the old `<base>.mus`, and `kReuRename` gives
+the replacement its name. A directory with no free slot now refuses at the create, before anything
+has been deleted, and the message is still the specific one. A scratch left behind by a failed
+rename is cleared at the start of the next create, and a failure after the create removes it, so no
+half-made file is ever left in the way.
+
+**Verified on hardware.** With all 512 slots carrying a size and the editor's own `musedit.und` and
+`<base>.wrk` holding the last two, `SHIFT+S` answered `? dir full` and `immig.mus` was still at its
+own slot with flags 0 and its 932 bytes intact. The same state previously left that slot a nameless
+tombstone.
+
+**How reachable it is — correcting an earlier reading of this.** The state is not what ordinary use
+drifts into: a tune costs 65,280 bytes of data per editor session and one slot, so the 12 MB data
+area runs out (186 sessions) long before the 366 free slots (366 sessions), and `? no space` is the
+message session use reaches. Slots bind first only when the files are small — 366 tiny `copy`s fill
+the table with megabytes still free. And `dir` cannot show it either way: its footer is capacity
+minus the allocator's high-water mark, i.e. bytes, with no slot count anywhere, so a filesystem at
+511 of 512 slots prints an ample figure. The test image was therefore built host-side
+(`temp/fsimg.py filldir`) rather than reached by editing.
 
 **Transferable rule.** A check that mirrors an allocator must mirror *every* resource that allocator
 hands out. Here there are two — data area and directory slot — and the delete that precedes the

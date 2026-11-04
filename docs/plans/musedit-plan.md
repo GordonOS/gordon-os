@@ -622,10 +622,12 @@ the published tick has already advanced and the first row drawn is behind the mu
 `kReuFindFile` → `kMalloc` → `kReuLoad` on open. On save, `kReuOpen` first:
 
 - **same size or smaller** → `kReuWriteAt` in place, zero-filling the tail when shorter;
-- **larger** → check free space, `kReuDelete`, `kReuCreate`, `kReuOpen`, `kReuWriteAt`. A
-  delete is a tombstone that frees neither slot nor data, so a resized overwrite leaks the old
-  extent until `compact` — and `compact` refuses while another live task exists, so it cannot
-  run while `musedit` is open. **Every created file is sized to a 256-byte multiple**, zero
+- **larger** → check free space, `kReuCreate` the replacement under `<base>.tmp`, `kReuOpen` +
+  `kReuWriteAt` to fill it, then `kReuDelete` the old file and `kReuRename` the scratch into place.
+  That order is what keeps a full directory honest: a delete is a tombstone that frees neither slot
+  nor data, so deleting first would leave the create nothing to land in. A resized overwrite still
+  leaks the old extent until `compact` — and `compact` refuses while another live task exists, so it
+  cannot run while `musedit` is open. **Every created file is sized to a 256-byte multiple**, zero
   filled after the description's NUL, so later growth inside the slack saves in place.
 
 Name rules: the command line gives the base name, `<= 7` characters (the FS caps a name at 11
@@ -762,15 +764,16 @@ gone). Both load paths take the pair, and the byte that reads it back is `muImgT
 - [x] **2.3 Byte-identical no-op.** `copy commodo.mus scratch.mus`, open `scratch`, save without editing, extract and hash — identical to `music/commodo.mus`.
 - [x] **2.4 Trailing bytes survive.** The same with `fsonata` (which carries two bytes after the description's NUL) — identical.
 - [x] **2.5 Name rules.** An 8-character base name is refused at start-up and creates nothing.
-- [x] **2.6 Grow saves.** *Verified on hardware.* An image that outgrew its file takes
-  `muSaveNow`'s create path: `muSvPages` rounds it to pages, `muFreeSpace` is asked **before** the
-  delete, then `kReuDelete` + `kReuCreate` + the page write, and `MU_FLEN` becomes whole pages.
-  The check was `arose` (1014 bytes at slot 70, data offset 185178): six command pairs inserted at
-  row 1's boundary took the image to 1016, `SHIFT+S` answered `? saved`, and the file came back as
-  **1024 bytes at slot 148, data offset 3950351**, with slot 70 left tombstoned (flags `$80`, size
-  kept) -- so the delete and the create both ran and the extent is whole pages. The eight bytes
-  between the image's end (1016) and the extent (1024) are zero, and `nextFreeOffset` grew by
-  exactly the editor's two files plus the new one (2048 + 65280 + 1024).
+- [x] **2.6 Grow saves.** *Verified on hardware, both the first create and a page-count
+  increase.* An image that outgrew its file takes `muSaveNow`'s create path: `muSvPages` rounds it
+  to pages, `muFreeSpace` is asked **before** anything is written, then the create, the page write
+  and the rename, and `MU_FLEN` becomes whole pages. Two cases: `arose` (1014 bytes at slot 70) grew
+  by six command pairs to 1016 and came back as **1024 bytes in a new slot**, with slot 70 left
+  tombstoned (flags `$80`, size kept) -- four pages, i.e. the same page count rounded up. Then, to
+  raise the page count, a temp image held `big.mus` = `arose.mus` behind a **1024-byte record**: one
+  inserted pair made the image 1016, which no longer fits that record, and the save created
+  **1280 bytes = five pages** where the file was four, with the 1016-byte image followed by zeros to
+  the extent and `nextFreeOffset` up by exactly 2048 + 65280 + 1280.
 - [x] **2.7 In-place save inside the slack.** *Verified on hardware, and the sharpest of the
   three.* When the image's length word still fits the opened record's length, `muSvInPlace` writes
   it back, no create happens and the extent does not move. Proved on a filesystem with **no room to
@@ -781,39 +784,22 @@ gone). Both load paths take the pair, and the byte that reads it back is `muImgT
   do with 768 bytes free. Afterwards `immig.mus` is still at slot 75, data offset 189826, size
   **932**, flags 0 -- and `nextFreeOffset` grew by exactly 2048 + 65280, so the allocator never
   moved.
-- [ ] **2.8 Full FS fails safely.** *The "no space" half holds; the "dir full" half is
-  destructive.* `muFreeSpace` (capacity minus the allocator's high-water mark) is compared with the
-  pages needed before anything is deleted, so **`? no space` leaves the tune untouched** --
-  verified on the same raised-high-water image, where the refused save left `immig.mus` at slot 75,
-  size 932, flags 0. **`? dir full` does not.** With all 512 directory slots carrying a size, the
-  editor's two files take the last two as it starts, and a growing save answers `? dir full`
-  *after* `kReuDelete` has tombstoned the tune: the entry's name is gone, `dir` no longer lists it,
-  the create found no slot, and the work exists only in `<base>.wrk`, which is dropped on exit. A
-  tombstone frees neither slot nor data, so the delete cannot make room for the create -- the free
-  slot has to be checked *before* the delete. Not fixed: it needs a decision on how much of
-  `muSvCreate` to spend on the scan. **`? no fs` cannot be reached on a booted machine**:
-  `reuFsEnabled` comes from the REU size at boot and the binaries themselves arrive through the
-  filesystem, so a machine without one never reaches the editor. It stays the defensive branch it
-  is.
-
-### Step 3 — Timing module
-
-`muNoteJiffies` (the cases in §4), `muUnit`, and the generated tables.
-
-Landed: `muNoteJiffies` is a translation of the player's `calculateNoteDuration` case for case —
-the class is bits 2-4, a plain/dotted/double-dotted length is a carry-seeded `ror` chain on the
-tempo itself (tempo 0 seeds the carry, which is what makes its half note 128), a triplet length
-comes off `DataTempoTable[tempo >> 3]`, and every shift that would drop a bit is refused (`C=1`)
-because the player refuses it. Class 0 (the 64th) is the rotate path and class 1 takes `muUl` or
-the calling voice's `muUtv`. `muUnit` walks the shortest length the tempo can express and takes
-the rows a bar has from which class won; the index lives in `muUnIdx` because `muNoteJiffies`
-owns Y. The `B` key prints the two lines `tools/check-mus-timing.py` prints, so the two are
-compared line for line.
-
-⚠️ **The triplet field's duration byte is `$90`, not `$80`.** Class 4 occupies bits 2-4, so a
-triplet *quarter* is `$10 | $80`; `$80` alone is class 0 carrying the triplet bit — the triplet
-64th — and answers a different question entirely (1 jiffy at `$60` where the quarter is 16).
-
+- [x] **2.8 Full FS fails safely.** *Verified on hardware, and the one hole in it is fixed.*
+  `muFreeSpace` (capacity minus the allocator's high-water mark) is compared with the pages needed
+  before anything is written, so **`? no space` leaves the tune untouched** -- verified on a
+  raised-high-water image, where a growing save was refused with `immig.mus` still at its slot,
+  flags 0, while a shrinking save answered `? saved` (that is 2.7's proof, and it is the same run).
+  **`? dir full` was destructive and no longer is.** The create path now builds the replacement under
+  `<base>.tmp`, deletes the old file only once that is whole, and renames it into place, so a
+  directory with no free slot refuses at the create with nothing deleted. Verified with all 512
+  slots carrying a size: `? dir full`, and `immig.mus` still at slot 75 with flags 0 and its 932
+  bytes; before the change the same state left that slot a nameless tombstone. Note the limit is a
+  *directory* one, not a data one -- the table is 512 slots of 32 bytes and `dir` reports bytes, so
+  a filesystem can be slot-full and still print an ample figure; ordinary session use runs out of
+  data first (65,280 bytes per session against one slot), so this needs many small files to reach.
+  **`? no fs` cannot be reached on a booted machine**: `reuFsEnabled` comes from the REU size at
+  boot and the binaries themselves arrive through the filesystem, so a machine without one never
+  reaches the editor. It stays the defensive branch it is.
 - [x] **3.1 The gate.** `tools/check-mus-timing.py` — exit 0, 8,192 cases (2,341 legal lengths, 5,851 refused), and the tempo table it derives agrees with the published one at all 32 rows.
 - [x] **3.2 The table is current.** `tools/gen-musedit-tables.py -Check` — exit 0 from `tools/build-tasks.ps1`.
 - [x] **3.3 The doc agrees.** `reference/sidplayer-mus-file-format.md`'s duration section matches the tool's output for all 32 tempo rows, and the tool's own table copy matches `sidplay.inc` byte for byte.

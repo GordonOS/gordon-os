@@ -546,10 +546,10 @@ muPnBad:
     sec
     rts
 
-// --- muNameSetup -- the FS names: the base name with .mus and .wrk on the end ---
+// --- muNameSetup -- the FS names: the base name with .mus, .wrk and .tmp on the end ---
 //  FS names are SCREEN CODES, so the letters come from character literals under
 //  the file's encoding, not from a PETSCII string. A 7-character base reaches
-//  exactly the 11 the filesystem allows, so both names fit.
+//  exactly the 11 the filesystem allows, so all three names fit.
 muNameSetup:
     ldx #0
 muNsLp:
@@ -558,27 +558,36 @@ muNsLp:
     lda muName,x
     sta muFsName,x
     sta muSFName,x
+    sta muTmpName,x
     inx
     bne muNsLp                  // a 7-character name ends the loop, never wraps
 muNsExt:
     lda #'.'
     sta muFsName,x
     sta muSFName,x
+    sta muTmpName,x
     lda #'m'
     sta muFsName+1,x
     lda #'w'
     sta muSFName+1,x
+    lda #'t'
+    sta muTmpName+1,x
     lda #'u'
     sta muFsName+2,x
     lda #'r'
     sta muSFName+2,x
+    lda #'m'
+    sta muTmpName+2,x
     lda #'s'
     sta muFsName+3,x
     lda #'k'
     sta muSFName+3,x
+    lda #'p'
+    sta muTmpName+3,x
     lda #0
     sta muFsName+4,x
     sta muSFName+4,x
+    sta muTmpName+4,x
     rts
 
 // ==========================================
@@ -592,11 +601,19 @@ muNsExt:
 //  MU_LEN is the image's length; MU_FLEN is what the real file on disk holds, which
 //  includes the slack a whole-page file carries.
 
-// --- muFsArg -- kArg = the FS name ---
+// --- muFsArg -- kArg = the tune's own name ---
 muFsArg:
     lda #<muFsName
     sta kArg
     lda #>muFsName
+    sta kArg+1
+    rts
+
+// --- muTmpArg -- kArg = the scratch name a replacement is built under ---
+muTmpArg:
+    lda #<muTmpName
+    sta kArg
+    lda #>muTmpName
     sta kArg+1
     rts
 
@@ -1128,7 +1145,7 @@ muSvWriteBad:
     rts
 
 muSvCreate:
-    //  --- pages for the image; and the room for them BEFORE anything is deleted ---
+    //  --- pages for the image; and the room for them BEFORE anything is written ---
     ldy #MU_LEN
     lda (dataPtr),y
     clc
@@ -1141,32 +1158,50 @@ muSvCreate:
 muSvPages:
     sta muNeedPage
     jsr muFreeSpace
-    bcs muSvNoFs
+    bcc muSvFsOk
+    jmp muSvNoFs
+muSvFsOk:
     lda muFreeHi
     bne muSvRoom
     lda muFreeMid
     cmp muNeedPage
     bcc muSvNoRoom
 muSvRoom:
-    jsr muFsArg
-    jsr kReuDelete              // a tombstone frees neither slot nor data, so it costs nothing
-    jsr muFsArg
+    //  The replacement is built under a scratch name and the tune is deleted only
+    //  once that file is whole. A tombstone frees neither slot nor data, so the
+    //  delete cannot make room for the create -- a directory with no free slot
+    //  would take the tune and give nothing back.
+    jsr muTmpArg
+    jsr kReuDelete              // a scratch left by a failed rename is not in the way
+    jsr muTmpArg
     lda #0
     sta kArg+2
     lda muNeedPage
     sta kArg+3                  // size = pages x 256
     jsr kReuCreate
-    bcs muSvCreateBad
-    jsr muFsArg
+    bcs muSvCreateBad           // nothing has been written and nothing deleted
+    jsr muTmpArg
     jsr muFrecPt
     jsr kReuOpen                // it was just made, so this cannot fail
-    bcs muSvCreateBad
+    bcs muSvScrBad
     lda #0
     sta muTmpL
     lda muNeedPage
     sta muTmpH                  // len = pages x 256
     jsr muSvWrite
-    bcs muSvWriteBad
+    bcs muSvScrBad
+    jsr muFsArg
+    jsr kReuDelete              // the tune goes only now, its replacement whole
+    lda #<muTmpName             // and the replacement takes its name
+    sta kArg
+    lda #>muTmpName
+    sta kArg+1
+    lda #<muFsName
+    sta kArg+2
+    lda #>muFsName
+    sta kArg+3
+    jsr kReuRename
+    bcs muSvCreateBad           // the scratch holds the only copy: leave it there
     ldy #MU_FLEN                // the disk holds whole pages now
     lda #0
     sta (dataPtr),y
@@ -1175,6 +1210,10 @@ muSvRoom:
     sta (dataPtr),y
     clc
     rts
+muSvScrBad:
+    jsr muTmpArg                // the half-made replacement goes; the tune is intact
+    jsr kReuDelete
+    jmp muSvWriteBad
 muSvCreateBad:
     lda kArg+6
     cmp #1
@@ -9601,6 +9640,7 @@ muNewTuneEnd:
 
 muFsName:   .fill 12, 0         // <base>.mus in screen codes + NUL
 muSFName:   .fill 12, 0         // <base>.wrk, the working image
+muTmpName:  .fill 12, 0         // <base>.tmp, the name a replacement is built under
 muSFrec:    .fill 5, 0          // its record: size lo/hi, base lo/mid/hi
 //  (the state that lives in zero page is declared at the top of this file)
 muScrCnt:   .byte 0             // ...and a counter for it

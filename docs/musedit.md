@@ -629,7 +629,8 @@ moment and play stays unavailable until `musedit` is restarted; the same message
 
 `SHIFT+S` (or `SAVE` on the control bar) saves to the same name. If the tune has grown beyond
 the room the file was given, the editor recreates the file with room to spare; otherwise it
-writes in place. A failed save reports `? no space` and leaves the old file untouched.
+writes in place. A failed save reports `? no space` or `? dir full` and leaves the old file
+untouched.
 
 The description that ships inside the file — the text `sidplay` can print — is preserved
 exactly, including any bytes after its terminator. The first release does not edit it.
