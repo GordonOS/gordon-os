@@ -95,7 +95,7 @@ every item on one row; each does the work of the key it names. Every one of them
 | `TIE` | arms or drops the tie, and stays reversed while it is set |
 | `PLY` | plays and stops, and stays reversed for as long as the tune plays |
 | `RST` | turns the event on the cursor's row into a rest — the `INST/DEL` key |
-| `INS` | insert or overwrite mode, the `M` key, and stays reversed while insert mode is on |
+| `INS` | opens one row of silence in all three voices — the `I` key |
 | `DEL` | removes the command on the line, else the event, and closes the gap — `SHIFT+INST/DEL` |
 | `CMD` | authors the row's command line, the `C` key |
 | `UND` | undoes the last action, the `Z` key |
@@ -103,10 +103,10 @@ every item on one row; each does the work of the key it names. Every one of them
 | `Q` | quits, and answers `? unsaved` first if there are changes |
 
 `RST`, `INS` and `DEL` are what make an editing session possible without the keyboard: with the
-piano below for pitches and the grid for the cursor, entering notes, changing one, resting or
-deleting it, undoing and saving all happen from the pointer alone. `1`-`9` (arming a
-specific length), `.` (the dots), `X` (redo) and `i`/`SHIFT+I` (insert a row or a bar) are still
-keyboard-only.
+piano below for pitches and the grid for the cursor, entering notes, inserting time, changing one,
+resting or deleting it, undoing and saving all happen from the pointer alone. `1`-`9` (arming a
+specific length), `.` (the dots), `X` (redo), `M` (insert/overwrite mode) and `SHIFT+I` (insert a
+whole bar) are still keyboard-only.
 
 The tie is the duration byte's bit 6: the player holds the note into the one after it, so it
 joins two notes into one sound. It applies to a note that is *newly written* — a pitch typed over

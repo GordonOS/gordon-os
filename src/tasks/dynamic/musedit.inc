@@ -3934,15 +3934,9 @@ muBpLp:
     bcs muBpKeep
     lda muBarMap,y
     beq muBpNx
-    cmp #MU_BAR_TIE             // the two state cells show their own flag, always: the
-    bne muBpNotState            //   light IS the flag, so they need no history and no
-    lda muDurTie                //   share of muBarAct -- pressing PLY cannot lose it
-    bne muBpRev
-    jmp muBpNorm
-muBpNotState:
-    cmp #MU_BAR_INS
-    bne muBpOther
-    lda muInsMode
+    cmp #MU_BAR_TIE             // the tie cell shows its own flag, always: the light IS
+    bne muBpOther               //   the flag, so it needs no history and no share of
+    lda muDurTie                //   muBarAct -- pressing PLY cannot lose it
     bne muBpRev
     jmp muBpNorm
 muBpOther:
@@ -8330,11 +8324,16 @@ muBarDel:
 mbdlRts:
     rts
 
-// --- muBarIns -- the INS cell is the M key ---
-//  A mode, not an edit: nothing in the image changes, so it is allowed while the
-//  music runs, exactly as the key is.
+// --- muBarIns -- the INS cell is the I key: one row of silence in all three voices ---
+//  The INST of INST/DEL, beside the cell that rests an event and the one that deletes
+//  it. It edits, so it refuses while the music runs, as the key does.
 muBarIns:
-    jmp muInsToggle
+    jsr muPlaying
+    bcs mbisRts
+    lda #1                      // one row
+    jmp muInsertTime
+mbisRts:
+    rts
 
 // ==========================================
 //  Playback
