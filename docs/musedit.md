@@ -256,6 +256,16 @@ The piano at the bottom of the screen is how notes go in.
    note is split; past the last event (or in an empty voice) rests are filled in so the note
    lands on the cursor's row — see *Editing* below.
 
+**A note key also moves the cursor on.** In overwrite mode (`OVR`, the default) each note you type
+from the keyboard leaves the cursor on the next row, so a run of notes is played in one go instead
+of moving the cursor yourself between them. It is still overwrite: a note typed on a row that
+already holds one replaces it, and nothing below is pushed down. A row's **command** lines are
+passed over on the way — a command takes no time, so the next note belongs on the row's own line
+below them — and the window scrolls a line at a time once the cursor reaches the bottom of the band.
+Clicking a key on the piano does **not** move the cursor, because a click is a deliberate "make
+*this* cell this pitch". Insert mode (`INS`) has its own rule and is unchanged: the note goes after
+the event the cursor is on, and the cursor follows the note it wrote.
+
 **The pitch sounds as you point at it.** Hovering a key on the keyboard — or pressing a note key —
 plays it for a tenth of a second, so a tune can be found by ear before anything is written. A click
 still just enters the note. It is a bare sawtooth, not the instrument the tune gives that voice — it

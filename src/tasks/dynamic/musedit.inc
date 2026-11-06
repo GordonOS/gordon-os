@@ -3819,6 +3819,34 @@ mcsFound:
     jsr muHeadTail              // the head's BAR and R follow the cursor
     jmp muCursorShow
 
+// --- muCurSettleNext -- settle on the row a write changed, then stand on the next row ---
+//  In: A/X = the row the write landed on, as muCurSettle takes it.
+//  Overwrite mode only: insert mode's own entry leaves the cursor on the row its note
+//  starts on (muNoteInsMode -> muInsGoStep), so a second step would skip a row.
+//  The move is muCurSettle's own scan: the first line of that row which is the row's
+//  OWN line -- a row's command lines come above it, and a command takes no time, so the
+//  next note belongs on the line below them. The scan is bounded by the band's size and
+//  runs nothing else, so a next row that is not drawn yet (the tune's last row, or the
+//  row below the band's bottom line) leaves the cursor where the write put it. Nothing
+//  here touches the walk's producer: the band moves when the cursor is taken past its
+//  bottom line, exactly as CRSR-DOWN does.
+muCurSettleNext:
+    jsr muCurSettle
+    lda muInsMode
+    bne mcsnRts
+    lda muTgtLo                 // the next row's own line, if the band holds it
+    clc
+    adc #1
+    sta muCnT0
+    lda muTgtHi
+    adc #0
+    sta muCnT0+1
+    lda muCnT0
+    ldx muCnT0+1
+    jmp muCurSettle
+mcsnRts:
+    rts
+
 // --- muBandRow -- A = the screen row of the first line of the group holding row A/X ---
 //  In: A/X = the row the edit touched. Out: A = the first screen row of its group.
 //  The repaint starts at the first row the EDIT touched, not at the cursor's row: a
@@ -5205,7 +5233,7 @@ muNcStore:
     jsr muRedrawRows
     lda muTgtLo                 // ...and leave the cursor on the row that changed
     ldx muTgtHi
-    jmp muCurSettle
+    jmp muCurSettleNext
 muNcIllegal:
     lda #M_ILLEGAL
     jsr muMsgSet
@@ -5424,7 +5452,7 @@ muNsWrite:
     jsr muRedrawRows
     lda muTgtLo                 // the cursor stays on the row it split
     ldx muTgtHi
-    jmp muCurSettle
+    jmp muCurSettleNext
 
 // --- muFillPlan -- the gap a fill has to cross, and how many events it takes ---
 //  In:  MU_SEKEND (the row after the recorded event), MU_TGT, MU_DURJIF
@@ -5521,7 +5549,7 @@ muFgRest:
     jsr muRedrawRows
     lda muTgtLo                 // the cursor stays on the row the note went to
     ldx muTgtHi
-    jmp muCurSettle
+    jmp muCurSettleNext
 
 // ==========================================
 //  Inserting time -- open rows of silence in all three voices at once
@@ -5934,7 +5962,7 @@ muRkGo:
     jsr muRedrawRows
     lda muTgtLo
     ldx muTgtHi
-    jmp muCurSettle
+    jmp muCurSettleNext
 
 // --- muDelKey -- remove the event at the cursor and close the gap ---
 //  Only an onset answers, and the HLT pair is never a timed event, so the
@@ -10190,6 +10218,7 @@ muLnBarLo:  .fill MU_GRID_ROWS, 0   // the bar each line's row falls in, from th
 muLnBarHi:  .fill MU_GRID_ROWS, 0   //   walk: a tempo change cuts a bar short, so
                                     //   the bar is not a division of the row
 muLnTem:    .fill MU_GRID_ROWS, 0   // the tempo in force on each line's row
+muCnT0:     .word 0             // the row after the one a write landed on
 muLnTick:   .fill MU_GRID_ROWS, 0   // the song tick each line was walked at: the
 muLnTickHi: .fill MU_GRID_ROWS, 0   //   playhead's row is the deepest line whose
                                     //   tick the music has reached (muPhSync)

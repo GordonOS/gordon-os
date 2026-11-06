@@ -21,6 +21,39 @@
 
 ---
 
+## Bug #204 — entering a note in `musedit` hangs the machine on `immig`, and the band disappears below the row typed on 🔴 ❌ OPEN
+
+**Symptoms.** In `musedit`, type a note on any row of `immig`: everything from that row down
+vanishes from the band and the machine stops dead (screen frozen, interrupts gone -- a reboot is
+needed). `commodo` is unaffected, and the same note write is fine there.
+
+**Not the new cursor advance.** Reproduced with the advance reverted, and again on a build taken
+from before the per-row-tick change (#203): `frameCount` goes frozen either way. The pair the
+editor writes is not the fault either -- replacing `immig`'s first voice-1 pair with the same
+`$18`/pitch bytes and running `tools/mus-sim.py --walk` over it parses and plays to the end
+(7632 ticks, all three voices stopped), so the image a naive replacement produces is legal. What
+the editor does *around* the write is what breaks it.
+
+**What is known.**
+- The band truncates exactly at the row typed on, which is what a walk that stops after that row
+  looks like: the repaint is `muRedrawRows` from the edited row down, so every line below it is
+  cleared and never redrawn.
+- The machine is wedged, not merely idle: `frameCount` (`$CFFF`) stops advancing, so the CPU is
+  spinning with interrupts disabled (or in a kernel loop that never returns). A monitor read is
+  still possible, which is how the freeze was measured.
+- The probe runs also show the band holding only the opening's command lines plus row `01` -- the
+  same truncation, from the moment the editor opens, which suggests the walk is already stopping
+  there in that context.
+
+**Still to find.** Which loop spins (a bounded-step probe of the first `immig` write is the next
+step, reading `muErr` and the line table from the *wedged* machine), and whether the mirror
+`commodo` case hides the same bug behind a shorter tune (5 command lines against immig's 9-12, and
+no phrase bodies in the voice being edited).
+
+**Reproduce.** `run musedit immig`, cursor down to a row, press a note key.
+
+---
+
 ## Bug #203 — `musedit`'s playhead froze on `immig` at bar 18, because every row inside a note recorded the note's *onset* tick ?? ? FIXED (2026-11-06)
 
 **Symptoms.** Playing `immig` in `musedit`, the walk stops dead at bar 18, row 33 (row 1120)
