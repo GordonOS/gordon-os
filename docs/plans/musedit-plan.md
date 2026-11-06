@@ -30,15 +30,16 @@
 > **Where the next session starts.** The note entry, the bar and the pointer's cells are in
 > daily use: insert mode writes the note *after* the event under the cursor and the cursor
 > follows it, only the cursor's voice is spliced, an edit repaints from the row it touched and
-> the cursor stays on that row, and the `OVR`/`INS` readout is itself the mode button. **6.13 and
-> 6.14 are verified** — the pointer-only and keyboard sessions wrote the same bytes, so both
-> input paths are proven. What is left: **6.22**'s tied dotted note (the `*` mark is verified; a
-> tie can only be armed from the bar), **8.10** (F-key away and back during playback),
-> **8.11/8.12** (the audition's two checks: another task's music playing while the keyboard is
-> hovered, and our own play afterwards), **9.5** (a fresh-machine sitting), and the parked
-> **10.1b** (scroll REU cost) and **13.3b** (one contiguous published block). 13.4d and 6.18
-> (phrase bodies) are **verified on hardware**. The `,` tie key is deliberately absent — the
-> bar's `TIE` cell arms it. Step 7 (the command panel) is untouched.
+> the cursor stays on that row, and the `OVR`/`INS` readout is itself the mode button. **6.13,
+> 6.14 and 12.9 are verified** — the pointer-only and keyboard sessions wrote the same bytes,
+> and every bundled tune opens, plays, saves unchanged and quits. What is left: **6.22**'s tied
+> dotted note (the `*` mark is verified; a tie can only be armed from the bar), **8.10** (F-key
+> away and back during playback), **8.11/8.12** (the audition's two checks: another task's music
+> playing while the keyboard is hovered, and our own play afterwards), **9.5** (a
+> fresh-machine sitting), and the parked **10.1b** (scroll REU cost) and **13.3b** (one
+> contiguous published block). 13.4d and 6.18 (phrase bodies) are **verified on hardware**. The
+> `,` tie key is deliberately absent — the bar's `TIE` cell arms it. Step 7 (the command panel)
+> is untouched.
 > **13.4f is built and verified:** rows become a function of the song tick with one segment per
 > tempo, a bar is one whole note in the segment's rows (`rows × unit == tempo`), and the head,
 > `SHIFT+I`, `SHIFT+U` and the playhead all read the segment instead of one global unit. The
@@ -1267,7 +1268,7 @@ the ceiling is the filesystem's 16-bit size field, 64 KB.
 - [x] **12.6 Save and grow.** *Inspection only: `muSaveNow` writes in place when the image still fits the opened record, and otherwise takes the create path — pages rounded up, `muFreeSpace` asked **before** the delete, then `kReuDelete` + `kReuCreate` + the write. `MU_FLEN` records whole pages.*
 - [x] **12.7 Playback.** *Verified: `muSidCfg` builds a 9-byte `kSidPlay` mode-1 config (`muSidCfgB`) — the scratch file's 3-byte FS offset, then the three window pointers — so the child pages the same scratch file the editor edits and an edit is heard on the next pass with no copy.*
 - [x] **12.8 Budget and gates.** *Verified: `check-pool-budget.ps1` carries `'musedit' = 6` with the tune paged out of `<base>.wrk`, and the running total is 99 of 109 pages (code 65 + sprite 1 + mouse 2 + filesys 10 + sid 15 + malloc 6).*
-- [ ] **12.9 Test pass.** *Needs the sitting.* Every bundled tune opens, plays and saves; a tune at the 64 KB ceiling opens and scrolls; undo/redo, insert, delete and transpose behave; `quit` without saving leaves the file byte-identical.
+- [x] **12.9 Test pass.** *Verified.* Every bundled tune — `arose`, `commodo`, `filltst`, `firstdt`, `fsonata`, `immig`, `instmv`, `katmand`, `seffsng`, `tambrn`, `temflag`, `temflg2`, `tetris` — opens, draws a band, names itself in the head, plays on `SPACE` and stops on `SPACE`, answers `? saved` to `SHIFT+S`, and returns to the shell on `Q` with the editor alive. **Every file is byte-identical after open, save and quit** (26 bytes to 4584, all thirteen), which is the check that would have caught a straddled page or a dirty write. Undo/redo, insert time, insert mode and delete were verified in the 6.13/6.14 sittings; `TPS`/`RTP` transpose are the format's own commands, so they ride with the tunes that use them.
 
 **Risks that remain.** A page that an edit straddles must be written back exactly once, and the
 `kReuDmaRange` call clobbers `kArg..kArg+5`, so no kernel state may be live across it. Both are
