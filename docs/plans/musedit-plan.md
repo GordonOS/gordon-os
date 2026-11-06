@@ -30,16 +30,15 @@
 > **Where the next session starts.** The note entry, the bar and the pointer's cells are in
 > daily use: insert mode writes the note *after* the event under the cursor and the cursor
 > follows it, only the cursor's voice is spliced, an edit repaints from the row it touched and
-> the cursor stays on that row, and the `OVR`/`INS` readout is itself the mode button. **6.14 is
-> verified** — the twelve-note session's saved image is recorded in the item, so what is left is
-> **6.13**, the same script with the pointer, which compares against those bytes. Also open:
-> **6.22**'s tied dotted note (the `*` mark is verified; a tie can only be armed from the bar),
-> **8.10** (F-key away and back during playback), **8.11/8.12** (the audition's two checks:
-> another task's music playing while the keyboard is hovered, and our own play afterwards),
-> **9.5** (a fresh-machine sitting), and the parked **10.1b** (scroll REU cost) and **13.3b**
-> (one contiguous published block). 13.4d and 6.18 (phrase bodies) are **verified on
-> hardware**. The `,` tie key is deliberately absent — the bar's `TIE` cell arms it. Step 7 (the
-> command panel) is untouched.
+> the cursor stays on that row, and the `OVR`/`INS` readout is itself the mode button. **6.13 and
+> 6.14 are verified** — the pointer-only and keyboard sessions wrote the same bytes, so both
+> input paths are proven. What is left: **6.22**'s tied dotted note (the `*` mark is verified; a
+> tie can only be armed from the bar), **8.10** (F-key away and back during playback),
+> **8.11/8.12** (the audition's two checks: another task's music playing while the keyboard is
+> hovered, and our own play afterwards), **9.5** (a fresh-machine sitting), and the parked
+> **10.1b** (scroll REU cost) and **13.3b** (one contiguous published block). 13.4d and 6.18
+> (phrase bodies) are **verified on hardware**. The `,` tie key is deliberately absent — the
+> bar's `TIE` cell arms it. Step 7 (the command panel) is untouched.
 > **13.4f is built and verified:** rows become a function of the song tick with one segment per
 > tempo, a bar is one whole note in the segment's rows (`rows × unit == tempo`), and the head,
 > `SHIFT+I`, `SHIFT+U` and the playhead all read the segment instead of one global unit. The
@@ -922,7 +921,7 @@ performed with the pointer first; the same edits are reachable from the computer
 - [x] **6.10 Undo granularity.** *A split is one record (`oldN=2`, `newN=2+k`), so `DOWN,a,z` on `commodo`/`filltst` restores the original event in a single `Z`.*
 - [x] **6.11 Dirty.** *`muPushEdit` sets a dirty byte and clears the warn byte on every edit; `Q` while dirty prints `? unsaved - q again` and stays (the editor is still up after `a,q`), a second `Q` exits, and `SHIFT+S` clears both. The guard is in `muQuit`, before the key-drain.*
 - [x] **6.12 No edit while playing.** *Verified on `filltst` and `commodo`: `SPACE` starts the child, then every mutating path -- note (keyboard and mouse click), rest, delete, undo, redo, `I`/`SHIFT+I` insert -- reports `? stop first` and leaves the image byte-identical (`muPlaying` guards each dispatch arm and `muNoteClick` for the mouse). A second `SPACE` stops; edits work again. The guard also keeps the tune's `kMalloc` block from moving under the child (an insert reallocates).*
-- [ ] **6.13 A mouse-only session.** *Built — needs the sitting, and it is the same script as 6.14 below.* Enter twelve notes across three voices, change two pitches, rest one, undo two, save, never touching the computer keyboard, then decode: exactly those rows, and **the same bytes** as 6.14's run. Everything it needs now answers the pointer: the piano for pitches, a click on a lane for the voice and the row, `RST` / `DEL` / `UND` / `SAV` / `Q` on the bar, and the `OVR`/`INS` readout as the mode button. Expected file, 256 bytes, voices at 10 bytes each: `18 99 18 9a 18 9b 18 9c 01 4f | 18 9d 18 9f 18 9f 18 91 01 4f | 18 9a 18 9b 18 9c 18 9d 01 4f`.
+- [x] **6.13 A mouse-only session.** *Verified — the pointer-only run matched 6.14 byte for byte.* The same twelve notes, two pitch changes, one rest, two undos and a save, with the computer keyboard never touched: a click on a lane picks the voice and the row, the piano gives the pitch, and the bar's `RST` / `UND` / `SAV` / `Q` do the rest. `mous.mus` decodes to `18 99 18 9a 18 9b 18 9c 01 4f | 18 9d 18 9f 18 9f 18 91 01 4f | 18 9a 18 9b 18 9c 18 9d 01 4f` — identical to 6.14's `sess.mus`, so the two input paths agree on every byte they write.
 - [x] **6.14 From the keyboard.** *Verified on `sess`.* Twelve notes — C-4 D-4 E-4 F-4 in voice 1, G-4 A-4 B-4 C-5 in voice 2, D-4 E-4 F-4 G-4 in voice 3, rows 1-4 of each lane — then voice 2's row 2 A-4 changed to B-4, voice 3's row 4 G-4 to A-4, voice 1's row 3 rested, and two `Z` undos (which take back the rest and then the voice-3 change). The saved image decodes to `18 99 18 9a 18 9b 18 9c 01 4f | 18 9d 18 9f 18 9f 18 91 01 4f | 18 9a 18 9b 18 9c 18 9d 01 4f` — the twelve notes in order, the kept pitch change, and the two undone edits gone. Navigating needed the machine's own state (`MU_ROW`, `MU_VOICE`, and the walk's line table) rather than the screen: the grid numbers its rows **1-based** (row 0 prints ` 01`) and a row can occupy several screen lines, so counting lines from the top is wrong.
 - [x] **6.15 Insert row.** *Verified on `instmv` (voice 1 a quarter C4, voice 2 an 8th rest then an 8th D4, voice 3 a quarter E4; all cross row 2): `i` at row 2 opens a 16th rest in all three voices -- voice 1 and 3 split their quarter (8th + 16th rest + 8th), voice 2 drops a 16th rest before the D4 onset -- everything below moves down one row, and the host model shows the blank row across all three. `muInsertTime` seeks and splices each voice in turn (a splice shifts the later voices, so each is re-seeked on the grown image), as one grouped undo action.*
 - [x] **6.16 Insert bar.** *Verified: `SHIFT+I` on `filltst` at `TEM $90` (16 rows/bar) opens a whole-note rest (`08 00` = 144 jiffies = exactly 16 rows) before the note; the bar count comes from `muUnitBar`, so an inserted bar is always one bar.*
