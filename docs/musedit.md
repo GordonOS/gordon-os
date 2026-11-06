@@ -259,7 +259,10 @@ The piano at the bottom of the screen is how notes go in.
 **The pitch sounds as you point at it.** Hovering a key on the keyboard — or pressing a note key —
 plays it for a tenth of a second, so a tune can be found by ear before anything is written. A click
 still just enters the note. It is a bare sawtooth, not the instrument the tune gives that voice — it
-answers "is this the note I meant", nothing more. While the pointer is on the keyboard a dot in the
+answers "is this the note I meant", nothing more. The pitch is the same one the tune would sound:
+the editor applies the machine's declared speed (`speed 200` for the shipped VICE image) exactly as
+the player does, so the audition and playback agree on what `C-4` is. While the pointer is on the
+keyboard a dot in the
 cursor voice's own colour sits on the key it is over, the same dot that voice gets on that key during
 playback: it says which voice a click would write to, and it comes back in the other colour as soon
 as the cursor moves to another voice. Move the pointer off the keyboard and the dot goes. The editor

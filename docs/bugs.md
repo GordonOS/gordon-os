@@ -21,6 +21,33 @@
 
 ---
 
+## Bug #202 — the audition ignored the declared machine speed, so it sounded an octave high on the project's own emulator 🟠 ✅ FIXED (2026-11-06)
+
+**Symptoms.** In `musedit`, a note key or a piano hover sounds one octave above the pitch it
+names: press the key for `C-4` and you hear C-5. Playback of the same tune is in the right
+octave, so the editor and the player disagree about a note they both call C-4.
+
+**Root cause.** VICE is started at `-speed 200`, and the tracked image's `boot.bat` declares it
+(`speed 200`), which sets the kernel's `sysSpeedShift` to 1. That variable exists precisely for
+this: the SID's 16-bit accumulator advances twice as fast on a 200% machine, so a register value
+that sounds C-4 at 100% sounds C-5. **sid.lib compensates** — it does `clc / adc sysSpeedShift`
+on the caller's transpose before writing the pitch. **`muAudFreq` did not**: it computed the
+frequency from the player's table and halved per octave, with no `sysSpeedShift` term at all.
+
+**Fix.** `muAudFreq` now shifts its result by `sysSpeedShift` after the table lookup and octave
+halvings — one `lsr`/`ror` per step for a faster machine, one `asl`/`rol` (clamped at `$ffff`)
+for a slower one — which is the same arithmetic sid.lib applies to a tune.
+
+**Measured.** Note `C-4` (linear note 48) writes `$1167` before the fix and `$08B3` after. With
+the machine at 200%, `$08B3` sounds 261.6 Hz = C-4; `$1167` sounded 523.3 Hz = C-5.
+
+**Rule.** Anything that converts a note to a SID frequency must apply `sysSpeedShift`, exactly
+once. The player already does it internally, so a caller adding it again on the *playback* path
+would double the error — the compensation belongs where the frequency is *computed*, and the
+audition computes its own.
+
+---
+
 ## Bug #201 — `muBandRebuild` counted its lines in X, which `muLnNext` eats, so a refused delete spun the machine with the pointer frozen 🔴 ✅ FIXED (2026-11-05)
 
 **Symptoms.** In `musedit`, after entering some notes, pressing `SHIFT+INST/DEL` (or the

@@ -4994,6 +4994,11 @@ muSeekKPtr:
 // --- muAudFreq -- A = the linear note (0-95) -> muAudLo/muAudHi, the SID frequency ---
 //  The table is the player's PAL one, an octave down: octave 7 doubles it (B clamps
 //  at $ffff) and every octave below halves it once per step.
+//  The machine's declared speed then shifts the result, exactly as sid.lib shifts a
+//  tune's pitch: at 200% the SID's accumulator runs twice as fast, so a register value
+//  that sounds C-4 at 100% sounds C-5. `speed.com` is what sets MU_SPEEDSHIFT, and the
+//  image's boot.bat declares the emulator's speed, so an audition written without this
+//  term is one octave high on every machine that declares anything but 100%.
 muAudFreq:
     ldx #0
 muAfDiv:
@@ -5038,6 +5043,25 @@ muAfTop:
 muAfTopOk:
     sta muAudHi
 muAfRts:
+    ldy sysSpeedShift           // the machine's speed, in octaves: +1 = 200% = one
+    beq muAfDone                //   octave down, -1 = 50% = one up
+    bmi muAfUp
+muAfDn:
+    lsr muAudHi
+    ror muAudLo
+    dey
+    bne muAfDn
+    rts
+muAfUp:
+    asl muAudLo
+    rol muAudHi
+    bcc muAfUpOk
+    lda #$ff                    // a clamp, as above: it cannot go higher
+    sta muAudHi
+muAfUpOk:
+    iny
+    bne muAfUp
+muAfDone:
     rts
 
 // --- muAudNote -- sound the linear note in A on voice 1, unless another player has the chip ---
