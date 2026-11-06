@@ -4595,6 +4595,11 @@ muKeyNotArm:
     jsr muDotCycle
     jmp muKeyIdle
 muKeyNotDot:
+    cmp #','                    // arm or drop the tie, as the bar's TIE cell does
+    bne muKeyNotTie
+    jsr muTieToggle
+    jmp muKeyIdle
+muKeyNotTie:
     jsr muKeyNote               // a note key enters its pitch at the cursor
     bcc muKeyNotNote
     sta muNoteLin               // the pitch to write, not MU_HOV -- the pointer owns that
@@ -7231,8 +7236,17 @@ muLeStore:
     sta muLpDur
     lda muLenCnt
     cmp #1
-    beq muLsPlain           // the first event carries no tie
-    lda muLenTie
+    bne muLsCont
+    lda muDurTie                // the armed tie rides on a new note's FIRST pair,
+    beq muLsPlain               //   which is what the bar's TIE cell and the ',' key set
+    lda muLenOpt                // a rest never carries one
+    beq muLsPlain
+    lda muLpDur
+    ora #$40
+    sta muLpDur
+    jmp muLsPlain
+muLsCont:
+    lda muLenTie                // a continuation ties into the one before it
     beq muLsPlain
     lda muLpDur
     ora #$40
@@ -8581,17 +8595,21 @@ mbdHave:
 mbdRts:
     rts
 
-// --- muBarTie -- the TIE- cell arms or drops the tie ---
+// --- muTieToggle -- arm or drop the tie, from the bar's TIE cell or the `,` key ---
 //  A tie is the duration byte's bit 6, and the player holds the note into the one
 //  after it. It is armed here and stays armed -- like the length it rides with -- so
 //  the cell's light is the flag itself (muBarPaint reads MU_DURTIE for that cell), and
 //  no other item on the bar can take it away. A rest never carries one: muRestKey
 //  clears the bit, and the fill path writes rests with it clear.
-muBarTie:
+muTieToggle:
     lda muDurTie
     eor #1
     sta muDurTie
     jmp muBarPaint
+
+// --- muBarTie -- the TIE cell is the `,` key ---
+muBarTie:
+    jmp muTieToggle
 
 // --- muBarRest -- the REST cell is the INST/DEL key ---
 //  A rest keeps the event's length and its option byte becomes zero, which is

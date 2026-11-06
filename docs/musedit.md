@@ -95,7 +95,7 @@ every item on one row; each does the work of the key it names. Every one of them
 | cell | what it does |
 |---|---|
 | `DUR` | steps the armed length on through whole, half, quarter, 8th, 16th, 32nd and 64th; the dot or triplet mark rides along, so only the class changes |
-| `TIE` | arms or drops the tie, and stays reversed while it is set |
+| `TIE` | arms or drops the tie, and stays reversed while it is set — the `,` key |
 | `PLY` | plays and stops, and stays reversed for as long as the tune plays |
 | `RST` | turns the event on the cursor's row into a rest — the `INST/DEL` key |
 | `INS` | opens one row of silence in all three voices — the `I` key |
@@ -293,10 +293,13 @@ double-dotted, triplet). The armed value is shown in the control bar's `DUR` fie
 cell shows `.` dotted, `:` double-dotted, `*` triplet — and a note already in the grid carries
 the same mark beside its duration, so the lane says which of the three it is.
 
-**The tie** joins a note to the one after it into a single sound, and it is armed with `TIE-` in
-the bar. It rides the armed value the same way the dots do, so it reaches every note a pitch key
-writes, and the cell stays lit while it is armed. The grid shows it as `TIE` after the duration,
-which is also how a tied event already in a tune reads.
+**The tie** joins a note to the one after it into a single sound, and it is armed with `,` or by
+clicking `TIE` in the bar; both toggle the same flag, so the cell lights whether you armed it by
+key or by pointer. It rides the armed value the same way the dots do, so it reaches every note a
+pitch key writes — including one written into an empty row, where the length may be laid down as
+two tied pairs of its own. The grid shows it as `TIE` after the duration, which is also how a
+tied event already in a tune reads. A dotted, tied note reads `C-4 8. TIE` and is written as the
+duration byte's bits 6 (tie) and 5 (dot) together.
 
 Some notes do not land exactly on a row — a triplet or a double-dotted note can be shorter
 than one step. Such an onset is drawn on the row it falls in, with `?` at the right edge.
@@ -335,6 +338,7 @@ still works alongside it.
 | `1` … `7` | duration: whole, half, quarter, 8th, 16th, 32nd, 64th |
 | `8` / `9` | duration: the UTL / UTV utility length |
 | `.` | cycle the dot state: none → dotted → double-dotted → triplet |
+| `,` | arm or drop the tie (the bar's `TIE` cell) |
 
 The armed values are shown on the control bar and stay armed until you change them. The
 editor starts with a plain 16th armed.
