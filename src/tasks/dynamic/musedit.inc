@@ -8882,45 +8882,33 @@ muPtRts:
     rts
 
 // --- muPlayhead -- the playhead is the clock ---
-//  The player publishes the jiffies it has played in this pass, and a grid row is
-//  a function of that tick, so the row under the playhead is read from the player's
-//  own clock through the same map the walk draws with. Nothing is looked up and
-//  nothing can jump: the cursor walks down one row at a time, and the window
-//  follows it a line at a time.
+//  The player publishes the jiffies it has played in this pass, and the walk records
+//  the tick each line's row starts at, so the row under the playhead is read from the
+//  player's own clock through the map the walk drew: it is the row the music is inside.
+//  The cursor walks down one row at a time, and the window follows it a line at a time.
 muPlayhead:
     jsr muPhSync                // the row is the player's own song tick, mapped
     jsr muPhFollow
     jmp muPhCursor
 
-// --- muPhSync -- the playhead row, read from the player's own clock ---
-//  The map the walk draws with is a segment per tempo, row(tick) = MU_PHSEGRW +
-//  (tick - MU_PHSEGTK) / MU_PHSEGU, and the walk hands the playhead the segment it
-//  is standing in (muSegOpen), so a tune that changes tempo is followed at the
-//  segment's own rate instead of at one rate for the whole tune. The map is
-//  continuous at every boundary, so a segment that is one redraw behind still
-//  gives the row of the boundary itself, and the next walk replaces it.
-//  The count is one jiffy ahead of the row being played: the player starts every
-//  voice's counter at 1 and increments before it processes.
-//  Nothing is predicted and nothing is cached beyond that segment, so there is no
-//  rate to drift and no window to fall outside of, and a loop restarts the count
-//  with the music.
-//  Clobbers A, X, Y, kArg and kResult (kArg+4..).
 // --- muPhSync -- the playhead row, found by the tick the line was walked at ---
 //  The player publishes a 16-bit count of the jiffies it has played in this pass,
-//  and every drawn line records the tick its row was walked at (MU_LNTICK), so the
+//  and every drawn line records the tick its row starts at (MU_LNTICK), so the
 //  playhead's row is that line's row: the deepest line whose tick the music has
-//  reached, walked back to the first line that carries that tick. Nothing is divided
-//  and no segment is guessed, which is what makes a tune that changes tempo -- or
-//  that changes it more than once, or inside a phrase body -- follow exactly what the
-//  walk drew, because it IS what the walk drew.
-//  The walk back matters where a row is shorter than a note: a note that lasts four
-//  rows gives all four rows the same onset tick, and the cursor must stand on the row
-//  the note starts on, not on the last row it is held for.
+//  reached, walked back to the first line that carries that tick. Nothing is
+//  extrapolated, which is what makes a tune that changes tempo -- or that changes it
+//  more than once, or inside a phrase body -- follow exactly what the walk drew,
+//  because it IS what the walk drew.
+//  The walk back matters where a row spans several lines: a row's own line and the
+//  command lines above it carry the row's tick, and the cursor must stand on the line
+//  that shows the notes. Every ROW carries its own tick -- one unit past the row above
+//  it -- so a note that lasts several rows gives each of them a distinct tick and the
+//  playhead walks through the note one row at a time, exactly as the music does.
 //  A tick above every line clamps to the band's last row, which is still below the
 //  follow's target, so the band scrolls and the next line answers properly.
 //  The count is one jiffy ahead of the row being played: the player starts every
 //  voice's counter at 1 and increments before it processes.
-//  Clobbers A, X, Y, kArg.
+//  Clobbers A, X, Y and kArg.
 muPhSync:
     lda MU_POS_BLOCK+6          // SID_POS_TICK = MU_POS_BLOCK + 6: the block is
     sec                         //   contiguous, so the low byte is +6 and the high +7
@@ -8955,10 +8943,10 @@ muPsLp:
     cmp muLnTick,x
     bcc muPsNext
 muPsTake:
-    cpx #0                      // a note that lasts several rows gives every one of
-    beq muPsSet                 //   those rows the same onset tick, so the deepest
-    lda muLnTickHi-1,x          //   qualifying line is the note's LAST row: walk back
-    cmp muLnTickHi,x            //   up to the row the note actually starts on
+    cpx #0                      // a row's own line and the command lines above it
+    beq muPsSet                 //   carry the row's tick, so the deepest qualifying
+    lda muLnTickHi-1,x          //   line is the row's last one: walk back to the
+    cmp muLnTickHi,x            //   row's first line, which is the row itself
     bne muPsSet
     lda muLnTick-1,x
     cmp muLnTick,x
@@ -9278,10 +9266,7 @@ muLnSpot:
     sta muLnBarHi,y
     lda muSimT
     sta muLnTem,y
-    lda muClkLo                 // the tick this line's row was walked at: what the
-    sta muLnTick,y              //   playhead looks its own row up by
-    lda muClkHi
-    sta muLnTickHi,y
+    jsr muLnTkSet               // the tick this line's row starts at
     lda muPhDf
     sta muLnPh,y                // the group is complete by now, so this is the phrase
     lda muPhDf+1                //   each voice is in at the END of the row -- which is
@@ -9310,6 +9295,34 @@ mlsRts:
 mlsNoDraw:
     lda #0
     sta muLnDraw
+    rts
+
+// --- muLnTkSet -- the tick line Y's row starts at ---
+//  The segment's own map, MU_SEGTK + (row - MU_SEGROW) * MU_SEGU, derived on every
+//  line rather than accumulated along the walk, so it cannot drift: one row's tick
+//  is one unit past the row above it, a note that lasts several rows gives every one
+//  of them its own time, and the playhead walks through the note instead of standing
+//  on its first row. Y is the table index and survives (kMul16 keeps it).
+muLnTkSet:
+    lda muGrpRow
+    sec
+    sbc muSegRow
+    sta kArg
+    lda muGrpRow+1
+    sbc muSegRow+1
+    sta kArg+1
+    lda muSegUnit
+    sta kArg+2
+    lda #0
+    sta kArg+3
+    jsr kMul16                  // A and X: the product is kArg+4..kArg+7
+    lda kArg+4
+    clc
+    adc muSegTick
+    sta muLnTick,y
+    lda kArg+5
+    adc muSegTick+1
+    sta muLnTickHi,y
     rts
 
 // --- muLnCmdDraw -- the row's k-th command line: one command per lane ---

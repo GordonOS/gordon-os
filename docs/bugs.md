@@ -21,6 +21,53 @@
 
 ---
 
+## Bug #203 — `musedit`'s playhead froze on `immig` at bar 18, because every row inside a note recorded the note's *onset* tick ?? ? FIXED (2026-11-06)
+
+**Symptoms.** Playing `immig` in `musedit`, the walk stops dead at bar 18, row 33 (row 1120)
+and never moves again while the tune plays on to its end. Nothing recovers it: `muErr = 0`, all
+three voices still up, and the player's published tick keeps climbing (2240 -> 3611) with
+`muGrpRow` stuck at 1130 and the playhead pinned on 1120.
+
+**Root cause.** Row 1120 is the first row of a long note, and the grid's line table records, per
+line, "the tick its row was walked at" (`muLnTick`) — used by the playhead as "the deepest line
+whose tick the music has reached". That value was taken from `muClkLo`, and **`muClkLo` is only
+written by `muStep`, once per *event***. `muGrpOpen` advances `muGrpRow` for every row in time
+(`inc muGrpRow` per group) but left the clock alone, so a note lasting N rows gave all N of them
+the **same** tick. The playhead's rule then had a run of equal ticks as long as the note, and
+walking that run back to its first line pinned the playhead on the note's first row. A note
+longer than the band pinned it for the rest of the tune: `muPhFollow` only scrolls when the
+playhead's line is at or past its target, so a playhead pinned at the run's start never scrolls,
+the walk never runs again, and the band is frozen while the music plays.
+
+**Fix.** A row's tick is now **derived from the segment's own map** --
+`MU_SEGTK + (row - MU_SEGROW) * MU_SEGU` — computed per emitted line in `muLnTkSet` (one
+`kMul16`; `Y`, the table index, survives it). It is derived rather than accumulated, so it
+cannot drift however long a tune or a segment runs, and one row's tick is exactly one unit past
+the row above it: ticks strictly increase down the table, and the playhead is simply the row the
+music is *inside*, advancing one row per segment unit. The walk back is kept for what it is
+for — the several lines of *one* row (a row's own line plus the command lines above it, e.g.
+`immig` row 0's ten) — where returning the row is correct.
+
+**Rejected on the way, and why (do not retry it).** The first attempt advanced the row
+arithmetically from the band instead: `band row of line 9 + (tick - that line's tick) / unit`.
+That base is not state, it is a reading of the very window the value scrolls, so every scroll it
+caused raised the base by one while the tick term kept counting — the band raced up to
+`MU_FOLLOW_WALK` lines per frame and then stalled. Measured: 1 to 29 rows per 0.4 s against the
+music's steady ~13. **A value must never be derived from a window that the value itself moves**,
+and a band-relative row cannot be added to an absolute tick count.
+
+**Measured after the fix.** `immig`, 400 samples over 99.75 s: playhead 0 -> 2624 (bar 42), **zero
+regressions and zero flat samples**, mean 6.58 rows per 0.25 s with stdev 1.07 (0.25 s is not a
+whole number of rows, so 6/7 alternating is the expected spread), **0.500 rows per tick** — unit
+2, i.e. exactly the music's own rate, never ahead and never behind — `walkRow - playhead` bounded
+6..10 (the band's frontier leads the playhead by less than a band, no runaway), and the cursor
+row was 10 in 399 of 400 samples, with the band scrolling one line at a time under it.
+
+**Rule.** A per-line record of a *time* must be the row's own time, never the last event's; and
+anything the display scrolls must not be allowed to feed the number that scrolls it.
+
+---
+
 ## Bug #202 — the audition ignored the declared machine speed, so it sounded an octave high on the project's own emulator 🟠 ✅ FIXED (2026-11-06)
 
 **Symptoms.** In `musedit`, a note key or a piano hover sounds one octave above the pitch it
