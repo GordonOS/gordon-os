@@ -41,6 +41,12 @@ for a slower one — which is the same arithmetic sid.lib applies to a tune.
 **Measured.** Note `C-4` (linear note 48) writes `$1167` before the fix and `$08B3` after. With
 the machine at 200%, `$08B3` sounds 261.6 Hz = C-4; `$1167` sounded 523.3 Hz = C-5.
 
+**Why it did not show on an Ultimate.** The declaration lives in the image, not in musedit:
+`boot.bat` in `reu/REU.bin` starts `speed 200` and the same file in `reu/REU-C64U.bin` starts
+`speed 100` (both then `mouse 1351`, `print` ×3, `sidrst`, `banner logo320 0 0`, `ver`, `mem`).
+So `sysSpeedShift` is 1 on the VICE image and 0 on the C64U one — the player was right on both,
+and only the audition, which read nothing, was wrong on the faster one.
+
 **Rule.** Anything that converts a note to a SID frequency must apply `sysSpeedShift`, exactly
 once. The player already does it internally, so a caller adding it again on the *playback* path
 would double the error — the compensation belongs where the frequency is *computed*, and the
