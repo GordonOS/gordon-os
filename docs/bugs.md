@@ -34,23 +34,47 @@ editor writes is not the fault either -- replacing `immig`'s first voice-1 pair 
 (7632 ticks, all three voices stopped), so the image a naive replacement produces is legal. What
 the editor does *around* the write is what breaks it.
 
-**What is known.**
-- The band truncates exactly at the row typed on, which is what a walk that stops after that row
-  looks like: the repaint is `muRedrawRows` from the edited row down, so every line below it is
-  cleared and never redrawn.
-- The machine is wedged, not merely idle: `frameCount` (`$CFFF`) stops advancing, so the CPU is
-  spinning with interrupts disabled (or in a kernel loop that never returns). A monitor read is
-  still possible, which is how the freeze was measured.
-- The probe runs also show the band holding only the opening's command lines plus row `01` -- the
-  same truncation, from the moment the editor opens, which suggests the walk is already stopping
-  there in that context.
+**Which write path it is.** The working image is the evidence, because it survives the hang: the
+emulator's REU image is mapped read-write, so `tools/check-reu-fs.ps1 -Extract immig.wrk` pulls
+`<base>.wrk` out of a wedged run. Two things fall out of it. First, the note took the **insert**
+path (`muFillNote`/`muNcSplit`), not `muNcReplace`: the voice-1 length word went 358 -> 370, one
+pair was inserted at offset 54 and ten bytes at offset 28, and the opening rest pair at 26 changed
+`08 A0` -> `1C A0`. That is why every run that survived -- including all of `commodo`'s -- was an
+in-place replace: only the insert path hangs. Second, the ten inserted bytes are
+`0C 9A | 50 9A | 54 9A | 58 9A | 5C 9A`: five pairs all carrying the typed note's option byte, with
+duration bytes `$0C $10 $14 $18 $1C` (`$40` is the tie bit on all but the first), i.e. table
+entries 0-4 of `muDurTab` picked **in order**. That is a correct greedy decomposition of
+`muLenJ = 124` jiffies (64+32+16+8+4), so `muLenEmit` itself is doing its job -- what is wrong is
+the *length* it was handed. Nothing in the run writes `muDurJif` after `muNoteClick` sets it, so
+the value to trace is that one byte (`$84`) between the key and the emit.
 
-**Still to find.** Which loop spins (a bounded-step probe of the first `immig` write is the next
-step, reading `muErr` and the line table from the *wedged* machine), and whether the mirror
-`commodo` case hides the same bug behind a shorter tune (5 command lines against immig's 9-12, and
-no phrase bodies in the voice being edited).
+**What the wedged guest looks like.** Read over the binary monitor after the hang:
+- `frameCount` (`$CFFF`) is static and the interrupt flag is set, which is why a reboot is needed.
+- Zero page `$02-$EF` is almost entirely zero, and `dataPtr` (`$F1/$F2`) holds `$0000`. The
+  editor addresses *all* of its instance state through `(dataPtr),y`, so a null `dataPtr` turns
+  every one of those accesses into a zero-page read or write.
+- The stack page `$0100-$01FF` has been overwritten with a repeating `00/FF` pattern; no frame of
+  the editor's call chain survives on it. `taskState` is `00 01 01 01` and the slot `savedSP`
+  entries are still coherent.
+- On screen, the band is cleared from the cursor's row down and never redrawn (the repaint is
+  `muRedrawRows` from the edited row, so this is a repaint that died part-way), *and* several
+  characters of lines that were already drawn are missing -- `immig` renders as `imm g`, `SUS 12`
+  as ` US 12`. Glyph data was overwritten too, not just the band.
 
-**Reproduce.** `run musedit immig`, cursor down to a row, press a note key.
+**Still to find.** Why the emitter was handed 124 jiffies when the armed length at that row is a
+few jiffies -- `muDurJif` (`$84`) is written only by `muNoteClick`, so either it holds the wrong
+value by then or a different `muLenOne` call set `muLenJ`. And what clears `dataPtr` and the zero
+page; the two are probably one event, since a null `dataPtr` makes every `(dataPtr),y` access a
+zero-page access. A checkpoint that stops the CPU on a fetch from `$0000-$00FF` will name the
+instruction with the stack intact; polling registers cannot, because the crash lands inside the
+key press and the register reply's own layout is easy to misread.
+
+**Correction to confirm.** Both inserted pairs sit inside voice 1's stream (offsets 26..55 of a
+stream that runs 8..370), although the second note was typed after CRSR-RIGHT. If that is real it
+is a second defect in the same area: the write must be reaching voice 1's base for a voice-2 edit.
+
+**Reproduce.** `run musedit immig`, cursor to row 1, press a note key. It wedges on the first key
+every time, and `commodo` never does.
 
 ---
 
