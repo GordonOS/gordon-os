@@ -31,16 +31,16 @@
 > daily use: insert mode writes the note *after* the event under the cursor and the cursor
 > follows it, only the cursor's voice is spliced, an edit repaints from the row it touched and
 > the cursor stays on that row, and the `OVR`/`INS` readout is itself the mode button. **6.13,
-> 6.14, 6.22, 8.10, 8.12 and 12.9 are verified** — the pointer-only and keyboard sessions wrote
-> the same bytes, every bundled tune opens, plays, saves unchanged and quits, the tie is armed
-> from the keyboard with `,` as well as from the bar, the player's ZP window is its own under
-> every switch, and the audition tests the chip before it sounds. 8.10 and 8.12 are verified by
-> **inspection**: `musedit` holds 103 of the 109 pool pages and evicts even the shell, so no
-> second task can be resident to switch to or to play over it — the code path is right, the
-> sitting is impossible. What is left is **8.11** (the audition itself — hover, note key, the
-> voice dot), **9.5** (a fresh-machine sitting), and the parked **10.1b** (scroll REU cost) and
-> **13.3b** (one contiguous published block). 13.4d and 6.18 (phrase bodies) are **verified on
-> hardware**. Step 7 (the command panel) is untouched.
+> 6.14, 6.22, 8.10, 8.12, 9.5 and 12.9 are verified** — the pointer-only and keyboard sessions
+> wrote the same bytes, every bundled tune opens, plays, saves unchanged and quits, a fresh
+> machine survives a whole sitting with no page left behind, the tie is armed from the keyboard
+> with `,` as well as from the bar, the player's ZP window is its own under every switch, and the
+> audition tests the chip before it sounds. 8.10 and 8.12 are verified by **inspection**:
+> `musedit` holds 103 of the 109 pool pages and evicts even the shell, so no second task can be
+> resident to switch to or to play over it — the code path is right, the sitting is impossible.
+> What is left is **8.11** (the audition itself — hover, note key, the voice dot), and the parked
+> **10.1b** (scroll REU cost) and **13.3b** (one contiguous published block). 13.4d and 6.18
+> (phrase bodies) are **verified on hardware**. Step 7 (the command panel) is untouched.
 > **13.4f is built and verified:** rows become a function of the song tick with one segment per
 > tempo, a bar is one whole note in the segment's rows (`rows × unit == tempo`), and the head,
 > `SHIFT+I`, `SHIFT+U` and the playhead all read the segment instead of one global unit. The
@@ -1091,7 +1091,7 @@ The published block, the thread child, stop/reap, follow.
 - [x] **9.2 Builds.** *Verified: kernel 233 asserts 0 failed, tasks and REU exit 0, and `check-reu-current.ps1` reports the image current — no source changed since the build and all 49 binaries byte-identical.* Kernel, tasks and REU all exit 0; `check-reu-current.ps1` reports the image holds the binaries just built.
 - [x] **9.3 Doc gates.** *Verified: `verify-map.ps1` all checks passed, `verify-jumptable-docs.ps1` clean, `verify-inventory-docs.ps1` current (198 addresses agree with the jump table; the call inventories were regenerated — 1270 kernel and 237 library call sites), `check-links.py` 0 unresolved, `check-ascii.py` OK, `scan-history.py` 0 flagged lines.* `verify-map.ps1`, `verify-jumptable-docs.ps1`, `verify-inventory-docs.ps1`, `check-links.py`, `check-ascii.py`, `scan-history.py` — all exit 0 (the last is advisory but read it).
 - [x] **9.4 Wiring.** *Done: `tools/tasks.json` and `project-config.json` `sources` already named it; added to `README.md` (feature bullet + guide link), `docs/features.md` (Sound), `docs/quick-start.md` (the `run <filename>` task list), `tools/quickstart.binaries.md` (the binaries task table) and `publish-binaries.ps1`'s `$guides` — without that last one the guide would never ship. The task binary needs no publish wiring: it travels inside `reu/REU.bin`.* `tools/tasks.json`, `project-config.json` `sources`, `README.md`'s task table, `docs/features.md`, `docs/quick-start.md`, `tools/quickstart.binaries.md` and `publish-binaries.ps1`'s `$guides` all name `musedit` / `docs/musedit.md`.
-- [ ] **9.5 A fresh machine.** *Needs the sitting.* Freshly seeded REU, one sitting: open, enter notes, play, save, quit, reopen, play — no leftover state.
+- [x] **9.5 A fresh machine.** *Verified on a freshly seeded REU, one sitting.* `run musedit sit5` on a new name, eight notes C-4…C-5 on rows 1-8 of voice 1, `SPACE` (gates live: `41 40 40`), `SPACE` to stop, `SHIFT+S` → `? saved`, `q` → back at the shell; then `run musedit sit5` again — all eight notes are there, `SPACE` plays again (gates live), `q`. **No leftover state:** the pool shows 30 pages used at the shell, 108 with the editor resident (1 free — the budget noted above), and **20 used after the sitting, with no page still claimed by the editor**; the two `<base>.wrk` files are tombstoned, one per session, so the next load rebuilds them. `musedit.und` is **deliberately persistent** — made once on the first run and reused — and that is safe because the stack head (`muUndoTop`) lives in the code image, which the loader re-initialises to 0 on every `run`, so a previous session's records are unreachable whatever the file still holds.
 
 ### Step 10 ? Parked (deliberately not done)
 
