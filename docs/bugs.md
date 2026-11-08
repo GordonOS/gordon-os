@@ -53,10 +53,15 @@ removed once the fix was verified.
 splits, plus one on voice 2): the machine stays alive, the cursor advances R1 -> R6, and the band
 shows each note.
 
-**Open question, found while verifying.** The split gives the new note the event's *remainder*, not
-the armed DUR, so notes typed successively inside one long rest come out as 2nd, 4th, 8th, 16th,
-32nd, 64th with TIE runs. That is what the code has always done (`muSplitPlan` never consults
-`muDurJif`); whether it is what the editor should do is a separate decision, not part of this hang.
+**The split's lengths.** A note typed inside a running event is given the **armed** duration (the
+bar's `DUR`), not the event's remainder, and the event is written as three runs: the rows before
+the cursor on the old pitch, the note, and what the event had left on the old pitch again. The
+three together last exactly as long as the event did, so nothing below moves. The repaint starts at
+the event's own first row, because the head's line carries a new length as well as the rows below
+it. A note typed on an
+event's own onset (the replace path) still takes the armed length outright, which re-times that
+event and moves the rows below — the behaviour `docs/musedit.md` documents. Successive notes inside
+one long rest therefore each get the armed length instead of halving the remainder.
 
 **Not the new cursor advance.** Reproduced with the advance reverted, and again on a build taken
 from before the per-row-tick change (#203): `frameCount` goes frozen either way. The pair the

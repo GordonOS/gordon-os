@@ -382,9 +382,11 @@ That gives four behaviours worth knowing:
 - **Entering on a note** replaces it. The rows below do not move.
 - **Entering on a rest** replaces it and takes the armed duration, so the rows below come up by
   the difference.
-- **Entering inside a longer note** splits it: the long note is shortened to end where your new
-  note begins, and the new note lands on the row you clicked. The rest of the tune does not
-  shift.
+- **Entering inside a longer event** splits it: the rows above your note keep the event's own
+  pitch, the new note takes the armed duration and lands on the row you clicked, and what the
+  event had left keeps that pitch again behind the note. A part that is not one legal length is
+  written as several tied events. The three runs together last exactly as long as the event did,
+  so the rest of the tune does not shift.
 - **Entering where no duration reaches** fills the gap with rests first. Rests are ordinary
   events; you will see `...` where they were inserted.
 - **Entering past the end of a voice** fills up to the cursor and inserts before the `HLT`.
@@ -688,8 +690,8 @@ gives that space back when you run `compact`.
 ## Undo
 
 `Z` undoes the last action and `X` redoes it. One action is one thing you did — entering a note
-that split a longer one undoes as a single step, not three. A long run of recent actions is
-held; opening a tune resets the history.
+that split a longer one undoes as a single step, not one per event it wrote. A long run of recent
+actions is held; opening a tune resets the history.
 
 The history lives in a 2 KB file called `musedit.und`, made on the first run and reused from
 then on, so `dir` shows it and it costs the same space however much you edit.

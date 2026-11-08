@@ -1,7 +1,7 @@
 # `musedit` — tracker-style editor for `.mus` tunes — implementation plan
 
 > **Status: the editor is built, wired and shipped.** `musedit.asm`, `musedit.inc` and the
-> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **103 pages of 109** (6 of
+> generated `musedit-glyphs.inc` / `musedit-tables.inc` build to **104 pages of 109** (5 of
 > margin, with `sprite`/`mouse`/`filesys`/`sid` counted by `tools/check-pool-budget.ps1`).
 >
 > **`main`'s streamed player is merged in.** A tune no longer has to be in RAM: `kSidPlay` takes a
@@ -31,14 +31,13 @@
 > daily use: insert mode writes the note *after* the event under the cursor and the cursor
 > follows it, only the cursor's voice is spliced, an edit repaints from the row it touched and
 > the cursor stays on that row, and the `OVR`/`INS` readout is itself the mode button. **Every
-> step of the plan is now verified except the two parked ones** — 6.13, 6.14, 6.22, 8.11, 9.5 and
-> 12.9 by sitting or measurement, and 8.10 and 8.12 by inspection (their sittings are impossible:
-> `musedit` holds 103 of the 109 pool pages and evicts even the shell, so no second task can be
-> resident to switch to or to play over it). What is left is the deliberately parked **10.1b**
-> (what a scroll still costs in REU traffic) and **13.3b** (one contiguous published block for
-> the player). 13.4d and 6.18 (phrase bodies) are **verified on hardware**. Step 7 (the command
-> panel) is untouched. Bug #202 (the audition ignored the declared machine speed) is fixed and
-> measured.
+> step of the plan is now verified** — 6.13, 6.14, 6.22, 8.11, 9.5 and 12.9 by sitting or
+> measurement, and 8.10 and 8.12 by inspection (their sittings are impossible: `musedit` holds
+> 104 of the 109 pool pages and evicts even the shell, so no second task can be resident to
+> switch to or to play over it). What is left is the deliberately parked **10.1b** (what a
+> scroll still costs in REU traffic and glyph blits). 13.4d and 6.18 (phrase bodies) are
+> **verified on hardware**. Bug #202 (the audition ignored the declared machine speed) is fixed
+> and measured.
 > **13.4f is built and verified:** rows become a function of the song tick with one segment per
 > tempo, a bar is one whole note in the segment's rows (`rows × unit == tempo`), and the head,
 > `SHIFT+I`, `SHIFT+U` and the playhead all read the segment instead of one global unit. The
@@ -660,15 +659,15 @@ saves again.
 |---|---|
 | wrapper | `src/tasks/dynamic/musedit.asm` (header + entry), body `musedit.inc` |
 | flags | `KF_RELOCATABLE \| KF_TAKES_ARGS \| KF_NOT_EVICTABLE` (`$49`); **not** `KF_RE_RUNNABLE` |
-| ZP | **none in the header** — the thread child declares `$02`, len 9 at spawn |
+| ZP | the header declares `zp_base`/`zp_len` = `$0b`/229 (13.4g); the music thread child declares `$02`, len 9 at spawn |
 | libMask | `(1 << LIB_FILESYS) \| (1 << LIB_SID) \| (1 << LIB_SPRITE) \| (1 << LIB_MOUSE)` = `$01A2`: sprite and mouse **eager** (3 pages), filesys and sid lazy |
 | data size | ≤ 255; the name is copied out of the argument area (offsets 0-11) into the code image, then the instance is zeroed from 12 |
 | screens | `kAllocScreen` mode 0, border `$0b`, then `kDisableCursor` (before the switch, like every other display-taking task: `cursorOn` is already 0 when the surface comes up), then `kBlinkReset` inside an `SEI` window immediately before `kSwitchView` (the out-going surface's live blink block must be un-drawn before `surfSave` copies it), then `kSetScrollRegion(2,20)` — the grid only, so nothing can scroll the keyboard — and `kClearScreen` once after the switch, because a recycled surface keeps the previous occupant's bitmap |
 | pointer | `mouse.lib` + `sprite.lib` + the existing `pointer.spr` (already seeded by `build-reu.ps1`); `mouseKind` required — 0 is the `? no mouse` refusal; two sprites resolved once, **before** anything is drawn; `sprOn(0)` and `MOUSE_DISABLE` before exit |
 | exit | `kSwitchView` to the parent **before** `kFreeScreen`, then `SYS_EXIT`; drain the key queue by capacity (16 reads) first |
 
-Footprint, as `tools/check-pool-budget.ps1` measures it: code **69** pages + mouse 2 + sprite 1 +
-filesys 10 + sid 15 + malloc 6 = **103 of 109 pages**, margin 6. The six malloc pages are the
+Footprint, as `tools/check-pool-budget.ps1` measures it: code **70** pages + mouse 2 + sprite 1 +
+filesys 10 + sid 15 + malloc 6 = **104 of 109 pages**, margin 5. The six malloc pages are the
 window service — three page-aligned 256-byte read windows for the editor and three more handed to
 the music child in `kSidPlay`'s mode-1 config — so the tune's own length costs nothing: it is paged
 out of `<base>.wrk` (step 12).
@@ -704,8 +703,9 @@ task's real footprint.
 | `tools/check-reu-fs.ps1 -Extract <fsName> -Out <path>` | round-trip tests: extract a saved file and hash it against `music/<name>.mus` |
 | `tools/mus-sim.py` | Python reference simulator for the C64 one; prints `(tick, voice, event)` for a `.mus`, so a debug view can be diffed against it |
 
-The C64 harness for the simulator is a `SHIFT+I` debug line printing `V1 clock/ptr/hed/depth`,
-so the values can be compared against `mus-sim.py` before the grid exists.
+The C64 side of the simulator is checked against `mus-sim.py` by its own gates rather than by a
+debug key: `tools/check-mus-timing.py` sweeps the duration arithmetic, `check-mus-commands.py` the
+command tables, and `check-musedit-walk.py` compares the host walk with a captured grid.
 
 ## 14. Steps
 
@@ -814,12 +814,12 @@ gone). Both load paths take the pair, and the byte that reads it back is `muImgT
 - [x] **3.1 The gate.** `tools/check-mus-timing.py` — exit 0, 8,192 cases (2,341 legal lengths, 5,851 refused), and the tempo table it derives agrees with the published one at all 32 rows.
 - [x] **3.2 The table is current.** `tools/gen-musedit-tables.py -Check` — exit 0 from `tools/build-tasks.ps1`.
 - [x] **3.3 The doc agrees.** `reference/sidplayer-mus-file-format.md`'s duration section matches the tool's output for all 32 tempo rows, and the tool's own table copy matches `sidplay.inc` byte for byte.
-- [x] **3.4 Spot checks on the C64.** `B` on `tetris` prints `W:96 H:48 Q:24 8:12 16:6 32:3 64:-` and `TEM $60 TQ=16 UNIT=3 ROW/BAR=32`; on `commodo` (`$A0`) `W:160 H:80 Q:40 8:20 16:10 32:5 64:-` and `TEM $A0 TQ=- UNIT=5 ROW/BAR=32`; on `immig` (`$80`) `W:128 H:64 Q:32 8:16 16:8 32:4 64:-` and `TEM $80 TQ=- UNIT=2 ROW/BAR=64`. All three match the tool line for line.
+- [x] **3.4 Spot checks on the C64.** The C64 side matched the tool line for line: `tetris` (`$60`) `W:96 H:48 Q:24 8:12 16:6 32:3 64:-` and `TEM $60 TQ=16 UNIT=3 ROW/BAR=32`; `commodo` (`$A0`) `W:160 H:80 Q:40 8:20 16:10 32:5 64:-` and `TEM $A0 TQ=- UNIT=5 ROW/BAR=32`; `immig` (`$80`) `W:128 H:64 Q:32 8:16 16:8 32:4 64:-` and `TEM $80 TQ=- UNIT=2 ROW/BAR=64`.
 - [x] **3.5 Unit.** `UNIT=5 ROW/BAR=32` at `$A0`, `UNIT=2 ROW/BAR=64` at `$80` and `UNIT=3 ROW/BAR=32` at `$60` on the C64; the tool's sweep covers the remaining 253 tempos.
 
 ### Step 4 — Simulator
 
-The resumable three-voice walk, the structural commands, and the debug line.
+The resumable three-voice walk and the structural commands.
 
 Landed: `muSimInit` rewinds to tick 0 from the image's own header (three stream starts, the
 player's initial `$90` / UTL 12 / UTV 1, the phrase identity = the voice index, the call stack
@@ -1076,9 +1076,9 @@ The published block, the thread child, stop/reap, follow.
 - [x] **8.7 Stop/play in the same instant.** *Verified: twelve `SPACE` presses 0.15 s apart leave the tune stopped with `$D404/$D40B/$D412` all `0` and the published pointers frozen, and the next `SPACE` plays again (`$D404 = $40`, pointers advancing) — the child never wedges and every later toggle behaves. Note `kSidHush` silences by zeroing the three voice-control registers; `$D418` keeps the library's `$08` filter setting, so the voice-control registers are what a stop is checked against.*
 - [x] **8.8 No player.** *Verified: with the player child gone (killed from the shell while playing), `SPACE` reports `? no player` on musedit's OWN head row, the playhead is cleared, and the editor keeps running -- further `SPACE` presses report again, a note key still edits, and `Q` still quits cleanly. This is the same state a failed `sid.lib` load leaves, because a failed lazy load prints `could not load sid.lib` and then EXITS the calling task (`libFailExit`), so `kSidPlay` never returns and the parent must detect the dead child itself (`muPlayTick`); for the same reason every parent-side `kSidHush` is gated by `muSidHushSafe` -- an unguarded hush with no `sid.lib` loaded would exit musedit. The player is per-session: once the child is gone, PLAY reports rather than respawning.*
 - [x] **8.9 No orphan.** *Verified: quit while playing (`SPACE` then `q` on `filltst`) reaps the child in `muMusicBye` before `kFreeScreen` and returns cleanly to the shell prompt.*
-- [x] **8.10 ZP — verified by inspection; the runtime check is impossible under the pool.** The player is a thread child with its own declared ZP window (`$02`, len 9) and its own tune pointer, so a display switch cannot disturb it. The chain, link by link: `musedit`'s header declares `$0B-$EA` and deliberately leaves `$02-$0A` to sid.lib's scratch, so the two windows are disjoint; `muMusicInit` registers the child's **own** window (`kArg+6 = $02`, `kArg+7 = 9`) at `SYS_THREADSPAWN`, which the kernel requires because a parent's window cannot cover a child; the spawn stores it in the child slot's `taskZpBase`/`taskZpLen`, and `switchTask` DMAs that window to and from the child's own shadow on every switch, gated on the switching task's length. A display switch **is** a task switch, so it inherits all of it, and `sprInstall`/`surfSave` touch the framebuffer, `sprLiveState` and the per-task REU blocks — never `$02-$0A`. The player pages the tune through windows 3-5, which the editor never seats. *(The runtime check needs a second task to switch to, and there is none: `musedit` holds 103 of the 109 pool pages and evicts the shell itself, leaving 6 free.)*
+- [x] **8.10 ZP — verified by inspection; the runtime check is impossible under the pool.** The player is a thread child with its own declared ZP window (`$02`, len 9) and its own tune pointer, so a display switch cannot disturb it. The chain, link by link: `musedit`'s header declares `$0B-$EF` and deliberately leaves `$02-$0A` to sid.lib's scratch, so the two windows are disjoint; `muMusicInit` registers the child's **own** window (`kArg+6 = $02`, `kArg+7 = 9`) at `SYS_THREADSPAWN`, which the kernel requires because a parent's window cannot cover a child; the spawn stores it in the child slot's `taskZpBase`/`taskZpLen`, and `switchTask` DMAs that window to and from the child's own shadow on every switch, gated on the switching task's length. A display switch **is** a task switch, so it inherits all of it, and `sprInstall`/`surfSave` touch the framebuffer, `sprLiveState` and the per-task REU blocks — never `$02-$0A`. The player pages the tune through windows 3-5, which the editor never seats. *(The runtime check needs a second task to switch to, and there is none: `musedit` holds 104 of the 109 pool pages and evicts the shell itself, leaving 5 free.)*
 - [x] **8.11 Audition.** *Verified — the pitch by measurement, the pointer's three checks by hand.* A pitch sounds as the pointer arrives on it, and a note key sounds as it is pressed. `muHovDot` (idle pass, after `muAudTick`) compares the key under the pointer with the last one it placed and, on a change of key **or** of the cursor's voice, sounds it through `muAudNote` — before anything is written, so the pitch is heard even when the entry is refused (`? illegal duration`). A piano click does not sound a second time: the hover has already played that key. Voice 1 is written directly — `$D400/$D401` from the player's own PAL table via `muAudFreq` (octave 6 values, doubled for octave 7 with B clamped at `$ffff`, exactly the player's arithmetic), `$D405/$D406` = 2 ms attack, max sustain, `$D418` with its filter bits kept and volume forced, `$D404` = sawtooth + gate. **The result is shifted by `sysSpeedShift`**, as sid.lib shifts a tune (see bug #202), so the audition and playback agree on what a note is. `muAudTick` releases the gate after `MU_AUD_FRAMES` = 5 **displayed** frames (100 ms), measured as elapsed frames because a pass is slower than a frame and an equality test would step over its own deadline. Drop-on-play: if `muPlayOn` is set the audition is forgotten without touching a gate, because clearing it would cut the player's own note. The exit path gates off too, so a note cannot outlive the editor. **The pitch to write travels in `muNoteLin`**, not in `MU_HOV`: `MU_HOV` is the pointer's published field and a note key must not be able to move it, or the readout would show a pitch the pointer is not on. **The voice dot:** while the pointer is on the keyboard, `muHovDot` also puts the cursor voice's own playback dot (`MU_DOT_SLOT0 + voice`, its own colour) on the key, so the voice a click would write to is visible; on a voice change the old slot is dropped from the enable mask and the new one placed, and off the keyboard `muDotsOff` hides them. **Measured:** a note key on the default octave writes `$08B3` for `C-4`, 261.6 Hz on the 200% image — the same pitch the player gives that note (`$1167` before #202). **By hand:** a hover on each voice sounds it, a voice change under the pointer takes the dot's colour and the pitch with it, and a note key with the pointer off the keyboard sounds and writes.
-- [x] **8.12 Audition stands down — verified by inspection; the runtime check is impossible under the pool.** The editor cannot read `sid.lib`'s `sidOwner` (it lives in the library's own pages), so the test is the chip itself, and `muAudNote` makes exactly that test: it reads `$D404`, `$D40B` and `$D412` and refuses to sound if **any** gate bit is set — except when our own audition is already sounding (`muAudOn`), so a retrigger is not blocked by our own gate. `muHovDot` returns immediately while `muPlayOn` is set and clears the dot state, so playback owns both the chip and the dots and the dots re-place after a stop. `muAudTick` with `muPlayOn` set drops the audition **without touching a gate** — clearing one under the player would cut its note. The exit path releases the gate and clears `muAudOn` before the scratch is dropped, so a note cannot outlive the editor. A player caught mid-tick can still be interrupted once; it rewrites its voice controls every tick. *(The runtime check needs a music-playing task resident beside `musedit`: `sidplay` alone is 31 pages and `gortris` 52, against 6 free.)*
+- [x] **8.12 Audition stands down — verified by inspection; the runtime check is impossible under the pool.** The editor cannot read `sid.lib`'s `sidOwner` (it lives in the library's own pages), so the test is the chip itself, and `muAudNote` makes exactly that test: it reads `$D404`, `$D40B` and `$D412` and refuses to sound if **any** gate bit is set — except when our own audition is already sounding (`muAudOn`), so a retrigger is not blocked by our own gate. `muHovDot` returns immediately while `muPlayOn` is set and clears the dot state, so playback owns both the chip and the dots and the dots re-place after a stop. `muAudTick` with `muPlayOn` set drops the audition **without touching a gate** — clearing one under the player would cut its note. The exit path releases the gate and clears `muAudOn` before the scratch is dropped, so a note cannot outlive the editor. A player caught mid-tick can still be interrupted once; it rewrites its voice controls every tick. *(The runtime check needs a music-playing task resident beside `musedit`: `sidplay` alone is 31 pages and `gortris` 52, against 5 free.)*
 
 ### Step 9 — Gates and release
 
@@ -1096,26 +1096,43 @@ The published block, the thread child, stop/reap, follow.
 Each item below is understood, costed and **not** in the tree. They are here so the reasoning is
 not rediscovered from scratch.
 
-- [x] **10.1a Rows that draw nothing are no longer walked.** *Done: with a note's duration written on its onset row, the rows an event covers are blank, so `muGdEvent` draws its onset and nothing else ? a whole note used to cost 128 iterations of the continuation loop, and the scroll path's continuation scan (which painted a blank row) is gone with it. `muLastEnd`/`muLastRest`/`muLastStart`, `muGdPastRow`, `muGdLeft` and the `muGdFirst`/`muGdRest` flags went with the code that read them; the task dropped a pool page (91 -> 90). What is left on an arriving line is the per-event walk (`muStep`) plus six or so `kPrintCharAt` calls per event that actually starts on it.*
-- [ ] **10.1b The scroll itself is the remaining cost.** *Not built — parked.* A scroll is `kScrollScreen`
-  (one REU move of the band) plus `muGdLine`, and `muGdLine` writes the new line cell by cell ?
-  up to 108 kernel calls across three lanes, ~30 ms. On a dense row that is more than a frame, so
-  the band can dip behind the music even though nothing is repainted. The scroll itself is
-  cheap; the character drawing is the limit.
-  `kScrollScreen` moves the band's pixels ? 19 rows x 320 bytes ?
-  through `REU_BOUNCE` in two passes, which is ~11.5k cycles (~11.5 ms at 1 MHz PAL) against a
-  row period of ~17 ms at 58 rows/s. That is the floor this design has, and it is why a dense
-  tune can still dip. Run-blitting was considered and has nothing to bite on: the duration
-  readout removed the `=` runs, so the only repeated characters left are the pitch/duration
-  cells, which are 3-6 calls per event.
-  *Options if it ever needs to be faster:* (a) skip the matrix half of the scroll when the band's
-  colours are uniform (they are ? the kernel does it for a general surface, not for us);
-  (b) a **row ring** instead of a scroll ? draw the arriving row in place of the row that left,
-  no movement at all, at the cost of the row numbers no longer reading top-to-bottom;
-  (c) a row copy through `REU_BOUNCE` for rows that repeat the one above ? pointless now that
-  covered rows are blank. Note that a row copy needs no kernel change if it is ever wanted: the
-  shadow's row address is `gfxCellRowLutLo/Hi[row] + taskShadowHi[curTask]` (both task-visible)
-  and the pixels come from `gfxRowLutLo/Hi` (`$1977`/`$1990`).
+- [x] **10.1a Rows that draw nothing are no longer walked.** *Done: with a note's duration written on its onset row, the rows an event covers are blank, so `muGdEvent` draws its onset and nothing else ? a whole note used to cost 128 iterations of the continuation loop, and the scroll path's continuation scan (which painted a blank row) is gone with it. `muLastEnd`/`muLastRest`/`muLastStart`, `muGdPastRow`, `muGdLeft` and the `muGdFirst`/`muGdRest` flags went with the code that read them; the task dropped a pool page (91 -> 90). What is left on an arriving line is the per-event walk (`muStep`) plus the `muPutC` cell writes of the events that actually start on it.*
+- [ ] **10.1b The band move is the remaining cost.** *Not built — parked.* A scroll pays two
+  separate bills: the band move, and the line that arrives.
+  **The band move is fixed, and it is per call rather than per line.** `muScrollBand` scrolls
+  `MU_GRID_TOP`..`MU_GRID_BOT`, so `scrollScreenFocused` moves 18 rows of pixels — 320 B each —
+  into `REU_BOUNCE` and back out (11,520 B), then the 18-row matrix the same way (1,440 B), then
+  blanks 320 B of pixels and 40 B of matrix: ~13,300 B of DMA, ~13 ms at 1 MHz PAL (~1 cycle per
+  byte). That bill is the same whether the band shifts one line or fifteen, and it is paid even
+  when the line that arrives is blank.
+  **The arriving line is `muPutC` → `kBlitChar`/`kBlitCharRev`, at ~500 cycles a cell**, because
+  every cell re-DMAs its glyph through `fontGlyph` (`php`/`sei` + a 24-bit FS add + an 8-byte
+  `reuDmaRange`). A lane with a note is 8-12 cells, so a dense three-lane row is ~13 ms and a
+  sparse one ~4 ms; a lane with no note on the row is not drawn at all.
+  A line therefore costs ~18-27 ms against a 16.7 ms frame. A row carrying three commands is four
+  lines tall, and `MU_FOLLOW_WALK` lets one pass walk 18 lines, so a catch-up can pay that 18
+  times — most of a second inside a single pass. Run-blitting was considered and has nothing to
+  bite on: the duration readout removed the `=` runs, so the only repeated characters left are
+  the pitch/duration cells.
+  ⚠️ **The matrix half of the band move cannot be skipped.** In hires the framebuffer cell is only
+  the glyph *mask*; the colour is the matrix nibble, which `kBlitChar`'s tail writes as
+  `(fg<<4)|bg0`. The band's per-voice colours live in the matrix that `kScrollScreen` moves, so a
+  pixel-only scroll would leave every lane in the colour it already had.
+  *Options if it ever needs to be faster:* (a) **scroll n rows in one move** — the cost is per
+  call, so a catch-up of n lines costs one scroll instead of n, and steady play could scroll 2-4
+  lines at a time for ~13/n ms a line; `kScrollScreen` shifts one row only, so this needs a
+  multi-row move, either task-side (`kReuFromC64`/`kReuToC64`/`kReuFillC64` plus the row tables,
+  which a task can read at their fixed addresses — `gfxRowLutLo/Hi` `$1977`/`$1990` and
+  `gfxCellRowLutLo/Hi` `$19A9`/`$19C2`; the band's char shadow is stale anyway, so it need not
+  move) or as a new kernel entry in the vector-block headroom; (b) **a glyph table +
+  `kPrintGlyphAt`** — the kernel's fixed-cell writer takes eight pre-rendered bytes and does no
+  font DMA, ~200 instead of ~500 cycles a cell, at the cost of a table of the characters a line
+  can print (~32, 256 B, one page); (c) **skip the separator space cell** — the arriving row is
+  blank and a full repaint clears the band first, so that cell needs no write at all (three cells
+  a line, ~1.5 ms); (d) a **row ring** instead of a scroll — no band move at all, but the row
+  numbers then have to be repainted (~50 cells, more than the move it saves), so it only pays
+  with the ruler out of the band; (e) leave it and state the limit — at a row every 60-120 ms
+  this is a fifth of the budget, and only very fast or command-heavy tunes dip.
 - [x] **10.2 A predicted row rate is not viable.** *Done: the row is the player's own published
   jiffy count divided by the row's length (§13.2), so there is no rate, no anchor and no tuned
   constant left. Every variant that predicted rows from a clock disagreed with the music by an
@@ -1167,8 +1184,8 @@ does now; the observations behind them live in the git log, not here.
 - [x] **11.1 The note reads as its duration.** A grid cell shows the pitch and then the length in
   the format's own numbers (`C#2 16`, `G-4 4`), not a run of `=` bars: `muDurNum` maps the length
   class (whole..64th) to 1, 2, 4, 8, 16, 32, 64 and a utility length prints nothing. Only the
-  onset row carries anything — the rows an event covers are blank — which is also what made the
-  scroll cheap (10.1a) and left no runs for a run blitter (10.1b).
+  onset row carries anything — the rows an event covers are blank — which is also what made an
+  arriving line cheap to draw (10.1a) and left no runs for a run blitter (10.1b).
 - [x] **11.2 A dot per voice on the keyboard.** `muDots` pins one sprite on the key each voice is
   sounding, placed from the pitch the **walker's** ring recorded for the event at the playhead
   (never the player's pointer-1), red / yellow / cyan for voices 1-3, naturals one row lower than
@@ -1215,7 +1232,7 @@ does now; the observations behind them live in the git log, not here.
 
 ### Step 12 — Streaming the tune (unbounded tune size)
 
-**Status: built. Only 12.9, the test pass over every bundled tune, is open.** The tune is a
+**Status: built, and 12.9's test pass over every bundled tune is done.** The tune is a
 scratch file (`<base>.wrk`) that the editor pages through three 256-byte read windows and one
 write path; `kSidPlay` is asked for **mode 1** and pages the same file through the same windows,
 which is what makes an edit audible on the next pass with no copy. Tune size is therefore not a
@@ -1267,7 +1284,7 @@ the ceiling is the filesystem's 16-bit size field, 64 KB.
 - [x] **12.5 Editing.** *Inspection only: every write site reaches its page through `muWinSeat` + the window, and `muWinFlush` writes the page back; the range operations that cross a page boundary loop over windows.*
 - [x] **12.6 Save and grow.** *Inspection only: `muSaveNow` writes in place when the image still fits the opened record, and otherwise takes the create path — pages rounded up, `muFreeSpace` asked **before** the delete, then `kReuDelete` + `kReuCreate` + the write. `MU_FLEN` records whole pages.*
 - [x] **12.7 Playback.** *Verified: `muSidCfg` builds a 9-byte `kSidPlay` mode-1 config (`muSidCfgB`) — the scratch file's 3-byte FS offset, then the three window pointers — so the child pages the same scratch file the editor edits and an edit is heard on the next pass with no copy.*
-- [x] **12.8 Budget and gates.** *Verified: `check-pool-budget.ps1` carries `'musedit' = 6` with the tune paged out of `<base>.wrk`, and the running total is 99 of 109 pages (code 65 + sprite 1 + mouse 2 + filesys 10 + sid 15 + malloc 6).*
+- [x] **12.8 Budget and gates.** *Verified: `check-pool-budget.ps1` carries `'musedit' = 6` with the tune paged out of `<base>.wrk`, and the running total is 104 of 109 pages (code 70 + sprite 1 + mouse 2 + filesys 10 + sid 15 + malloc 6).*
 - [x] **12.9 Test pass.** *Verified.* Every bundled tune — `arose`, `commodo`, `filltst`, `firstdt`, `fsonata`, `immig`, `instmv`, `katmand`, `seffsng`, `tambrn`, `temflag`, `temflg2`, `tetris` — opens, draws a band, names itself in the head, plays on `SPACE` and stops on `SPACE`, answers `? saved` to `SHIFT+S`, and returns to the shell on `Q` with the editor alive. **Every file is byte-identical after open, save and quit** (26 bytes to 4584, all thirteen), which is the check that would have caught a straddled page or a dirty write. Undo/redo, insert time, insert mode and delete were verified in the 6.13/6.14 sittings; `TPS`/`RTP` transpose are the format's own commands, so they ride with the tunes that use them.
 
 **Risks that remain.** A page that an edit straddles must be written back exactly once, and the
@@ -1322,7 +1339,7 @@ the mechanism.
 
 ## 16. Step 13 -- finish the walk, then make the editor phrase-native
 
-The streaming storage (steps 12.2-12.7) is in and `musedit` holds 99 of 109 pool pages. What
+The streaming storage (steps 12.2-12.7) is in and `musedit` holds 104 of 109 pool pages. What
 is left is not storage: it is the **walk** (the editor's copy of the player, which draws the
 lanes) and the **playhead** that follows it. Two rules govern this step.
 
@@ -1339,15 +1356,15 @@ format.
 
 ### 13.1 The walk's ring is the evidence (done first)
 
-- [x] **13.1 A dump of what the walk read.** *Verified: `muHistAdd` records each visited event's image offset, row and option byte; `SHIFT+L` prints it for the cursor's voice, newest first, as `RRRR OOOO OO` (`muHistShow`). Read at bar 6 on `immig`, the three outcomes it separates are one keypress apart: rows stepping by the length the file gives (the walk is right, the fault is in locating the player), a row that jumps much further than the file's length (a length read wrong, with the offset on that line naming the byte), or nothing at all (`muErr` names why). The walk's own count agrees with the host model — `v` reports `t=7632 e=231,215,663`, identical to `tools/mus-sim.py`.*
+- [x] **13.1 The walk's ring.** *`muHistAdd` records each visited event's image offset, row and option byte for the cursor's voice, newest first, and that ring is what the lanes and the keyboard dots are drawn from. The walk's own count agrees with the host model (`t=7632 e=231,215,663`), which `tools/check-musedit-walk.py` holds as a gate. A walk that reads a length wrong shows up as a row that steps by a length the file does not give -- the offset on that line names the byte -- or as nothing at all (`muErr` names why).*
 
 `muHistAdd` already records, for every event the grid walk visits, its image offset, the row
-it was drawn on and its option byte -- that ring is *exactly* what the lanes were drawn from.
-`SHIFT+L` prints it for the cursor's voice, newest first, as `RRRR OOOO OO`
-(`muHistShow`). Read at bar 6 on `immig`, three outcomes are distinguishable with one keypress:
+it was drawn on and its option byte -- that ring is *exactly* what the lanes and the keyboard
+dots are drawn from, so a walk that reads a length wrong shows up as a dot on the wrong key
+first. Three outcomes are distinguishable:
 
 - **rows step by the length the file gives** -- the walk read the bytes correctly, and the
-  fault is in the playhead's anchor, so 13.2 is the fix;
+  fault is in locating the player, so 13.2 is the fix;
 - **a row jumps much further than the file's length** -- a length was read or decoded wrong,
   and the offset on that line is the byte to look at;
 - **nothing at all** -- the walk stopped for that voice, and `muErr` names why.
@@ -1367,8 +1384,9 @@ derived from *proxies* for the player's position, and none of them is the positi
   outside the cache and the playhead holds or drifts. Redrawing to refill it is both too slow
   during playback and visibly wrong (it repaints the tune's start).
 
-The walk itself is proven correct (`v` reports `t=7632 e=231,215,663`, identical to
-`tools/mus-sim.py`), so the fault is only in *locating* the player.
+The walk itself is proven correct -- its count matches `tools/mus-sim.py`
+(`t=7632 e=231,215,663`, held as a gate by `tools/check-musedit-walk.py`) -- so the fault is
+only in *locating* the player.
 
 **The fix: the player publishes its own position in the units the grid is drawn in.** The grid's
 row is a fixed number of jiffies (`unit`), and the player already counts jiffies per voice
@@ -1405,8 +1423,6 @@ This is the only design of the seven tried whose input *is* the quantity being d
   command lines above row 1 (including the lone `DEF 0`), the empty rows `02`-`08`, and the `F#2 8`
   / `F#2 16` cells in lane 3. Padding inside a lane is ignored, so the two renderers may differ on
   where a command's operand starts; which lane holds which text is not.
-- [ ] **13.3b One contiguous published block.** *Not built.* The player publishes two things a reader needs — each voice's next-command offset (`$54A2-$54A7`) and its song jiffies (`$54A8-$54A9`) — but the kernel's `tickCount` sits at the free space after them, so a reader doing arithmetic on the base reads the wrong thing (the off-by-one that makes a walk run ten times fast). The tidy layout moves `tickCount` to `$54AA` so `$54A2-$54A9` is the player's alone, gives the fields named offsets in `sid.asm` mirrored in `kernel-shared.inc`, and asserts `tickCount == $54AA`. It is its own change, on its own build, with nothing else in flight: done inline it broke a working playhead.
-
 ### 13.4 Phrase-native editing
 
 The format's structure commands are what make it a language rather than a list of notes. In
@@ -1471,10 +1487,10 @@ order:
   Two rules the work settled. A command pair consumes no time, so its line only ever sits above a
   **note or a rest**: a row in the middle of a duration is refused (`? no event here`) rather than
   split, because the format has nothing to split it with — which is also why the editor offers no
-  way to place one there. And the authoring surface is the nine structural commands, whose operands
-  are the tune's own settings; a sound command's operand is a timing or a waveform number that
-  belongs to the pattern, so those lines are drawn and not typed. Remaining: the sound
-  commands (step 7.7) and the bar's three inert cells (7.10), which want a panel and hex operands.
+  way to place one there. And the authoring surface is the whole command set: the nine structural
+  commands plus the 40 sound ids through the eight encoding shapes 7.7 describes, so a sound line
+  can be typed and re-typed like any other. The bar's `DUR`, `TIE` and the mode readout answer the
+  pointer too (7.10).
   Checked in VICE against the saved `.mus`: a replaced operand changes exactly its own
   byte, an inserted pair moves the voice's length word by two and shifts the tail by
   two, `SHIFT+INST/DEL` removes it, and insert -> redo -> delete leaves the file
@@ -1514,23 +1530,19 @@ order:
   switching into voice 3 inside phrase 0's body says `phrase 0 x4`, switching out and back says
   it again, a note key inside says it, `i` inside answers `? phrase 0 x4` with the grid byte-for-
   byte unchanged, `SHIFT+INST/DEL` answers the same, and an insert at the top level in voice 1 is
-  not refused. Cost: 69 code pages (pool 103 of 109, margin 6) and 87 bytes of data.
-- [x] **13.4e Keep the accounting.** *Verified: the figure is 65 code pages, 99 of 109 with the libraries and the six window pages, and `check-pool-budget.ps1` is the gate.* The
-  figure is unchanged by 13.4f only because of 13.4g below: without it 13.4f cost two pages
-  and the editor sat at 106 of 109. Budget: musedit is 65 code pages of the pool's 109, a margin of 10
-  (b cost 597 bytes and a page, c 913 bytes and four), and the printed text is
+  not refused. Cost: 70 code pages (pool 104 of 109, margin 5) and 87 bytes of data.
+- [x] **13.4e Keep the accounting.** *Verified: the figure is 70 code pages, 104 of 109 with the
+  libraries and the six window pages, and `check-pool-budget.ps1` is the gate.* Budget: musedit
+  is 70 code pages of the pool's 109, a margin of 5, and the printed text is
   already out of the code -- every string it prints is a record in the REU file `msgs`, so
-  adding a message costs no page (see `tools/gen-musedit-msgs.py`). The editor's own
-  readout pages went with the timing line once the walk was proven, which is where the
-  last three of those pages came from, and the undo stack (2 KB, the largest single item the
-  task held) is 8 pages of the REU file `musedit.und` behind a 256-byte window rather than 8
-  pages of code. The tune is a scratch file behind three windows (step 12), so its length costs
-  no pages either. b and d are the ones that
-  need the pages (a and the command-line pass used 6 between them: the
-  46-field mnemonic table, the
-  two decode tables, the ladder that formats each class of value, the per-class queues — and
-  then gave 412 bytes back by folding six repeated idioms into helpers). `check-pool-budget.ps1`
-  is the gate, and `basic`-style exact fits are refused rather than warned about.
+  adding a message costs no page (see `tools/gen-musedit-msgs.py`). The undo stack (2 KB, the
+  largest single item the task held) is 8 pages of the REU file `musedit.und` behind a
+  256-byte window rather than 8 pages of code, and the tune is a scratch file behind three
+  windows (step 12), so its length costs no pages either. The code pages are the renderer and
+  the command panel: the 46-field mnemonic table, the two decode tables, the ladder that
+  formats each class of value and the per-class queues, less the 412 bytes that came back by
+  folding six repeated idioms into helpers. `check-pool-budget.ps1` is the gate, and
+  `basic`-style exact fits are refused rather than warned about.
 
 **13.4f The grid follows the tempo timeline.** *Built; verified on hardware* (`twotem`: the rows follow across the change, the playhead stands on the note's own row in both sections, and `immig` is unchanged; bugs #193 and #194 were both found by that run). The way a grid row is
 counted has to survive a mid-tune `TEM`, because the format allows one anywhere.
@@ -1598,8 +1610,8 @@ fifteen pages did not fit, and a failed lazy load **exits** the child, so the pa
 lesson: a lazy library needs a **contiguous** fit, and `check-pool-budget.ps1` only adds up totals.
 
 The fix was not to trim the feature but to stop keeping 1.3 KB of state in the code image. The
-header now declares `zp_base`/`zp_len` = `$0b`/224, and 193 declarations -- every scalar and array
-the walk, the draw and the key loop touch hardest -- became `.label`s inside that window. Three
+header now declares `zp_base`/`zp_len` = `$0b`/229, and every scalar and array
+the walk, the draw and the key loop touch hardest became a `.label` inside that window. Three
 classes stay in the image by necessity: **address-taken** labels (a pointer to a ZP byte is not
 relocatable), **state the music child shares** (`muPlayOn`/`muPlayEnd`/`muPlayQuit`/`muPlayRefd`/
 `muSidOk` -- zero page is per *slot*, so a thread child would read its own copy), and the read-only
@@ -1608,8 +1620,8 @@ declares in its own spawn arguments, and an assert holds the window below the ke
 The block must sit at the **top** of `musedit.inc`: KickAssembler chooses `zp` over `abs` from the
 symbol's value at parse time, so a label defined at the bottom would silently assemble absolute.
 
-Result: 18,317 -> **16,614 bytes**, 72 -> **65 code pages**, pool 106 -> **99 of 109** (margin 10),
-and fixups 3,120 -> 1,641 because most references are no longer relocatable addresses.
+The image is now **17,851 bytes** in **70 code pages**, pool **104 of 109** (margin 5), with
+1,811 fixups -- most references are no longer relocatable addresses.
 
 **The instance buffer took the two biggest arrays that fit.** `MU_DATA_SIZE` is one byte, so the
 buffer caps at 255; it now holds `muLogId` and `muLogLo` (`MU_DATA_SIZE` 53 -> 245) at
@@ -1618,9 +1630,8 @@ buffer caps at 255; it now holds `muLogId` and `muLogLo` (`MU_DATA_SIZE` 53 -> 2
 `MU_LOG_SLOTS` is 16 and there are six blocks, so each of those three arrays is 96 bytes, not 36 --
 all three are 288 and only 202 were free. An assert (`MU_LOGID_END <= MU_DATA_SIZE`, and
 `MU_DATA_SIZE <= 255`) now makes that arithmetic fail the build instead of passing silently.
-16,614 -> **16,456 bytes**, still 65 pages.
 
-**Left for a day the pool runs out** (all measured, none needed at margin 10): the undo window's
+**Left for a day the pool runs out** (all measured, none needed at margin 5): the undo window's
 **256-byte resident page** (`muUndoBuf`, the largest single item in the image) can become a 64-byte
 chunk window -- the accessors already go through `muUndoIo`/`muUndoWind`, so it is a granule change
 and a chunk index in place of a page index, about +35 bytes of code for -192 of data; the keyboard

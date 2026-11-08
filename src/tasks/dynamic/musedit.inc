@@ -141,10 +141,9 @@
 .label muSekHi      = MU_ZP_BASE+129
 .label muSekDur     = MU_ZP_BASE+130  // its duration byte, and
 .label muSekOpt     = MU_ZP_BASE+131  // its option byte
-.label muN1         = MU_ZP_BASE+132  // the events a split writes before the cursor
-.label muN2         = MU_ZP_BASE+133  // ...and from the cursor on
+.label muN1         = MU_ZP_BASE+132  // the events a fill's rests, or a split's runs, take
+.label muN2         = MU_ZP_BASE+133  // ...and the note's own
 .label muSekTem     = MU_ZP_BASE+134  // the tempo in force at the recorded event
-.label muJ2Lo       = MU_ZP_BASE+135  // a split's second half, kept across the first run
 .label muSkV        = MU_ZP_BASE+136
 .label muValLo      = MU_ZP_BASE+137
 .label muValHi      = MU_ZP_BASE+138
@@ -292,6 +291,9 @@
 // --- the simulator ---
 .const MU_INIT_TEM  = $90     // sidplay.inc's sidInitSong starts here
 .const MU_LEN_MAX   = 100     // the most events one written length may take
+.const MU_SPLIT_MAX = 128     // the most events a split's three runs may take
+                              //   (its byte count is twice that, less the pair
+                              //   the first run replaces: under 256)
 .const MU_INIT_UL   = 12      // ...and its WorkUTLValue
 .const MU_CMD_TEM   = $06     // TEM: the global tempo
 .const MU_CMD_UTL   = $16     // UTL: the global utility length
@@ -5287,21 +5289,25 @@ muRjBig:
     sec
     rts
 
-// --- muSplitPlan -- the two halves of a split, and how many events they take ---
-//  In:  MU_SEKDUR/OPT (the pair under the cursor), MU_SEKROW/TGT (its rows)
-//  Out: C=0 muLenJ = J2 (the part from the cursor on), muLenJ2 = J (the whole
-//       event), muN1/muN2 = the events each half takes; C=1 the tempo cannot
-//       express the event or the two halves.
-muSplitPlan:
+// --- muSplitLens -- the three runs of a split, in jiffies ---
+//  In:  MU_SEKDUR (the pair under the cursor), MU_SEKROW (the row it starts on),
+//       MU_TGT (the cursor's row), MU_DURJIF (the armed length)
+//  Out: muSplitH = the rows before the cursor, muSplitN = the new note,
+//       muSplitT = what the event has left after the note (0 = no tail).
+//  The head and the tail are on the event's own option, so the three together
+//  last exactly as long as the event did. A tail under two jiffies is dropped and
+//  the note takes it: one jiffy is not a length any tempo writes.
+muSplitLens:
     lda muSekDur
-    jsr muNoteJiffies
-    bcc muPlHave
-muPlHave:
-    sta muLenJ2                 // the event's whole length, in jiffies
+    jsr muNoteJiffies           // the event's whole length
+    bcc muSlHave
+    sec                         // the tune's own pair is not a length: refuse
+    rts
+muSlHave:
+    sta muLenJ2
     lda #0
     sta muLenJ2+1
-    //  --- J1 = the rows before the cursor, times the row unit ---
-    lda muTgtLo
+    lda muTgtLo                 // ...and the rows of it before the cursor
     sec
     sbc muSekRow
     sta muCountLo
@@ -5311,75 +5317,136 @@ muPlHave:
     lda muCountLo
     ldx muCountHi
     jsr muRowsToJif
-    bcc muPlFix                 // it fits: muValLo holds the jiffies
-    lda muLenJ2                 // too long for any length: clamp below
+    bcc muSlHead
+    lda #$ff                    // past every length: the clamp below takes it
+muSlHead:
+    sta muValLo
+    lda muLenJ2                 // the head cannot take the whole event
     sec
     sbc #1
-    beq muPlOne
-    sta muValLo
-    jmp muPlFix
-muPlOne:
-    lda #1
-    sta muValLo
-muPlFix:
-    lda muLenJ2                 // J1 has to leave room for the new note
-    sec
-    sbc #1
-    beq muPlOne2
-    sta muLpJ
-    lda muValLo
-    cmp #1
-    bcs muPlHi
-    lda #1
-    jmp muPlSet
-muPlHi:
-    cmp muLpJ
-    bcc muPlSet
-    lda muLpJ
-    jmp muPlSet
-muPlOne2:
-    lda #1
-muPlSet:
-    sta muLenJ
+    bcs muSlCap
     lda #0
-    sta muLenJ+1
-    //  --- how many events each half takes ---
-    lda #1
-    sta muLenTie                // a same-pitch run is tied, not re-struck
+muSlCap:
+    cmp muValLo                 // A = the most the head may take; the smaller of
+    bcc muSlSet                 //   that and the rows before the cursor wins
+    lda muValLo
+muSlSet:
+    sta muSplitH
+    lda #0
+    sta muSplitH+1
+    lda muLenJ2                 // the jiffies from the cursor to the event's end
+    sec
+    sbc muSplitH
+    sta muCountLo
+    lda muLenJ2+1
+    sbc muSplitH+1
+    sta muCountHi
+    lda muDurJif                // the armed note, unless less than that is left
+    beq muSlAll
+    ldx muCountHi
+    bne muSlNote
+    cmp muCountLo
+    bcc muSlNote
+    lda muCountLo
+muSlNote:
+    sta muSplitN
+    lda #0
+    sta muSplitN+1
+    lda muCountLo               // the tail is what the note leaves
+    sec
+    sbc muSplitN
+    sta muSplitT
+    lda muCountHi
+    sbc muSplitN+1
+    sta muSplitT+1
+    lda muSplitT+1
+    bne muSlRts                 // 256 or more: a run of its own
+    lda muSplitT
+    cmp #2
+    bcs muSlRts
+muSlAll:
+    lda muCountLo               // too short to write: the note takes it
+    sta muSplitN
+    lda muCountHi
+    sta muSplitN+1
+    lda #0
+    sta muSplitT
+    sta muSplitT+1
+muSlRts:
+    clc                         // the compares above leave C set
+    rts
+
+// --- muSplitPlan -- the runs a split writes, and how many bytes they need ---
+//  In:  MU_SEKDUR/OPT (the pair under the cursor), MU_SEKROW (its first row),
+//       MU_TGT (the cursor's row), MU_DURJIF (the armed length)
+//  Out: C=0 muInsN = the bytes to open behind the pair, and the runs themselves
+//       in muSplitH/N/T; C=1 a run is not expressible at this tempo, or the
+//       three take more events than the byte count can hold.
+muSplitPlan:
+    jsr muSplitLens
+    bcs muPlRts
     lda #0
     sta muLenMode               // counting pass: nothing is written yet
+    sta muN1                    // the events the three runs take
+    lda #1
+    sta muLenTie                // a same-pitch run is tied, not re-struck
     lda muSekOpt
     sta muLenOpt
-    jsr muLenEmit
-    bcc muPlOne2Ok
-muPlOne2Ok:
-    sta muN1
-    lda muLenJ2                 // J2 = J - J1
-    sec
-    sbc muLenJ
-    sta muLenJ
-    lda muLenJ2+1
-    sbc muLenJ+1
-    sta muLenJ+1
+    ldy #0
+    jsr muPlRun                 // the rows before the cursor
+    bcs muPlRts
     lda muNewOpt
     sta muLenOpt
-    jsr muLenEmit
-    bcc muPlTwoOk
-muPlTwoOk:
-    sta muN2
-    clc
-    adc muN1
-    cmp #MU_LEN_MAX
+    ldy #2
+    jsr muPlRun                 // the note
     bcs muPlRts
+    lda muSekOpt
+    sta muLenOpt
+    ldy #4
+    jsr muPlRun                 // ...and what the event leaves after it
+    bcs muPlRts
+    lda muN1                    // k events replace the pair that is there
+    bne muPlHave
+    sec                         // nothing to write at all: not a split
+    rts
+muPlHave:
+    sec
+    sbc #1
+    asl
+    sta muInsN
     clc
 muPlRts:
     rts
 
+// --- muPlRun -- count one run of the split into MU_N1's running total ---
+//  In: Y = the run's word in muSplitH/N/T (0, 2 or 4); muLenOpt set.
+//  Out: C=0 counted; C=1 the tempo cannot express it, or the split is too big.
+muPlRun:
+    lda muSplitH,y
+    sta muLenJ
+    lda muSplitH+1,y
+    sta muLenJ+1
+    jsr muLenEmit
+    bcs muPlRunRts
+    clc
+    adc muN1
+    bcs muPlBad
+    cmp #MU_SPLIT_MAX
+    bcs muPlBad
+    sta muN1
+    clc
+muPlRunRts:
+    rts
+muPlBad:
+    sec
+    rts
+
 // --- muNcSplit -- a note starts at the cursor inside a longer event ---
-//  The event is replaced by two runs: the first covers the rows before the cursor
-//  on the old pitch, the second starts on the cursor's row on the new one. A run
-//  that is not one legal length becomes several tied events, so the two runs
-//  together last exactly as long as the event did.
+//  The event is replaced by three runs: the rows before the cursor on the old
+//  pitch, the new note at the armed length, and what the event had left after it
+//  on the old pitch again. The three together last exactly as long as the event
+//  did, so nothing below moves. A run that is not one legal length becomes several
+//  tied events.
 muNcSplit:
     jsr muSeekKPtr
     ldy #0
@@ -5396,57 +5463,62 @@ muNcSplit:
     bcc muNsGo
     jmp muNcIllegal
 muNsGo:
-    lda muN1                    // k-1 pairs open behind the pair being replaced
-    clc
-    adc muN2
-    sec
-    sbc #1
-    asl
-    sta muInsN
     jsr muInsSek2
     lda muSkV
     jsr muInsGap
     bcc muNsWrite
     jmp muStatus                // muInsGap left the reason in MU_STR
 muNsWrite:
-    lda muLenJ
-    sta muJ2Lo                  // the plan left J2 in muLenJ; keep it across the run
-    lda muLenJ2
-    sec
-    sbc muJ2Lo
-    sta muLenJ
-    lda muLenJ2+1
-    sbc #0
-    sta muLenJ+1
     jsr muSeekKPtr
     lda #1
     sta muLenMode
+    sta muLenTie                // a same-pitch run is tied, not re-struck
+    lda muDurTie                // the armed tie is the user's, so it comes back
+    pha                         //   once the three runs are written
+    lda muSekDur                // the head is the event's own start: it keeps the
+    and #$40                    //   tie bit that start already carried
+    sta muDurTie
     lda muSekOpt
     sta muLenOpt
-    jsr muLenEmit
-    lda muJ2Lo                  // ...and the new note's run, where it stopped
-    sta muLenJ
-    lda #0
-    sta muLenJ+1
+    ldy #0
+    jsr muNsRun
+    pla
+    sta muDurTie
     lda muNewOpt
     sta muLenOpt
-    jsr muLenEmit
+    ldy #2
+    jsr muNsRun                 // the note, at the armed length
+    lda muSplitT
+    ora muSplitT+1
+    beq muNsRec                 // no tail: the note took the rest of the event
+    lda muDurTie
+    pha
+    lda #0
+    sta muDurTie                // the tail is another pitch: never tied to the note
+    lda muSekOpt
+    sta muLenOpt
+    ldy #4
+    jsr muNsRun
+    pla
+    sta muDurTie
+muNsRec:
     lda muInsN                  // ...2 + the opened bytes, pushed as one action
     clc
     adc #2
     sta muRecNewN
     jsr muPushEdit
-    //  --- only the rows from the cursor to the old event's end changed ---
-    lda muSekEnd
+    //  --- the rows from the event's first row to its end changed: the head is
+    //      the event's own first pair, so its line carries a new length ---
+    lda muSekRow
+    ldx muSekRow+1
+    jsr muBandRow               // the first line the event draws on
+    sta muGdFrom
+    lda muSekEnd                // the rows the event covers, added to that line
     sec
-    sbc muTgtLo
-    sta muN1                    // the rows the new note occupies
-    ldy #MU_ROW
-    lda (dataPtr),y
-    sta muGdFrom                // the band starts on the cursor's row
+    sbc muSekRow
     clc
-    adc muN1
-    cmp #MU_GRID_BOT+1          // the note may run past the band's last row: the
+    adc muGdFrom
+    cmp #MU_GRID_BOT+1          // the event may run past the band's last row: the
     bcc muNsBand                //   repaint is bounded by the band, never by the
     lda #MU_GRID_BOT+1          //   tune's row count
 muNsBand:
@@ -5457,6 +5529,16 @@ muNsBand:
     lda muTgtLo                 // the cursor stays on the row it split
     ldx muTgtHi
     jmp muCurSettleNext
+
+// --- muNsRun -- write one run of a split at the seek's pair ---
+//  In: Y = the run's word in muSplitH/N/T (0, 2 or 4); muLenOpt, muLenTie and
+//      muDurTie set. MU_SEEKLO/HI advances past the pairs written.
+muNsRun:
+    lda muSplitH,y
+    sta muLenJ
+    lda muSplitH+1,y
+    sta muLenJ+1
+    jmp muLenEmit
 
 // --- muFillPlan -- the gap a fill has to cross, and how many events it takes ---
 //  In:  MU_SEKEND (the row after the recorded event), MU_TGT, MU_DURJIF
@@ -7290,20 +7372,18 @@ muLeStore:
     ldx muLpIdx
     lda muDurTab,x
     sta muLpDur
+    lda muLenOpt                // a rest never carries a tie: it is silence
+    beq muLsPlain
     lda muLenCnt
     cmp #1
     bne muLsCont
     lda muDurTie                // the armed tie rides on a new note's FIRST pair,
     beq muLsPlain               //   which is what the bar's TIE cell and the ',' key set
-    lda muLenOpt                // a rest never carries one
-    beq muLsPlain
-    lda muLpDur
-    ora #$40
-    sta muLpDur
-    jmp muLsPlain
+    jmp muLsTie
 muLsCont:
     lda muLenTie                // a continuation ties into the one before it
     beq muLsPlain
+muLsTie:
     lda muLpDur
     ora #$40
     sta muLpDur
@@ -10259,6 +10339,9 @@ muSekRow:   .word 0             // the row the recorded event starts on
 muSekEnd:   .word 0             // ...and the row it ends on
 muLenJ2:    .word 0             // the event's whole length, for a split
 muLenJ:     .word 0             // the length being written, in jiffies
+muSplitH:   .word 0             // a split's three runs, in this order (muNsRun and
+muSplitN:   .word 0             //   muPlRun index them with Y): the rows before
+muSplitT:   .word 0             //   the cursor, the new note, and what is left
 muNeedLo:   .byte 0             // MU_LEN + MU_INSN
 muNeedHi:   .byte 0
 muPlainBar: .byte 0
