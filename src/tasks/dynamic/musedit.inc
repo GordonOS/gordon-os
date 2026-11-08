@@ -1037,102 +1037,70 @@ muLdNewZ:
     jmp muLdCheck
 
 // --- muLdCheck -- the image has to be a tune before anything reads it ---
-//  A file shorter than the 8-byte header is not one, and neither is one whose
-//  voices do not end on the HLT pair: the format is a stream of two byte commands
-//  ended by 01 4F, so a voice whose last pair is something else has lost or gained
-//  a byte somewhere, every pair after that point is shifted, and the walk draws
-//  commands the tune never wrote. Refusing it is what turns that into one line the
-//  reader can act on.
+//  A voice is a stream of two byte commands ended by the pair 01 4F. A voice whose
+//  last pair is something else has lost or gained a byte somewhere, so every pair
+//  after that point is shifted and the walk draws commands the tune never wrote.
+//  One test covers the whole family: a length that is not even has no last pair at
+//  all, and a file too short to hold three terminated streams reads the zeroes the
+//  copy left behind its data and fails the same way.
 muLdCheck:
-    ldy #MU_LEN+1
-    lda (dataPtr),y
-    bne muLdEnds
-    ldy #MU_LEN
-    lda (dataPtr),y
-    cmp #8
-    bcs muLdEnds
-muLdBad:
+    jsr muLdVoEnds
+    bcs muLdNotTune
+    clc
+    rts
+muLdNotTune:
     lda #M_NO_TUNE
     jsr muMsgSet
     sec
     rts
-muLdEnds:
-    jsr muLdVoEnds
-    bcs muLdBad
-    clc
-    rts
 
 // --- muLdVoEnds -- every voice ends on its HLT pair ---
 //  In: the working file holds the image, window 0 free. Out: C=1 when a voice does
-//  not end there. The last pair sits at start + len - 2, and an odd length has no
-//  last pair at all -- a stream of pairs fills an even number of bytes -- so parity
-//  is tested first and the read that follows is always at an EVEN offset, which is
-//  what keeps both of its bytes inside one window.
-//  Clobbers A, X, Y, kPtr, MU_SCANOFF/LEN/V and the window state.
+//  not end there. MU_SCANOFF is the running "voice start less two", so adding a
+//  length lands on that voice's LAST PAIR and the sum is already the next voice's
+//  "start less two" -- one add does both. Parity goes first because a stream of
+//  pairs fills an even number of bytes, so an odd length has no last pair; testing
+//  it first also keeps the offset that is read even, and so inside one window.
+//  Clobbers A, X, Y, kPtr, MU_SCANOFF/V and the window state.
 muLdVoEnds:
-    lda #8
-    sta muScanOff
+    lda #2
+    sta muScanV                 // the size words sit at 2, 4 and 6: counted up
+    lda #6
+    sta muScanOff               // voice 1's start, 8, less two
     lda #0
     sta muScanOff+1
-    sta muScanV
 mveVoice:
-    jsr muImgSeat               // the size word: offset 2 + 2 * voice, always page 0
-    lda muScanV
-    asl
-    clc
-    adc #2
-    tay
+    jsr muImgSeat               // window 0 := page 0, where the size words live
+    ldy muScanV
     lda (kPtr),y
-    sta muScanLen
-    iny
-    lda (kPtr),y
-    sta muScanLen+1
-    lda muScanLen
-    lsr                         // C = the bit a pair can never leave over
-    bcs mveBad
-    ora muScanLen+1             // len >> 1 worth nothing and no high byte: no pair
-    beq mveBad
-    lda muScanOff               // the byte after the stream, less two: its last pair
-    clc
-    adc muScanLen
-    sta muWinOfs
-    lda muScanOff+1
-    adc muScanLen+1
-    sta muWinOfs+1
-    lda muWinOfs
-    sec
-    sbc #2
-    sta muWinOfs
-    bcs mveSeat
-    dec muWinOfs+1
-mveSeat:
-    ldx #0
-    jsr muWinSeat
-    ldy #0
-    lda (kPtr),y
-    cmp #$01                    // HLT is the pair 01 4F
+    and #1                      // an odd length has no last pair: refused here
     bne mveBad
-    iny
-    lda (kPtr),y
-    cmp #$4f
-    bne mveBad
-    lda muScanOff               // the next voice starts where this one ends
+    lda muScanOff
     clc
-    adc muScanLen
+    adc (kPtr),y
     sta muScanOff
+    iny
     lda muScanOff+1
-    adc muScanLen+1
+    adc (kPtr),y
     sta muScanOff+1
+    jsr muScanSeat              // window 0 := the page that pair lives on
+    ldy #1
+    lda (kPtr),y
+    cmp #$4f                    // HLT is the pair 01 4F
+    bne mveBad
+    dey
+    lda (kPtr),y
+    cmp #1
+    bne mveBad
+    inc muScanV
     inc muScanV
     lda muScanV
-    cmp #3
-    bcs mveRts
-    jmp mveVoice
+    cmp #8
+    bcc mveVoice
+    clc
+    rts
 mveBad:
     sec
-    rts
-mveRts:
-    clc
     rts
 
 // --- muSvWrite -- MU_TMPL/H bytes of the working file go into the target ---

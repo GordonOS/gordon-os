@@ -321,14 +321,23 @@ parity catches the odd file and **misses the three even-length damaged ones**. T
 contract is the terminator, so the check is that — **each voice's last pair must be `01 4F`** —
 which refuses all four damaged files and rejects none of the 18,606 well-formed ones.
 
-**Fixed.** `muLdVoEnds` (`musedit.inc`), called from `muLdCheck`, walks the three size words, tests
-parity first (a stream of pairs fills an even number of bytes, so an odd length has no last pair at
-all), then reads the pair at `start + len - 2` through window 0 and refuses unless it is `01 4F`. A
-length of 0 is refused too — its "last pair" would be read out of the voice before it. Because
-parity goes first, the offset that is read is always EVEN, which is what keeps both bytes of the
-pair inside one window. `muLdCheck`'s two refusals now share one `musedit.md` message, `? not a
-tune`, and the size words are read with `muImgSeat` + the loader's existing idiom, so no new
-mechanism.
+**Fixed.** `muLdVoEnds` (`musedit.inc`), called from `muLdCheck`, walks the three size words and
+refuses unless each voice's last pair is `01 4F`. `MU_SCANOFF` is the running "voice start **less
+two**", so adding a length lands on that voice's last pair and the sum is already the next voice's
+"start less two" — one 16-bit add does both, which is what makes the loop a loop. Parity goes first:
+a stream of pairs fills an even number of bytes, so an odd length has no last pair at all, and
+testing it first also keeps the offset that is read EVEN, which is what keeps both of its bytes
+inside one window. The size words are read with `muImgSeat` and the pair with `muScanSeat`, so no
+new mechanism.
+
+**The pool is why it looks like that.** The first version cost 136 bytes and took `musedit` from 70
+code pages to 71 — and with `sid.lib`'s 15 the pool no longer held a playing editor. This one costs
+**66 bytes**: 17,850 → 17,916, so musedit is back to 104 pool pages of 109 (margin 5), exactly where
+it was. Two consequences worth knowing: the old "shorter than 8 bytes" test is gone (a file too
+small reads the zeroes the copy leaves behind its data and fails the terminator test instead), and
+a **zero-length voice is not caught** — its "last pair" is read out of the voice before it, which
+already ends in `01 4F`. No file in the 18,613 measured has one, and the walk treats an empty
+stream as an ended voice, so this is a documented gap rather than a fault.
 
 Verified against the real thing rather than by inspection — the assembled routine was run under
 py65 on actual files, with only the REU page copy stubbed (the harness fills the window when the
@@ -340,8 +349,6 @@ routine asks for a page):
 | `badlen.mus` (odd length) | **refused** |
 | `Another_Thing_Comin_(BAD)`, `Against_the_Grain_(BAD)`, `Escape_-BAD-` (even, slipped) | **refused**, all three |
 | 300 random CGSC tunes | **0 refused** |
-
-`musedit` is 17,986 bytes (+136) and 105 pool pages of 109, margin 4.
 
 ### F14 — The command prompt's 16-bit clamp goes stale after a 14-bit command (Medium)
 
