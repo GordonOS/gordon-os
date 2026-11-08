@@ -743,7 +743,11 @@ run basic              ← open/create the BASIC working file (basicwrk)
 - **`fpdemo`** — the fp.lib showcase: a sine wave drawn edge to edge with a cosine wave superimposed, computed **pixel by pixel** from the fp.lib (`FSIN`/`FCOS` + arithmetic) and plotted with `kPlot`; peaks and troughs touch the top/bottom of the screen. Slow by design (one pixel at a time, yielding every pixel), then idles with the bitmap on screen, and **`q` exits** from either state; **re-runnable**
 - **`sprdemo`** — the sprite subsystem's demo: eight coloured balls bouncing off the walls and off each other, forever (`q` exits, or `kill` it from the shell). No text, and one asset (`ball.spr`) — it drives all eight sprite slots, so it exercises the library (`sprite.lib`, lib 7), both VIC slot bands, the ninth X bit as balls cross x=256, and per-sprite colour. It animates **once per displayed frame** (the kernel's `frameCount`) with fractional positions, so the motion is smooth rather than stuttering. See [lib-sprite.md](lib-sprite.md) for the calls and [programmers-guide.md](programmers-guide.md) → *Sprites* for how to drive one yourself; the source is `src/tasks/dynamic/sprdemo.inc`. The nine sprite **test-vector modes** it can also carry (mode `7` is the sprite-tear procedure) are parked unbuilt in `removed/sprdemo-modes.inc`; import that file to bring them back. It is **re-runnable**, and it may run **alongside any other sprite task**: each task's shadow, sheet records and frame indices are saved with it and swapped with the display, so two sprite tasks never share a live register set
 - **`godzi`** (pinned — `KF_NOT_EVICTABLE`, so pool eviction never swaps it out) — a port of the stand-alone demo in `reference/godzi.asm` / `reference/main.asm`: a black boat-shaped walker crosses the screen (its 9-bit x walks through the x=256 boundary, which is what the reference's `$D010` phase did) while a black "Godzilla" flaps between two poses. Four sprite slots — the reference's own layout, the walker being two overlapping, X-expanded layers (black rigging over a light-blue hull: `$D028`, the colour register both reference files forgot to write) — art from `boat.spr`/`godzi.spr`, and one update per **displayed frame**. Its music is its own: it declares `sid.lib` and calls `kSidPlay` **directly** from a thread child — the arrangement `gortris` uses, with no `sidplay` and no `sidrst` involved — and it **streams** *both* tunes from the REU (it looks up `commodo` for mode 1 and `fsonata` for mode 2 at startup and shares one three-page window block between them), so `1`/`2` switching the look switches the song with it by rewriting three bytes of the player's config: no re-load, no allocation, no gap in the music. `q` sets the child's quit flag, hushes the SID, reaps the child and frees the window pages, so nothing is left playing. `1`/`2` switch between the two reference looks live (`run godzi 2` starts in mode 2 — the airborne, shimmering Godzilla), `q` exits. It is deliberately **single-instance for the SID**: a second `run godzi` gets `? already running`, because it holds the chip — the library's claim *and* the SID registers — for its whole life. (The sprite side needs no guard: `godzi` may run beside `sprdemo`.) (`kill`ing it from the shell skips the hush, but `kill` silences the chip itself for a task that declared `sid.lib` — so a killed demo leaves no drone either.) See `src/tasks/dynamic/godzi.inc` for the full source
-- **`sidplay`** — plays a COMPUTE!'s Enhanced Sidplayer `.mus` song from the REU FS (`run sidplay commodo` / `run sidplay fsonata` / `run sidplay tetris`) through **`sid.lib`** (the player body lives in the library; the task is a 740-byte wrapper that finds the tune and calls `kSidPlay`, streaming it from the REU when it is bigger than three pages — so a tune of any size up to the filesystem's 64 KB plays). Single-instance, no screen. Optional `delay` arg slows it down (`run sidplay commodo 2` = half speed) to compensate for VICE warp, and an optional `repeats` arg decides how many times it plays: `0` = forever (until killed), `1` = once (the default), `2`-`255` = that many. Download thousands more songs at https://www.c64music.co.uk/ — drop a `.mus` (base name ≤ 7 chars) into `music/`, rebuild the REU image, then `run sidplay <name>`. A failure prints `? tune <name>` / `? load <name>` / `? no memory` / `? no player` on a temporary screen and waits for a key rather than exiting silently
+- **`sidplay`** — plays a COMPUTE!'s Enhanced Sidplayer `.mus` song from the REU FS (`run sidplay commodo` / `run sidplay fsonata` / `run sidplay tetris`) through **`sid.lib`** (the player body lives in the library; the task is a 740-byte wrapper that finds the tune and calls `kSidPlay`, streaming it from the REU when it is bigger than three pages — so a tune of any size up to the filesystem's 64 KB plays). Single-instance, no screen. Optional `delay` arg slows it down (`run sidplay commodo 2` = half speed) to compensate for VICE warp, and an optional `repeats` arg decides how many times it plays: `0` = forever (until killed), `1` = once (the default), `2`-`255` = that many. Download thousands more songs at https://www.c64music.co.uk/ — drop a `.mus` (base name ≤ 7 chars) into `music/`, rebuild the REU image, then `run sidplay <name>`. A failure prints `? tune <name>` / `? load <name>` / `? no memory` / `? no player` on a temporary screen and waits for a key rather than exiting silently. Twelve tunes ship in all: `commodo`, `fsonata`, `seffsng`, `tambrn`
+  and `tetris`, plus seven from the Compute's Gazette Sid Collection — `katmand`,
+  `immig` and `firstdt` (which `grknoid` plays), and `ringmod`, `syncmod`, `layla` and
+  `daytrip`, the archive's own examples of the player's modulation features. Each source
+  is credited in `NOTICE`.
 - **`gortris`** — **Tetris**, a port of the game logic of Wiebo de Wit's `tetris.c64`
   (MIT; the art is ours, drawn with the kernel's glyphs, because the reference is
   char-mode and GordonOS is all-bitmap). The 10×20 board lives in the task image and
@@ -814,7 +818,7 @@ run basic              ← open/create the BASIC working file (basicwrk)
   also holds `filesys.lib` for the session, because the score file is written at
   game over and its child reads a tune file on every switch.
   Full reference: [grknoid.md](grknoid.md)
-- **`musedit`** ? the tracker-style **editor for COMPUTE!'s Sidplayer tunes**: `run musedit
+- **`musedit`** — the tracker-style **editor for COMPUTE!'s Sidplayer tunes**: `run musedit
   immig` opens a `.mus` from the REU FS on a screen of its own, with the tune as a
   three-voice grid, one row per grid step, a hand-over of the display it owns while it
   runs, and the same player `sidplay` uses, so what plays is what ships. A note reads as
@@ -822,11 +826,16 @@ run basic              ← open/create the BASIC working file (basicwrk)
   at a time, and three coloured dots on the eight-octave piano show what each voice is
   sounding (red, yellow, cyan). Editing is by cursor: note keys enter a pitch at the
   cursor, `1`-`7` arm a duration, INST/DEL writes a rest, `I` inserts a row in all three
-  voices, `SHIFT`+`,`/`.` move a page, `SHIFT`+`B` jumps to a bar, `C` opens the command
-  prompt, `Z`/`X` undo and redo, `SHIFT`+`S` saves. `SPACE` starts and stops the tune ?
-  one pass, then the score rewinds ? and `q` leaves. It declares
-  `filesys.lib` and `sid.lib` and needs the mouse (`mouse 1351`), like `grpaint`.
-  Full reference: [musedit.md](musedit.md)
+  voices, `SHIFT`+`,`/`.` move a page, `SHIFT`+`B` jumps to a bar (`SHIFT`+`N`/`P` step
+  one), `SHIFT`+`U` refines the row unit, `C` opens the command prompt, `Z`/`X` undo and
+  redo, `SHIFT`+`S` saves. `SPACE` starts and stops the tune — one pass, then the score
+  rewinds — and `q` leaves. The score is a 64 KB scratch copy in the REU filesystem, so
+  a tune may be far longer than the 64 KB the original Sidplayer had to share with its
+  own editor. It declares `filesys.lib` and `sid.lib` and needs the mouse (`mouse 1351`),
+  like `grpaint`. Four of the bundled tunes are the archive's own worked examples: `ringmod` and
+  `syncmod` are the Sidplayer demonstrations of ring modulation and oscillator sync,
+  `layla` uses the software oscillator and `daytrip` modulates one voice from another
+  voice's envelope. Full reference: [musedit.md](musedit.md)
 - **`fstest`** (`.com`, typed as `fstest`) - REU filesystem **bank-boundary self-test**.
   Reads a 16-byte window that spans a bank wrap, writes the complement of those
   bytes back over it, re-reads to prove the write landed exactly there, then

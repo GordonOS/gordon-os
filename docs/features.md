@@ -174,8 +174,14 @@ See [lib-gfx.md](lib-gfx.md).
 - **`musedit` edits those tunes on the machine**: a three-voice grid with the note and its
   duration on one row, a playhead that follows the music line by line through the kernel's
   REU row scroll, three coloured dots on an eight-octave piano showing what each voice is
-  sounding, an editing model (insert, rest, command prompt, page and bar jumps,
-  undo/redo) and save back to the REU FS. See [musedit.md](musedit.md).
+  sounding, and an editing model — insert, rest, a command prompt for every effect the
+  format has, page and bar jumps, undo/redo — with `SHIFT`+`S` saving back to the REU FS.
+  The score is a 64 KB scratch copy in the filesystem, so a tune may be far longer than the
+  64 KB the original Sidplayer shared with its own editor. See [musedit.md](musedit.md).
+- **The archive's own demonstrations ship**: `ringmod` and `syncmod` are the Sidplayer
+  demonstrations of ring modulation and oscillator sync, `layla` uses the player's software
+  oscillator, and `daytrip` modulates one voice from another voice's envelope. See
+  [../NOTICE](../NOTICE) for the credit.
 - See [lib-sid.md](lib-sid.md).
 
 ## 10. Storage: the REU filesystem
@@ -221,10 +227,10 @@ machine's speed at boot and can start tasks before you touch the keyboard.
 | **Games** | `gortris` (Tetris, with attract loop, level select and REU-file hi scores), `grknoid` (Arkanoid: paddle, ball, brick wall, five levels), `godzi` (the two-mode sprite demo). Full reference: [gortris.md](gortris.md) and [grknoid.md](grknoid.md) |
 | **Graphics** | `spirog` (integer spirograph, presets, single shapes or a montage), `gfxdemo`, `fpdemo` (a graphics demo for `fp.lib`: a sine and cosine wave drawn pixel by pixel across the full bitmap), `sprdemo` (eight sprite balls with real collision) |
 | **Pictures** | `grpaint` — the **1351 paint program**: a full-screen canvas in hires or multicolour, with the palette, thirteen tools and an undo/redo ring in a band over the bottom two cell rows, saved as `.pic` files; `grview`, the viewer for those files. Full reference: [gordonpaint.md](gordonpaint.md) |
-| **Other** | `maze` (re-runnable), `clock`, `sidplay` |
+| **Other** | `maze` (re-runnable), `clock`, `sidplay`, `musedit` (the tune editor) |
 | **Animation** | `granim` — a full-screen animation played from the REU filesystem (`.anm` chunks plus a manifest). The bundled film is 360 multicolour frames at 24 fps, 15 seconds, a greyscale conversion of *Caminandes 1: "Llama Drama"* (credit in [../NOTICE](../NOTICE)). `+`/`-` change the rate, SPACE pauses, `q` exits |
 | **Libraries** | the nine in section 5 |
-| **Data** | charsets, sprite sheets, banners, three tunes, and the animation chunks under `assets/anim/` |
+| **Data** | charsets, sprite sheets, banners, twelve tunes, and the animation chunks under `assets/anim/` |
 
 ## 13. The kernel interface
 
@@ -274,4 +280,8 @@ machine's speed at boot and can start tasks before you touch the keyboard.
 | Dynamic libraries and the loader | [dynamic-libraries.md](dynamic-libraries.md) |
 | The `.pic` picture format | [pic-format.md](pic-format.md) |
 | Gordon Basic | [gordonbasic.md](gordonbasic.md) |
+| The text editor | [edit.md](edit.md) |
+| The tune editor | [musedit.md](musedit.md) |
+| GordonPaint | [gordonpaint.md](gordonpaint.md) |
+| The games | [gortris.md](gortris.md), [grknoid.md](grknoid.md) |
 | What could come next | [future-improvements.md](future-improvements.md) |

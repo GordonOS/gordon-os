@@ -283,6 +283,16 @@ as a substitution in the finished buffer rather than by seeding the whole image 
 > exits non-zero; the F5 fresh-REU flow refuses to launch on that, rather than booting the
 > old filesystem under a fresh label.
 
+**Session leftovers stay in the file, so build the shipping pair from nothing.** The build
+owns the filesystem region and rewrites it; the banks below are left exactly as it found them,
+and a running system pokes there -- the per-task sprite blocks at `REU_SPR_BASE`, the `kArg`
+shadows, the `kMalloc` shadows in banks 252-255. An image a session has opened therefore keeps
+that session's runtime state, and it travels in a commit because the pair is tracked. Delete
+`reu/REU.bin` and `reu/REU-C64U.bin` before a shipping build: a build from nothing leaves
+banks 0-4 all zero, which is what a shipped image contains. `check-reu-current.ps1` cannot
+catch this -- it compares the FS payloads against `tasks-out/`, and the leftovers are outside
+them.
+
 ### What depends on what
 
 | You changed | Rebuild |
@@ -323,7 +333,7 @@ Each of these is the one place a fact is written down; everything else reads it.
 **Plans are working documents, not documentation.** An active plan lives in
 `docs/plans/` and is retired to `Documents/GordonOSPlans/` once it is implemented, so the
 repo carries only plans that still describe work to be done. `docs/plans/` is empty at the
-moment: the musedit phase-2 plan was retired there on 2026-11-08.
+moment.
 
 **Two build outputs are tracked on purpose, and both change on every build:**
 `build/gordon-os.prg` (the runnable kernel, so a visitor needs no toolchain) and

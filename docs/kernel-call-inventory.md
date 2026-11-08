@@ -11,7 +11,7 @@
 > `jsr kSyscall` finds 1 call: `tools/assemble-tasks.asm` defines
 > `.const syscall = kSyscall`, and essentially every task calls it as
 > `jsr syscall`, not `jsr kSyscall`. Folding those in puts `kSyscall` in
-> **first place (202 calls)**. See the aliasing note in Methodology.
+> **first place (205 calls)**. See the aliasing note in Methodology.
 
 ## Methodology
 
@@ -95,54 +95,54 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1273 total call sites** found across `src/`.
+- **1275 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
 | Kernel call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kSyscall`](#ksyscall) | `$E090` | 202 | 47 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
+| [`kSyscall`](#ksyscall) | `$E090` | 205 | 47 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
 | [`kNewline`](#knewline) | `$E00C` | 161 | 25 | Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row. |
 | [`kPrintString`](#kprintstring) | `$E006` | 118 | 32 | Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator. |
 | [`kPrintChar`](#kprintchar) | `$E003` | 100 | 16 | Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom. |
+| [`kSetTextColor`](#ksettextcolor) | `$E063` | 57 | 4 | Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive). |
 | [`kSetCursor`](#ksetcursor) | `$E009` | 53 | 14 | Set the kernel cursor position (X=col, Y=row). The only screen routine that preserves all registers. |
-| [`kSetTextColor`](#ksettextcolor) | `$E063` | 53 | 4 | Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive). |
 | [`kReuToC64`](#kreutoc64) | `$E069` | 34 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
 | [`kReuFromC64`](#kreufromc64) | `$E06C` | 33 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
 | [`kSwitchView`](#kswitchview) | `$E054` | 31 | 18 | Switch the VIC-II display to another task's screen -- changes only what's shown, not where the caller writes. |
+| [`kReadKey`](#kreadkey) | `$E018` | 28 | 14 | Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@'). |
 | [`kReuFillReu`](#kreufillreu) | `$E072` | 26 | 11 | Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address). |
-| [`kReadKey`](#kreadkey) | `$E018` | 25 | 14 | Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@'). |
 | [`kReuDirPageDma`](#kreudirpagedma) | `$E0B4` | 25 | 2 | DMA one 256-byte page of the REU-FS directory between REU and the bounce buffer (internal helper behind directory scans). |
 | [`kBlinkReset`](#kblinkreset) | `$E0C0` | 24 | 13 | Erase the live blink cursor block at its saved position and force the next blink to redraw at the current cursor -- call after moving the cursor. |
 | [`kLockScreen`](#klockscreen) | `$E045` | 22 | 22 | Acquire the screen semaphore, saving `kPtr`/`kArg` across the wait; yields and retries if another task holds it. Must be paired with `kUnlockScreen`. |
 | [`kShareScreen`](#ksharescreen) | `$E05A` | 22 | 22 | Attach the current task to another task's surface so both write to the same memory (e.g. an overlay like a clock on the shell). |
 | [`kUnlockScreen`](#kunlockscreen) | `$E048` | 21 | 21 | Release the screen semaphore, restoring `kPtr`/`kArg` and signalling waiters. |
 | [`kAllocScreen`](#kallocscreen) | `$E04E` | 20 | 17 | Allocate a 10KB REU surface slot for the current task, cleared to pixels=0/bg0; colours come from `kArg`. |
-| [`kReuFillC64`](#kreufillc64) | `$E06F` | 20 | 8 | Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address). |
 | [`kEnableCursor`](#kenablecursor) | `$E012` | 19 | 7 | Enable the blinking block cursor for the running task; persisted to the surface's matrix tail so it survives context switches. |
-| [`kPrintCharAt`](#kprintcharat) | `$E0A5` | 19 | 4 | Write one glyph at an explicit cell without moving the cursor, wrapping, or scrolling -- used for fixed-position UI like a line editor's bottom row. |
+| [`kReuFillC64`](#kreufillc64) | `$E06F` | 19 | 7 | Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address). |
 | [`kDisableCursor`](#kdisablecursor) | `$E015` | 18 | 16 | Disable the blinking block cursor for the running task; persisted to the surface's matrix tail. |
-| [`kMalloc`](#kmalloc) | `$E0AE` | 15 | 8 | Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright. |
 | [`kRandom`](#krandom) | `$E033` | 15 | 4 | Generate a pseudo-random byte from a Galois LFSR (`randomSeed`). |
 | [`kSurfDisplayed`](#ksurfdisplayed) | `$E0BD` | 15 | 4 | Report whether a task's surface is the one currently shown on the VIC framebuffer, vs sitting in its REU slot in the background. |
 | [`kClearScreen`](#kclearscreen) | `$E000` | 14 | 6 | Fill the screen with spaces and home the cursor to (0,0). |
 | [`kGetCursor`](#kgetcursor) | `$E03F` | 14 | 8 | Read the current kernel cursor position into X (col) and Y (row). |
+| [`kBlitCharRev`](#kblitcharrev) | `$E0F0` | 12 | 2 | Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0. |
+| [`kByteToDec`](#kbytetodec) | `$E02A` | 12 | 10 | Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y. |
+| [`kMalloc`](#kmalloc) | `$E0AE` | 12 | 8 | Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright. |
+| [`kMul16`](#kmul16) | `$E02D` | 12 | 4 | 16-bit x 16-bit unsigned multiply, producing a 32-bit result. |
+| [`kPrintCharAt`](#kprintcharat) | `$E0A5` | 12 | 4 | Write one glyph at an explicit cell without moving the cursor, wrapping, or scrolling -- used for fixed-position UI like a line editor's bottom row. |
 | [`kReuFindFile`](#kreufindfile) | `$E0BA` | 12 | 8 | Locate a named file in the REU filesystem and return its offset + size, without transferring any data. |
-| [`kByteToDec`](#kbytetodec) | `$E02A` | 11 | 9 | Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y. |
 | [`kFreeScreen`](#kfreescreen) | `$E051` | 11 | 10 | Release the current task's surface back to the free pool; falls back to the shared `$2000` framebuffer if it was the last one. |
-| [`kBlitCharRev`](#kblitcharrev) | `$E0F0` | 10 | 2 | Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0. |
-| [`kDiv16`](#kdiv16) | `$E030` | 10 | 6 | 16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder. |
 | [`kGetTaskName`](#kgettaskname) | `$E04B` | 10 | 8 | Look up a task's name by index; returns a pointer directly into the kernel's name table (no copy). |
-| [`kMul16`](#kmul16) | `$E02D` | 10 | 3 | 16-bit x 16-bit unsigned multiply, producing a 32-bit result. |
-| [`kFree`](#kfree) | `$E0B1` | 9 | 6 | Return the pool block at `kPtr` to the free pool (pairs with `kMalloc`; also happens automatically on task exit/kill). |
 | [`kCsrBoth`](#kcsrboth) | `$E096` | 8 | 3 | Set cursor visibility and sync the surface matrix tail in one call -- the low-level primitive behind `kEnableCursor`/`kDisableCursor`. |
+| [`kDiv16`](#kdiv16) | `$E030` | 8 | 6 | 16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder. |
+| [`kFree`](#kfree) | `$E0B1` | 8 | 5 | Return the pool block at `kPtr` to the free pool (pairs with `kMalloc`; also happens automatically on task exit/kill). |
 | [`kReuDmaRange`](#kreudmarange) | `$E116` | 7 | 6 | Stream a file range from the REU to C64 memory given a 24-bit FS data offset, without hand-computing multi-bank addresses. |
 | [`kWaitKey`](#kwaitkey) | `$E01B` | 7 | 6 | Block until a key is pressed, spinning on `kScanKeyboard`. |
-| [`kReuLoad`](#kreuload) | `$E087` | 5 | 5 | Load a named block from the REU filesystem into C64 memory. |
+| [`kBlitChar`](#kblitchar) | `$E0ED` | 5 | 3 | Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars. |
 | [`kScanKeyboard`](#kscankeyboard) | `$E01E` | 5 | 5 | Pop one key from the IRQ-filled ring buffer, non-blocking. |
 | [`kSetGfxMode`](#ksetgfxmode) | `$E10D` | 5 | 3 | Switch the current task's surface between hires and multicolour in place, preserving pixels/matrix/colour RAM and per-task colours. |
+| [`kReuLoad`](#kreuload) | `$E087` | 4 | 4 | Load a named block from the REU filesystem into C64 memory. |
 | [`kScrollScreen`](#kscrollscreen) | `$E00F` | 4 | 4 | Scroll the current surface's scroll region up by one row, blanking the bottom row. |
-| [`kBlitChar`](#kblitchar) | `$E0ED` | 3 | 3 | Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars. |
 | [`kDynLoad`](#kdynload) | `$E08D` | 3 | 2 | Load a task binary from the REU filesystem and spawn it, applying relocation fixups as the code streams into a pool page. |
 | [`kFillColorRam`](#kfillcolorram) | `$E110` | 3 | 3 | Fill all 1000 colour-RAM slots with a colour (low nibble only -- the MC bitmap pixel-value-3 colour). |
 | [`kLibHold`](#klibhold) | `$FFE6` | 3 | 2 | Release every library the calling task declared except those in the keep mask -- hands the pool pages back early instead of waiting for task exit. |
@@ -162,14 +162,14 @@ many calls come from that file.
 
 ### kSyscall
 
-``$E090`` — **202 calls** across 47 file(s)
+``$E090`` — **205 calls** across 47 file(s)
 
 Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address.
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/gortris.inc` | 15 |
-| `src/tasks/dynamic/musedit.inc` | 12 |
+| `src/tasks/dynamic/musedit.inc` | 15 |
 | `src/tasks/dynamic/grknoid.inc` | 11 |
 | `src/tasks/cmd/ipctest.inc` | 10 |
 | `src/tasks/dynamic/godzi.inc` | 9 |
@@ -316,6 +316,19 @@ Print one screen-code character at the cursor and advance it, auto-scrolling the
 | `src/tasks/dynamic/basic.asm` | 2 |
 | `src/tasks/cmd/format.inc` | 1 |
 
+### kSetTextColor
+
+``$E063`` — **57 calls** across 4 file(s)
+
+Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive).
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/gortris.inc` | 27 |
+| `src/tasks/dynamic/grknoid.inc` | 18 |
+| `src/tasks/dynamic/musedit.inc` | 10 |
+| `src/tasks/dynamic/basic.asm` | 2 |
+
 ### kSetCursor
 
 ``$E009`` — **53 calls** across 14 file(s)
@@ -338,19 +351,6 @@ Set the kernel cursor position (X=col, Y=row). The only screen routine that pres
 | `src/tasks/dynamic/grview.inc` | 1 |
 | `src/tasks/dynamic/musedit.inc` | 1 |
 | `src/tasks/dynamic/sidplay.asm` | 1 |
-
-### kSetTextColor
-
-``$E063`` — **53 calls** across 4 file(s)
-
-Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive).
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/gortris.inc` | 27 |
-| `src/tasks/dynamic/grknoid.inc` | 18 |
-| `src/tasks/dynamic/musedit.inc` | 6 |
-| `src/tasks/dynamic/basic.asm` | 2 |
 
 ### kReuToC64
 
@@ -419,6 +419,29 @@ Switch the VIC-II display to another task's screen -- changes only what's shown,
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
+### kReadKey
+
+``$E018`` — **28 calls** across 14 file(s)
+
+Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@').
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/musedit.inc` | 7 |
+| `src/tasks/dynamic/grknoid.inc` | 4 |
+| `src/tasks/cmd/mousetest.inc` | 2 |
+| `src/tasks/dynamic/gortris.inc` | 2 |
+| `src/tasks/dynamic/granim.inc` | 2 |
+| `src/tasks/dynamic/grpaint.inc` | 2 |
+| `src/tasks/dynamic/grview.inc` | 2 |
+| `src/tasks/dynamic/fpdemo.inc` | 1 |
+| `src/tasks/dynamic/gfxdemo.inc` | 1 |
+| `src/tasks/dynamic/godzi.inc` | 1 |
+| `src/tasks/dynamic/maze.inc` | 1 |
+| `src/tasks/dynamic/shell.inc` | 1 |
+| `src/tasks/dynamic/spirog.inc` | 1 |
+| `src/tasks/dynamic/sprdemo.inc` | 1 |
+
 ### kReuFillReu
 
 ``$E072`` — **26 calls** across 11 file(s)
@@ -438,29 +461,6 @@ Fill a REU memory region with a constant byte (fixed C64 source address, increme
 | `src/kernel/screen-io.inc` | 1 |
 | `src/kernel/slot-shadow.inc` | 1 |
 | `src/tasks/dynamic/ehbasic.asm` | 1 |
-
-### kReadKey
-
-``$E018`` — **25 calls** across 14 file(s)
-
-Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@').
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/grknoid.inc` | 4 |
-| `src/tasks/dynamic/musedit.inc` | 4 |
-| `src/tasks/cmd/mousetest.inc` | 2 |
-| `src/tasks/dynamic/gortris.inc` | 2 |
-| `src/tasks/dynamic/granim.inc` | 2 |
-| `src/tasks/dynamic/grpaint.inc` | 2 |
-| `src/tasks/dynamic/grview.inc` | 2 |
-| `src/tasks/dynamic/fpdemo.inc` | 1 |
-| `src/tasks/dynamic/gfxdemo.inc` | 1 |
-| `src/tasks/dynamic/godzi.inc` | 1 |
-| `src/tasks/dynamic/maze.inc` | 1 |
-| `src/tasks/dynamic/shell.inc` | 1 |
-| `src/tasks/dynamic/spirog.inc` | 1 |
-| `src/tasks/dynamic/sprdemo.inc` | 1 |
 
 ### kReuDirPageDma
 
@@ -613,23 +613,6 @@ Allocate a 10KB REU surface slot for the current task, cleared to pixels=0/bg0; 
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
-### kReuFillC64
-
-``$E06F`` — **20 calls** across 8 file(s)
-
-Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address).
-
-| File | Calls |
-|---|---:|
-| `src/libs/gfx.asm` | 4 |
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/kernel/gfx.inc` | 3 |
-| `src/kernel/init.inc` | 3 |
-| `src/kernel/screen-io.inc` | 2 |
-| `src/kernel/scroll-region.inc` | 2 |
-| `src/kernel/screen-mgmt.inc` | 1 |
-| `src/tasks/dynamic/musedit.inc` | 1 |
-
 ### kEnableCursor
 
 ``$E012`` — **19 calls** across 7 file(s)
@@ -646,18 +629,21 @@ Enable the blinking block cursor for the running task; persisted to the surface'
 | `src/tasks/dynamic/gortris.inc` | 1 |
 | `src/tasks/dynamic/grknoid.inc` | 1 |
 
-### kPrintCharAt
+### kReuFillC64
 
-``$E0A5`` — **19 calls** across 4 file(s)
+``$E06F`` — **19 calls** across 7 file(s)
 
-Write one glyph at an explicit cell without moving the cursor, wrapping, or scrolling -- used for fixed-position UI like a line editor's bottom row.
+Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address).
 
 | File | Calls |
 |---|---:|
-| `src/tasks/dynamic/musedit.inc` | 14 |
-| `src/tasks/dynamic/basicedit.inc` | 3 |
-| `src/tasks/dynamic/basic.asm` | 1 |
-| `src/tasks/dynamic/edit.inc` | 1 |
+| `src/libs/gfx.asm` | 4 |
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/kernel/gfx.inc` | 3 |
+| `src/kernel/init.inc` | 3 |
+| `src/kernel/screen-io.inc` | 2 |
+| `src/kernel/scroll-region.inc` | 2 |
+| `src/kernel/screen-mgmt.inc` | 1 |
 
 ### kDisableCursor
 
@@ -683,23 +669,6 @@ Disable the blinking block cursor for the running task; persisted to the surface
 | `src/tasks/dynamic/shell.inc` | 1 |
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
-
-### kMalloc
-
-``$E0AE`` — **15 calls** across 8 file(s)
-
-Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/tasks/dynamic/musedit.inc` | 4 |
-| `src/tasks/dynamic/sidplay.asm` | 2 |
-| `src/tasks/cmd/banner.inc` | 1 |
-| `src/tasks/cmd/copy.inc` | 1 |
-| `src/tasks/dynamic/godzi.inc` | 1 |
-| `src/tasks/dynamic/gortris.inc` | 1 |
-| `src/tasks/dynamic/grknoid.inc` | 1 |
 
 ### kRandom
 
@@ -759,6 +728,79 @@ Read the current kernel cursor position into X (col) and Y (row).
 | `src/tasks/cmd/time.inc` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 
+### kBlitCharRev
+
+``$E0F0`` — **12 calls** across 2 file(s)
+
+Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 9 |
+| `src/tasks/dynamic/musedit.inc` | 3 |
+
+### kByteToDec
+
+``$E02A`` — **12 calls** across 10 file(s)
+
+Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/cmd/ps.inc` | 2 |
+| `src/tasks/dynamic/shell.inc` | 2 |
+| `src/kernel/syscall.inc` | 1 |
+| `src/tasks/cmd/dir.inc` | 1 |
+| `src/tasks/cmd/kill.inc` | 1 |
+| `src/tasks/cmd/pause.inc` | 1 |
+| `src/tasks/cmd/prio.inc` | 1 |
+| `src/tasks/cmd/resume.inc` | 1 |
+| `src/tasks/dynamic/edit.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
+
+### kMalloc
+
+``$E0AE`` — **12 calls** across 8 file(s)
+
+Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/tasks/dynamic/sidplay.asm` | 2 |
+| `src/tasks/cmd/banner.inc` | 1 |
+| `src/tasks/cmd/copy.inc` | 1 |
+| `src/tasks/dynamic/godzi.inc` | 1 |
+| `src/tasks/dynamic/gortris.inc` | 1 |
+| `src/tasks/dynamic/grknoid.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
+
+### kMul16
+
+``$E02D`` — **12 calls** across 4 file(s)
+
+16-bit x 16-bit unsigned multiply, producing a 32-bit result.
+
+| File | Calls |
+|---|---:|
+| `src/libs/gfx.asm` | 8 |
+| `src/tasks/dynamic/musedit.inc` | 2 |
+| `src/kernel/screen-mgmt.inc` | 1 |
+| `src/tasks/dynamic/gfxdemo.inc` | 1 |
+
+### kPrintCharAt
+
+``$E0A5`` — **12 calls** across 4 file(s)
+
+Write one glyph at an explicit cell without moving the cursor, wrapping, or scrolling -- used for fixed-position UI like a line editor's bottom row.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/musedit.inc` | 7 |
+| `src/tasks/dynamic/basicedit.inc` | 3 |
+| `src/tasks/dynamic/basic.asm` | 1 |
+| `src/tasks/dynamic/edit.inc` | 1 |
+
 ### kReuFindFile
 
 ``$E0BA`` — **12 calls** across 8 file(s)
@@ -775,24 +817,6 @@ Locate a named file in the REU filesystem and return its offset + size, without 
 | `src/tasks/cmd/setfont.inc` | 1 |
 | `src/tasks/dynamic/godzi.inc` | 1 |
 | `src/tasks/dynamic/sidplay.asm` | 1 |
-
-### kByteToDec
-
-``$E02A`` — **11 calls** across 9 file(s)
-
-Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/cmd/ps.inc` | 2 |
-| `src/tasks/dynamic/shell.inc` | 2 |
-| `src/kernel/syscall.inc` | 1 |
-| `src/tasks/cmd/dir.inc` | 1 |
-| `src/tasks/cmd/kill.inc` | 1 |
-| `src/tasks/cmd/pause.inc` | 1 |
-| `src/tasks/cmd/prio.inc` | 1 |
-| `src/tasks/cmd/resume.inc` | 1 |
-| `src/tasks/dynamic/edit.inc` | 1 |
 
 ### kFreeScreen
 
@@ -813,32 +837,6 @@ Release the current task's surface back to the free pool; falls back to the shar
 | `src/tasks/dynamic/shell.inc` | 1 |
 | `src/tasks/dynamic/sidplay.asm` | 1 |
 
-### kBlitCharRev
-
-``$E0F0`` — **10 calls** across 2 file(s)
-
-Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 9 |
-| `src/tasks/dynamic/musedit.inc` | 1 |
-
-### kDiv16
-
-``$E030`` — **10 calls** across 6 file(s)
-
-16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/musedit.inc` | 3 |
-| `src/tasks/dynamic/spirog.inc` | 3 |
-| `src/kernel/char-shadow.inc` | 1 |
-| `src/kernel/screen-mgmt.inc` | 1 |
-| `src/tasks/dynamic/edit.inc` | 1 |
-| `src/tasks/dynamic/gfxdemo.inc` | 1 |
-
 ### kGetTaskName
 
 ``$E04B`` — **10 calls** across 8 file(s)
@@ -856,33 +854,6 @@ Look up a task's name by index; returns a pointer directly into the kernel's nam
 | `src/tasks/cmd/ps.inc` | 1 |
 | `src/tasks/cmd/resume.inc` | 1 |
 
-### kMul16
-
-``$E02D`` — **10 calls** across 3 file(s)
-
-16-bit x 16-bit unsigned multiply, producing a 32-bit result.
-
-| File | Calls |
-|---|---:|
-| `src/libs/gfx.asm` | 8 |
-| `src/kernel/screen-mgmt.inc` | 1 |
-| `src/tasks/dynamic/gfxdemo.inc` | 1 |
-
-### kFree
-
-``$E0B1`` — **9 calls** across 6 file(s)
-
-Return the pool block at `kPtr` to the free pool (pairs with `kMalloc`; also happens automatically on task exit/kill).
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/tasks/dynamic/godzi.inc` | 1 |
-| `src/tasks/dynamic/gortris.inc` | 1 |
-| `src/tasks/dynamic/grknoid.inc` | 1 |
-| `src/tasks/dynamic/musedit.inc` | 1 |
-| `src/tasks/dynamic/sidplay.asm` | 1 |
-
 ### kCsrBoth
 
 ``$E096`` — **8 calls** across 3 file(s)
@@ -894,6 +865,35 @@ Set cursor visibility and sync the surface matrix tail in one call -- the low-le
 | `src/kernel/keyboard.inc` | 4 |
 | `src/tasks/dynamic/basicedit.inc` | 3 |
 | `src/kernel/kernel.asm` | 1 |
+
+### kDiv16
+
+``$E030`` — **8 calls** across 6 file(s)
+
+16-bit / 16-bit unsigned divide, producing a 16-bit quotient and remainder.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/spirog.inc` | 3 |
+| `src/kernel/char-shadow.inc` | 1 |
+| `src/kernel/screen-mgmt.inc` | 1 |
+| `src/tasks/dynamic/edit.inc` | 1 |
+| `src/tasks/dynamic/gfxdemo.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
+
+### kFree
+
+``$E0B1`` — **8 calls** across 5 file(s)
+
+Return the pool block at `kPtr` to the free pool (pairs with `kMalloc`; also happens automatically on task exit/kill).
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/tasks/dynamic/godzi.inc` | 1 |
+| `src/tasks/dynamic/gortris.inc` | 1 |
+| `src/tasks/dynamic/grknoid.inc` | 1 |
+| `src/tasks/dynamic/sidplay.asm` | 1 |
 
 ### kReuDmaRange
 
@@ -925,19 +925,17 @@ Block until a key is pressed, spinning on `kScanKeyboard`.
 | `src/tasks/dynamic/musedit.inc` | 1 |
 | `src/tasks/dynamic/sidplay.asm` | 1 |
 
-### kReuLoad
+### kBlitChar
 
-``$E087`` — **5 calls** across 5 file(s)
+``$E0ED`` — **5 calls** across 3 file(s)
 
-Load a named block from the REU filesystem into C64 memory.
+Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars.
 
 | File | Calls |
 |---|---:|
-| `src/tasks/dynamic/gortris.inc` | 1 |
-| `src/tasks/dynamic/grknoid.inc` | 1 |
-| `src/tasks/dynamic/musedit.inc` | 1 |
-| `src/tasks/dynamic/shell.inc` | 1 |
-| `src/tasks/dynamic/sidplay.asm` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 3 |
+| `src/libs/time.asm` | 1 |
+| `src/tasks/dynamic/edit.inc` | 1 |
 
 ### kScanKeyboard
 
@@ -965,6 +963,19 @@ Switch the current task's surface between hires and multicolour in place, preser
 | `src/tasks/dynamic/basic.asm` | 1 |
 | `src/tasks/dynamic/grview.inc` | 1 |
 
+### kReuLoad
+
+``$E087`` — **4 calls** across 4 file(s)
+
+Load a named block from the REU filesystem into C64 memory.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/gortris.inc` | 1 |
+| `src/tasks/dynamic/grknoid.inc` | 1 |
+| `src/tasks/dynamic/shell.inc` | 1 |
+| `src/tasks/dynamic/sidplay.asm` | 1 |
+
 ### kScrollScreen
 
 ``$E00F`` — **4 calls** across 4 file(s)
@@ -975,18 +986,6 @@ Scroll the current surface's scroll region up by one row, blanking the bottom ro
 |---|---:|
 | `src/tasks/dynamic/basic.asm` | 1 |
 | `src/tasks/dynamic/basicedit.inc` | 1 |
-| `src/tasks/dynamic/edit.inc` | 1 |
-| `src/tasks/dynamic/musedit.inc` | 1 |
-
-### kBlitChar
-
-``$E0ED`` — **3 calls** across 3 file(s)
-
-Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars.
-
-| File | Calls |
-|---|---:|
-| `src/libs/time.asm` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 | `src/tasks/dynamic/musedit.inc` | 1 |
 

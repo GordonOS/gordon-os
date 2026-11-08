@@ -150,11 +150,11 @@ clear cannot wipe them.
 
 ## Streaming a tune from the REU
 
-A buffer costs `ceil(size/256)` pool pages, so a tune's length used to be a
-memory question — the largest bundled tune is 18 pages, and anything bigger
-could not be played at all. Mode 1 removes it: the file stays in the REU and the
-player pages it in, so the RAM cost is **three fixed 256-byte windows** however
-long the tune is (the filesystem's 16-bit size field is the only ceiling, 64 KB).
+A buffer costs `ceil(size/256)` pool pages, so playing from RAM makes a tune's length a
+memory question — the largest bundled tune is 18 pages, and a bigger one does not fit at
+all. Mode 1 removes it: the file stays in the REU and the player pages it in, so the RAM
+cost is **three fixed 256-byte windows** however long the tune is (the filesystem's 16-bit
+size field is the only ceiling, 64 KB).
 
 The player addresses a command by **file offset**, and turns an offset into an
 address two ways:
@@ -437,6 +437,34 @@ A direct caller is expected to work like the wrapper: load (or embed) the tune,
 set `kPtr`/`kArg`/`kArg+1`, call `kSidPlay`, then free. Note that `kMalloc` and
 `kReuLoad` both clobber `kPtr`, which is why the wrapper stashes the buffer
 pointer in its instance data before it calls them.
+
+### Editing a tune on the machine
+
+`gen-mus.py` is how this repository authors a tune, but it is not the only way:
+**`musedit` is a full editor for the same files** and runs on the C64 — see
+[musedit.md](musedit.md). It opens a tune from the REU filesystem as a three-voice
+grid, plays it through this library, and writes it back with `SHIFT`+`S`.
+
+Twelve tunes ship in the image, and four of them are the archive's own worked
+examples of the parts of the player that are hardest to learn from prose:
+
+| Tune | What it demonstrates |
+|---|---|
+| `ringmod` | ring modulation — voice 1 modulated by voice 3, the modulator hidden with `3-O` |
+| `syncmod` | oscillator sync — one melody in two voices, the second synced and re-voiced section by section |
+| `layla` | the **software oscillator**: `LFO 1` with `MAX`/`SCA` rewritten note by note |
+| `daytrip` | a voice modulated from **another voice's envelope** (`SRC 2`) rather than from the oscillator |
+
+`run musedit <name>` opens any of them; `run sidplay <name>` just plays it. The
+sources are credited in `NOTICE`.
+
+The player reads its three modulation sources through an indexed load
+(`lda WorkLFO,y` with Y = `SRC`), so the neighbours of the software oscillator are
+part of that command's API: `SRC 0` is the software oscillator, `SRC 1` the sampled
+`$D41B` (oscillator 3, or its noise register) and `SRC 2` the sampled `$D41C`
+(envelope 3). Both are re-read once per jiffy in the tick, before the voices are
+processed. A larger `SRC` reads further into the player's work bytes, which hold
+values of 0-3 — a fixed small offset rather than a moving waveform.
 
 ## See also
 
