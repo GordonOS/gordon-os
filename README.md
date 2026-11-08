@@ -543,8 +543,9 @@ gordon-os/
 │                          here. llama/ is the bundled 360-frame film:
 │                          `run granim llama`
 ├── music/                 COMPUTE!'s Enhanced Sidplayer tunes (*.mus, seeded raw
-│                          into the REU FS: commodo, fsonata and tetris, plus
-│                          grknoid's katmand, immig and firstdt)
+│                          into the REU FS: commodo, fsonata, seffsng, tambrn, tetris and the
+│                          archive's ringmod/syncmod demos, plus grknoid's
+│                          katmand, immig and firstdt)
 ├── docs/                  Design docs -- the Documentation table below indexes
 │                          them: guides (quick-start.md, tutorial.md,
 │                          architecture.md, development.md, programmers-guide.md,

@@ -949,15 +949,16 @@ the whole timbre rather than tuning it.
 voice. The format has a command for exactly that: `3-O 1` mutes voice 3's output *without stopping
 its oscillator*, so voice 3 can do the modulating in silence.
 
-The two demonstration tunes in the CGSC archive's `Misc/Demonstration` folder are the pattern to
-copy, and they are worth opening in `musedit` with the cursor walking down them:
+Two of them ship with the machine — the Sidplayer demonstration tunes from the Compute's Gazette Sid
+Collection, whose credit is in [`../NOTICE`](../NOTICE) — so you can open them and walk down their
+command lines yourself (or just `run sidplay ringmod` to hear one without the editor):
 
-- **`Ring_Modulation_Demonstration`** puts the melody in voice 1 with `WAV 1` and `RNG 1`, and the
-  same melody in voice 3 behind `3-O 1`, transposing voice 3 with `TPS` before each repeat — so
-  every pass is the same notes with a different clang. At the end `3-O 0` lets voice 3 be heard, and
-  the ring-modulated voice carries on underneath.
-- **`Sync_Mode_Demonstration`** calls the same phrase in voices 1 and 2, sets `SNC 1` in voice 2,
-  and changes voice 2's `TPS` and `WAV` section by section: one melody, a row of different tones.
+- **`run musedit ringmod`** puts the melody in voice 1 with `WAV 1` and `RNG 1`, and the same melody
+  in voice 3 behind `3-O 1`, transposing voice 3 with `TPS` before each repeat — so every pass is
+  the same notes with a different clang. At the end `3-O 0` lets voice 3 be heard, and the
+  ring-modulated voice carries on underneath.
+- **`run musedit syncmod`** calls the same phrase in voices 1 and 2, sets `SNC 1` in voice 2, and
+  changes voice 2's `TPS` and `WAV` section by section: one melody, a row of different tones.
 
 Both effects are plain 0/1 switches, so a tune can turn them on for a section and off again with a
 single pair.

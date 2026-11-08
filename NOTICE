@@ -96,6 +96,17 @@ The `grknoid` task plays them one per mode -- katmand in the attract loop,
 immig during a game, firstdt once on the game-over screen -- and credits the
 collection on its attract screen.
 
+Two of the archive's demonstration tunes ship as well, renamed to the seven-character
+tune names the editor takes:
+
+  `music/ringmod.mus`  = `Misc/Demonstration/Ring_Modulation_Demonstration.mus`
+  `music/syncmod.mus`  = `Misc/Demonstration/Sync_Mode_Demonstration.mus`
+
+They are the worked examples of ring modulation and oscillator sync, and the `musedit`
+guide points at them as `run musedit ringmod` and `run musedit syncmod`. Their bytes,
+and the description text inside them ("RING MODULATION DEMO", "SYNC MODE DEMO"), are
+as published; the collection does not record an author for either file.
+
 Tetris "A Theme (Korobeiniki)" - sheet music source
 ---------------------------------------------------
 The melody and bass line of `music/tetris.mus` were read from a MIDI made
