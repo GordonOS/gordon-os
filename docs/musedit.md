@@ -103,7 +103,7 @@ every item on one row; each does the work of the key it names. Every one of them
 | `CMD` | authors the row's command line, the `C` key |
 | `UND` | undoes the last action, the `Z` key |
 | `SAV` | saves, `SHIFT+S` |
-| `Q` | quits, and answers `? unsaved` first if there are changes |
+| `Q` | quits, and answers `? unsaved - q again` first if there are changes |
 
 `RST`, `INS` and `DEL` are what make an editing session possible without the keyboard: with the
 piano below for pitches and the grid for the cursor, entering notes, inserting time, changing one,
@@ -708,13 +708,27 @@ then on, so `dir` shows it and it costs the same space however much you edit.
 | `? already running` | another `musedit` is resident |
 | `? sid.lib in use` | another task has `sid.lib` loaded (a player is running) — printed by the shell before `musedit` starts; stop the player first |
 | `? no space` | the pool cannot hold the tune's new size; nothing was changed |
+| `? no windows` | the pool could not seat the three read windows, and the grid cannot be read without them — nothing was opened |
 | `? no player` | the SID was taken by another task during playback, or `sid.lib` could not load |
 | `? stop first` | an edit was attempted during playback |
 | `? illegal duration` | the current tempo cannot express that note length |
 | `? no event here` | the rest or delete key needs the cursor on a row where an event starts |
+| `? hlt ends the voice` | `SHIFT+INST/DEL` on a `hlt` line: that pair is what ends the voice, so removing it would leave the voice unreadable — delete the events above it instead, or retype the line |
 | `? phrase 3 x5` | an insert or a delete was attempted on a row inside phrase 3's `DEF` body, which 5 `CALL` sites play — move off it, or edit the phrase deliberately with a note |
+| `? nothing to undo` | `Z` with no action behind it — a freshly opened tune, or everything already undone |
+| `? nothing to redo` | `X` with nothing undone since the last edit |
+| `? no definition` | `SHIFT+D` on a `call 3` line when the tune has no `def 3` at all |
+| `? no call` | `SHIFT+D` on a `def 3` line that no `CALL` in the tune plays |
+| `? not a phrase` | `SHIFT+D` on a line with no `CALL` or `DEF` in the cursor's lane — move into the lane that shows one (see *Following a phrase*) |
 | `? no pointer art` | the mouse is on but the pointer sprites could not be resolved — the REU image is stale |
 | `? no mouse - mouse 1351 first` | the system has no 1351: run `mouse 1351` from the shell, then start the editor again |
+| `? no fs` | the REU image has no filesystem signature — the image that ships with the release always has one, so this one is from another build or has been wiped: put the shipped image back (`format` makes an empty filesystem, but the bundled tunes come back only with a fresh image) |
+| `? no scratch` | the scratch copy `<name>.wrk` could not be opened or made — it is 255 pages, 65280 bytes, so the REU filesystem needs that much free — or the tune is larger than it can hold |
+| `? dir full` | the REU filesystem's directory has no free record for a new file — delete a file you no longer need, then save again |
+| `? write failed` | a write into the REU filesystem failed part way; the working file still holds the image, so save again |
+| `? not a tune` | the file is too short to hold even a tune header, so it is not something this editor wrote |
+| `? saved` | the tune was written — a report, not a refusal |
+| `? unsaved - q again` | `Q` with edits that are not saved: `S` saves them, or `Q` again quits and discards them |
 
 ## Limits
 

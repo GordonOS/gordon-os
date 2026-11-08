@@ -400,7 +400,7 @@
 .const MU_BAR_UNDO  = 8       // ...and this one undoes the last action
 .const MU_BAR_REST  = 9       // ...and this one turns the event into a rest
 .const MU_BAR_DEL   = 10      // ...and this one removes the event, closing the gap
-.const MU_BAR_INS   = 11      // ...and this one toggles insert/overwrite
+.const MU_BAR_INS   = 11      // ...and this one opens one row of time in every voice
 
 // --- tiny instance helpers (offsets are constants, so these stay inline) ---
 .macro muSet(field, value) {

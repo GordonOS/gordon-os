@@ -37,8 +37,8 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 |---|---|---|---|
 | F1 | Medium | `musedit.inc:373`, `:6770`, `musedit.md:551`/`:616` | `MS#` is documented three ways (999 / 767 / 1023) and the cap is neither the documented one nor the format's |
 | F2 | Low | `musedit.inc:8647`, `:6236`, `musedit-msgs.txt` | Two unreachable "`? not yet`" branches and one unused message (`? not a tune`) — **fixed: the branches are gone and the hover no longer lights a code with no action** |
-| F3 | Low | `musedit.inc:403` | `MU_BAR_INS`'s comment says "toggles insert/overwrite"; the cell inserts one row |
-| F4 | Medium | `musedit.md:700-717` | The guide documents 13 of the editor's 23 messages; eight reachable ones are missing |
+| F3 | Low | `musedit.inc:403` | `MU_BAR_INS`'s comment said "toggles insert/overwrite"; the cell inserts one row — **fixed: the comment says what it does** |
+| F4 | Medium | `musedit.md:700-717` | The guide documented 11 of the editor's 23 messages; twelve reachable ones were missing — **fixed: all 23 now have a row, with the trigger read off the code** |
 | F5 | Medium | `.github/workflows/gates.yml` | The four pure-Python musedit gates never run in CI, so a PR can break the command tables or the timing model and stay green — **fixed: they run there now** |
 | F6 | Medium | `tools/temp/symout/assemble-tasks.vs` | A 5,852-line generated VS64 symbol dump is committed; nothing reads it — **fixed: removed, and `tools/temp/` is ignored** |
 | F7 | Low | `docs/development.md:637` | The generated-file table lists one of the three `gen-musedit-*` generators |
@@ -128,24 +128,44 @@ inserts **one row** (`muBarIns:8801` → `muInsertTime` with A=1), which is what
 (`INS` = "opens one row of silence in all three voices — the `I` key"). The mode toggle lives on
 the mode row (`MU_MODE_ROW` → `muClkMode`). Fix the comment.
 
+**Fixed.** The comment now reads "...and this one opens one row of time in every voice", in the
+same form as the nine entries above it. Nothing else changed: the bar map, the dispatch chain and
+the guide were already right, so the assembled task is byte for byte what it was.
+
 ### F4 — The troubleshooting table covers under half the messages (Medium)
 
-The editor's message file holds 23 strings that begin with `?`; the guide documents 13 of them
-(11 in the troubleshooting table at `musedit.md:700-717`, of which two are not musedit's own —
-`? already running` is the loader's and `? sid.lib in use` the shell's — plus `? saved`,
-`? dir full` and `? unsaved` in the body text and `? not a phrase` in the `SHIFT+D` section).
-Missing and **reachable**:
+The editor's message file holds 23 strings that begin with `?`. Checking each one against the
+guide as it stood, **11 were documented and 12 were not**: the troubleshooting table
+(`musedit.md:700-717`) has 11 rows, two of which are not musedit's own — `? already running` is the
+loader's and `? sid.lib in use` the shell's — and the body mentions `? dir full` (`:680`),
+`? not a phrase` (`:431`) and a shortened `? unsaved` (`:106`). Missing and **reachable**:
 
 | message | when |
 |---|---|
 | `? hlt ends the voice` | `SHIFT+INST/DEL` on the terminator |
 | `? nothing to undo` / `? nothing to redo` | `Z` / `X` with an empty history |
-| `? write failed` | the scratch write failed |
+| `? write failed` | a write into the REU filesystem failed part way |
 | `? no fs` / `? no scratch` / `? no windows` | the pool or the filesystem refused at startup |
 | `? no definition` / `? no call` | `SHIFT+D` on a `CALL` with no `DEF`, or a `DEF` with no call site |
+| `? saved` | the save succeeded |
+| `? unsaved - q again` | `Q` with unsaved edits — `:106` names only `? unsaved` |
+| `? not a tune` | the file is shorter than a tune header |
 
-`? not yet` no longer exists (F2) and `? not a tune` is the message F9 will use, so neither
-belongs in the guide.
+`? not yet` no longer exists (F2), so it is not among the 23.
+
+**Fixed.** The table is now 25 rows and covers all 23 `?` strings in `musedit-msgs.txt` (the other
+two rows are the loader's `? already running` and the shell's `? sid.lib in use`): six added in the
+editing group (`? hlt ends the voice`, `? nothing to undo`, `? nothing to redo`, `? no definition`,
+`? no call`, `? not a phrase`), one at startup (`? no windows`), and seven in a new files group
+(`? no fs`, `? no scratch`, `? dir full`, `? write failed`, `? not a tune`, `? saved`,
+`? unsaved - q again`). Each trigger was read off the code rather than guessed, and the rows carry
+what the reader needs to act on: `? no scratch` names the 255-page working file and its 65,280
+bytes; `? no fs` says the shipped image always carries the signature, so the fix is to put that
+image back rather than `format` it (the host builder seeds the files, and `format` makes an empty
+filesystem); and `? write failed` says the working file still holds the image, so a second save is
+safe. `? not a tune` is documented here as what it does today — refuse a file shorter than a
+header — and F9 will give it its second trigger. The census was re-run against the edited guide
+string by string: **11 of 23 before, 23 of 23 now.**
 
 ### F5 — The musedit gates are not in CI (Medium)
 
