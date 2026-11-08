@@ -1003,7 +1003,7 @@ aimed at all three voices independently — which is why it takes several comman
 | `RUP` | 0-31 | with `LFO 0`: how much the value climbs each jiffy. With `LFO 1`: how many jiffies it stays high |
 | `RDN` | 0-31 | with `LFO 0`: how much it falls each jiffy. With `LFO 1`: how many jiffies it stays low (0 means 32 in pulse mode) |
 | `MAX` | 0-255 | the top of the range: the ceiling the climb turns round at, and the level a pulse sits at when it is high |
-| `SRC` | 0-2 | what a voice reads: 0 the oscillator above, 1 the chip's oscillator 3 output, 2 its envelope 3 output. **Only 0 does anything in this player** — see below |
+| `SRC` | 0-2 | what a voice reads: 0 the software oscillator above, 1 the chip's own oscillator 3 output, 2 its envelope 3 output |
 | `SCA` | 0-7 up, 249-255 down | how much of that reading the voice takes, as a shift: each step up doubles it, each step down halves it, 3 is eight times and 253 an eighth |
 | `DST` | 0-3 | where the voice adds it: 0 nowhere, 1 to its frequency, 2 to its pulse width, 3 to the filter cutoff |
 
@@ -1027,10 +1027,12 @@ offset, so the modulation is heard at once. On the cutoff it is added into the f
 the cutoff drifts up at a rate set by the value rather than being shifted — which makes `DST 3` a
 hands-free sweep, the same idea as `F-S` but driven by the oscillator.
 
-**`SRC` 1 and 2 are silent here.** The player never samples the chip's oscillator-3 and envelope-3
-outputs, so those two sources deliver a constant zero and nothing moves. Only `SRC 0`, the software
-oscillator above, does anything — so leave `SRC` at 0 unless a tune you are reading already sets it.
-
+**`SRC` chooses what the voice reads.** 0 is the oscillator described above. 1 is the output of the
+chip's own oscillator 3, sampled once per jiffy — so with voice 3 running slowly the modulation
+follows that instead of a clock, and with voice 3 in noise mode the register reads as a random
+number, which gives a random wobble. 2 is voice 3's envelope output, a shape that follows a
+note's attack and decay rather than a steady cycle. Whichever you choose, the reading is scaled
+by `SCA` and added to `DST` the same way, one way only.
 Two worked settings:
 
 ```

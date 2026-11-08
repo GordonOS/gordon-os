@@ -659,14 +659,15 @@ goToNextVoice:          inx
 }
 
                                                 // (CIA timer untouched -- the scheduler is the jiffy clock)
-//  The original player copied two read-only SID outputs into work bytes so its own
-//  screen could show them. This port has no screen and nothing reads either byte,
-//  so both read/store pairs are commented out: reading $d41b/$d41c has no side
-//  effect on the chip, so removing the four instructions changes nothing audible.
-//                      lda $d41b                       //   Read Oscillator Voice 3 / Random Number Generator
-//                      sta WorkOscillatorVoice3
-//                      lda $d41c                       //   Envelope Generator Voice 3 Output
-//                      sta WorkEnvGenOutputVoice3
+//  Two read-only SID outputs, sampled once per jiffy into the LFO's source slots:
+//  WorkOscillatorVoice3 follows WorkLFO in memory, so it is source 1 of `lda WorkLFO,y`
+//  in the DST path, and WorkEnvGenOutputVoice3 is source 2. A voice whose SRC names
+//  either one modulates from the chip's own oscillator 3 or envelope 3.
+//  Reading $d41b/$d41c has no side effect on the chip.
+                        lda $d41b                       //   Read Oscillator Voice 3 / Random Number Generator
+                        sta WorkOscillatorVoice3
+                        lda $d41c                       //   Envelope Generator Voice 3 Output
+                        sta WorkEnvGenOutputVoice3
                         // This calls a subroutine to process each voice.
                         // It will pull in the next command, run it and do so until it a note plays or it hits end of song for the voice
                         ldx #$00

@@ -21,6 +21,31 @@
 
 ---
 
+## Bug #207 — `SRC 1` and `SRC 2` modulated with a constant zero, because the port stopped sampling the two SID outputs 🟠 ✅ FIXED (2026-11-08)
+
+**Symptoms.** A voice modulating from the chip's own generators — `SRC 1` (oscillator 3) or `SRC 2`
+(envelope 3) — moved nothing: no pitch bend, no pulse-width movement, no filter sweep. Nothing
+reported it. The pair decoded, the setting showed on the grid, and the destination simply stayed put.
+
+**Root cause.** `DST` reads its source as `lda WorkLFO,y` with Y = `SRC`, so the three sources are
+the three bytes starting at `WorkLFO`: the software oscillator, then `WorkOscillatorVoice3`, then
+`WorkEnvGenOutputVoice3`. The port had removed the per-tick `$d41b`/`$d41c` sample that fills the
+last two, on the comment that "nothing reads either byte" — true of the original's *screen*, and
+wrong here, because the modulation path is what reads them, through an index rather than a label.
+Both bytes therefore stayed at 0 for ever, and sources 1 and 2 delivered nothing.
+
+**Fix.** The two read/store pairs are back in `sidplay.inc`, once per tick before the voices are
+processed: `lda $d41b` / `sta WorkOscillatorVoice3` and `lda $d41c` / `sta WorkEnvGenOutputVoice3`.
+That is 12 bytes in `sid.lib`, which stays at 15 pages, so no task's pool budget moves (`basic` is
+still exactly full at 109).
+
+**Rule.** A commented-out store is only safe once every *reader* has been found, and an array
+indexed by a command operand (`lda WorkLFO,y`) makes its neighbours part of its API — search the
+label, not just the obvious use. Reading these two SID registers has no side effect on the chip, so
+"nothing shows it on screen" is not a reason to drop the sample.
+
+---
+
 ## Bug #205 — `musedit` printed two stray glyphs for a pitch stored as B sharp 🟡 ✅ FIXED (2026-11-08)
 
 **Symptoms.** On `immig`, bar 5 row 1 (and bars 7, 27 and 29), voice 1's pitch cells showed a
