@@ -231,14 +231,15 @@ reason a line can be written, changed and removed without moving a single row �
 | place the cursor | click a cell in the grid |
 | move one row | cursor up / down; at the bottom the window scrolls a line, at the top it moves back a whole page |
 | move a whole page | `SHIFT`+`,` a page back, `SHIFT`+`.` a page on |
+| go to a bar | `SHIFT`+`N` the bar after this one, `SHIFT`+`P` the one before, `SHIFT`+`B` to type a number |
 | change voice | cursor left / right, or click a cell in another lane |
 | jump to the start of the voice | `CLR/HOME` |
 
 The playhead follows playback and the window follows the playhead. **While the tune is playing
-the cursor is the playhead**, so `CRSR-UP`/`CRSR-DOWN` and the page keys are refused — the follow
-would drag the marker straight back. `CRSR-LEFT`/`CRSR-RIGHT` still work, and are the useful pair
-while playing: they move the dots to another voice, so you can see which note that voice is
-sounding. Editing does not work while the tune is playing either — stop first (`? stop first`).
+the cursor is the playhead**, so `CRSR-UP`/`CRSR-DOWN`, the page keys and the bar keys are refused —
+the follow would drag the marker straight back. `CRSR-LEFT`/`CRSR-RIGHT` still work, and are the
+useful pair while playing: they move the dots to another voice, so you can see which note that voice
+is sounding. Editing does not work while the tune is playing either — stop first (`? stop first`).
 
 A page on lands on the row the window's own bottom line holds, so the next page starts on a row you
 were already looking at and no row is missed; a tune that ends inside the window has no page on, and
@@ -246,6 +247,14 @@ the key does nothing. A page back is the same distance counted back from the win
 rows, the number the grid holds — and it stops at the tune's first row. Both move the window under
 the cursor: the cursor keeps its line on the screen, and the row under it changes with what the
 window now holds.
+
+**A bar jump is exact, and it is counted by the walk** rather than divided out of the row number:
+a tempo change cuts a bar short, so the only truthful count is the one the tune's own walk makes as
+it goes. `SHIFT`+`B` opens a prompt in row 0 showing `BAR` and the bar you are on; digits replace
+the number, `INST/DEL` backs one out, `RETURN` goes there and `STOP` leaves you where you were.
+`SHIFT`+`N` and `SHIFT`+`P` step a bar at a time without the prompt. A bar the tune never reaches
+answers `? no such bar` and leaves the view alone; otherwise the cursor lands on the row's own line —
+the note line, not one of its command lines.
 
 The cursor marker `>` is drawn in the free cell immediately **left of the lane the cursor is
 in** — column 3, 15 or 27 — so it says which voice a key will act on as well as which line you
@@ -574,12 +583,30 @@ is and nothing needs renumbering.
 hold is clamped to its maximum rather than refused, so what the prompt shows is always what gets
 written.
 
+**A written pair the tune cannot play is refused, and taken straight back.** After writing, the
+editor walks what it wrote. If that walk stops — a length the tempo cannot express, a `CALL` to a
+phrase with no `DEF`, a call stack one frame too deep, a `TAL` whose `HED` belongs to another
+phrase — the edit is undone on the spot, the redo withdrawn, and row 0 says which: `? illegal tempo`
+for a length, `? the tune cannot play that` otherwise. The grid comes back exactly as it was and
+there is nothing left to undo, so a value that cannot work never costs you a `Z`.
+
 **Overwrite or insert** — the mode `M` shows decides what happens when that boundary already
 carries the same command: `OVR` replaces it where it stands, `INS` adds a second pair.
 
 **Editing and removing** — put the cursor on an existing command line: `C` opens the prompt on
 that line, already filled in and ready to change, and `SHIFT+INST/DEL` removes that pair and
 closes the gap. `Z` takes either back, like any other edit.
+
+**A line carries one command per lane, and `C` acts on the lane the cursor is in.** Aim at the
+lane that shows the command you mean — the one you last moved into with `CRSR-LEFT`/`CRSR-RIGHT`,
+or the one the click landed in. On a line whose lanes have nothing for the cursor's voice the
+editor answers `? no command in this lane` rather than opening an empty prompt.
+
+That matters most for the settings a whole tune shares, the tempo above all: the player keeps
+**one** tempo, but each voice's stream sets it with its own `TEM` pair, so a tune normally carries
+the same `TEM` in every voice — and the value in force is whichever pair that row's walk reaches
+last. Change one lane's copy and the others still stand, so change the `TEM` line in each voice
+that shows one. The same goes for `UTL`, and for any command a tune repeats per voice.
 
 **Every** command the picker offers is writable, the sound ones included: `C` on a `P-W` line opens
 the prompt on `P-W` with the operand that line already carries — `CMD P-W 1035` — and taking a new
@@ -748,6 +775,7 @@ you quit**, so a session leaves nothing behind. It costs the same space however 
 | `? no player` | the SID was taken by another task during playback, or `sid.lib` could not load |
 | `? stop first` | an edit, a save, a jump or a quit was attempted during playback |
 | `? illegal duration` | the current tempo cannot express that note length |
+| `? illegal tempo` | a command write left a length the tempo cannot express; the editor **took the pair straight back** — the tune is exactly as it was, with nothing to undo |
 | `? no event here` | the rest or delete key needs the cursor on a row where an event starts |
 | `? a note in voice 2 spans the row` | `R` or `SHIFT+R` met a note that runs past that row, so the row cannot be closed without shortening it — shorten the note first, then delete |
 | `? hlt ends the voice` | `SHIFT+INST/DEL` on a `hlt` line: that pair is what ends the voice, so removing it would leave the voice unreadable — delete the events above it instead, or retype the line |
@@ -756,6 +784,9 @@ you quit**, so a session leaves nothing behind. It costs the same space however 
 | `? nothing to redo` | `X` with nothing undone since the last edit |
 | `? no definition` | `SHIFT+D` on a `call 3` line when the tune has no `def 3` at all |
 | `? no call` | `SHIFT+D` on a `def 3` line that no `CALL` in the tune plays |
+| `? no command in this lane` | `SHIFT+C` on a command line, in a lane that has no command on it — a line carries one command per voice, so the cursor must be in the lane that shows the one to change |
+| `? no such bar` | a bar jump (`SHIFT+N`, `SHIFT+P` or a typed number) asked for a bar the tune never reaches — the tune's own walk counts the bars, so the last bar is the last one it opens |
+| `? the tune cannot play that` | a written command left the tune unwalkable in some other way — a `CALL` to a phrase with no `DEF`, a call stack one frame too deep, a `TAL` whose `HED` is in another phrase. The pair was taken straight back |
 | `? not a phrase` | `SHIFT+D` on a line with no `CALL` or `DEF` in the cursor's lane — move into the lane that shows one (see *Following a phrase*) |
 | `? no pointer art` | the mouse is on but the pointer sprites could not be resolved — the REU image is stale |
 | `? no mouse - mouse 1351 first` | the system has no 1351: run `mouse 1351` from the shell, then start the editor again |

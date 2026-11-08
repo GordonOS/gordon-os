@@ -672,7 +672,7 @@ features the phase-1 plan had parked.
 
 | tenant | pages | notes |
 |---|---|---|
-| `musedit` code | 70 | 17,876 bytes, 1,866 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
+| `musedit` code | 70 | 17,911 bytes, 1,919 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
 | `sid.lib` | 15 | declared lazy, reserved at spawn, loaded on the first PLAY; the 15th page is the silent fast-forward |
 | `filesys.lib` | 10 | needed for `<base>.wrk` and `musedit.und`; touched at startup |
 | mouse | 2 | |
@@ -777,9 +777,9 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 | `python tools/check-musedit-walk.py` | `immig` and `katmand` both match the editor over 19 lines each — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,876 bytes / 70 pages / 1,866 fixups, `shell` 32 pages (margin 77); `msgs` 34 slots (2,176 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,911 bytes / 70 pages / 1,919 fixups, `shell` 32 pages (margin 77); `msgs` 38 slots (2,432 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
 | `python tools/check-mus-pitch.py` | 224 note options through the assembled `muPitchSplit`, **0 disagreements** with `mus-sim.py`; clamping the model's octave roll to 6 makes it report the two B-sharp-at-the-top options and exit 1 |
-| `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 2,176 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK |
+| `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 2,432 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |
 | py65, `mqClamp` on the built image | 300 against max 255 → **255** with the high half cleared, 300 with a stale `$0F` (the reproduced bug); `P-W`/`DTN` 4095, `POR` 16383, `MS#` 999 (768 → 768, 1000 → 999, 1023 → 999) all correct |
 | py65, `muLnDec` on the built image | every `MS#` pair from 0 to 1023 decodes to id 47 with its value intact — so 768-999 in a foreign file still draws as itself |
