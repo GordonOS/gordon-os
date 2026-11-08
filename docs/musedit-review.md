@@ -78,10 +78,12 @@ encoder has always been able to write the fourth block; only the declared maximu
 short.
 
 **One claim in the first draft of this finding was wrong.** It said "no bundled tune uses `MS#` at
-all", and that is what made "keep 767" look reasonable. Decoding all nine tunes from offset 8:
-**563 `MS#` pairs across six of them** — `katmand` 267, `tambrn` 156, `arose` 68, `commodo` 50,
-`fsonata` 21, `immig` 1 — with the highest value **595** (`immig`, pair `9E 53`, block 3). Heavily
-used, never at the cap, so nothing is broken today and the recommendation had no basis.
+all", and that is what made "keep 767" look reasonable. Decoding all eight tunes from offset 8:
+**494 `MS#` pairs across four of them** — `katmand` 267, `tambrn` 156, `commodo` 50, `fsonata` 21 —
+with the highest value **89** (`katmand`). Heavily used, never near the cap, so nothing is broken
+today and the recommendation had no basis. An earlier figure of 595 for `immig` was a pair read out
+of the **description tail**, past the streams, where the framed title's colour bytes live: `immig`
+writes no `MS#` at all.
 
 **Fixed, in two data bytes.** `mqShMaxHi`'s shape-7 entry `$02` → `$03` and `mqShMaxLo`'s `$ff` →
 `$e7`; `mqClamp` is already a general 16-bit minimum, so it stops at exactly 999 with no routine
@@ -271,7 +273,7 @@ That holds only if every voice's stream starts at an even offset — header 8, t
 `8+len1+len2`. Each voice's length is a stream of pairs plus `HLT`, so a *well-formed* file is
 always even; the format does not say so, and the editor does not check.
 
-I probed all nine bundled tunes: every length is even and every stream starts even, so nothing in
+I probed all eight bundled tunes: every length is even and every stream starts even, so nothing in
 the repository was exposed. A hand-written or foreign file with an odd length would read a pair
 across the page boundary — the address still lands inside a window, so this is wrong data on
 screen, not corruption — and everything after the first odd voice would be misparsed.
@@ -591,7 +593,7 @@ The discrepancies are:
 | 3 | `:562` "**Every** command the picker offers is writable" | true (no shape 9), and `JIF` is correctly absent from the picker — this claim is *right* and worth keeping |
 | 4 | the tune-size cap | never mentioned — **fixed**: *Limits* now states the ~65 KB scratch copy, and that a voice must end on its `01 4F` terminator (**F11**, **F9**) |
 | 5 | `:39` "`? sid.lib in use` … printed by the shell before `musedit` starts" | correct, and the branch added exactly that (`shell.inc:1516`, `msgDynSidBusy`) |
-| 6 | `:214` "`JIF` … no bundled tune uses it" | verified: zero `JIF` pairs in the nine bundled tunes |
+| 6 | `:214` "`JIF` … no bundled tune uses it" | verified: zero `JIF` pairs in the eight bundled tunes |
 | 7 | `:88` dots "red / yellow / cyan" | `muVoiceCol: .byte 2, 7, 3` ✓ |
 | 8 | `:106` "quits, and answers `? unsaved` first" | `M_UNSAVED` is `"? unsaved - q again"`; the wording now gives the whole text |
 | 9 | `:552` "a value the command cannot hold is clamped to its maximum … what the prompt shows is always what gets written" | now true: the clamp's high half is re-derived on every prompt redraw (**F14**, fixed) |
@@ -785,4 +787,4 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 | `powershell tools/check-reu-current.ps1` | no `.asm`/`.inc` changed since the last task build; all 49 binaries byte-identical in the image |
 | `python tools/check-links.py` | 49 files, 0 unresolved — OK |
 | `python tools/check-ascii.py` | OK |
-| host probe over `music/*.mus` | voice lengths all even, no `JIF`, no `$00` pairs, no `MS#` ≥ 768 (563 `MS#` pairs in six tunes, highest 595), 39 utility-duration pairs |
+| host probe over `music/*.mus` | voice lengths all even, no `JIF`, no `$00` pairs, no `MS#` ≥ 768 (494 `MS#` pairs in four tunes, highest 89), 39 utility-duration pairs |

@@ -325,9 +325,9 @@ duration byte's bits 6 (tie) and 5 (dot) together.
 Some notes do not land exactly on a row — a triplet or a double-dotted note can be shorter
 than one step. Such an onset is drawn on the row it falls in, with `?` at the right edge.
 `SHIFT+U` refines the grid until every onset has a row of its own: a half, a third, or a
-single jiffy per row, taking only the steps that divide the tempo's own unit exactly (`arose` at
-tempo 144 offers three — 16, 48 and 144 rows to the bar — because 9 jiffies does not halve). Each
-press goes one step **finer** and, past the finest, wraps back round to the plain grid, so the
+single jiffy per row, taking only the steps that divide the tempo's own unit exactly — a tempo
+whose unit is 9 jiffies offers three (16, 48 and 144 rows to the bar), because 9 does not halve.
+Each press goes one step **finer** and, past the finest, wraps back round to the plain grid, so the
 states cycle rather than stop. A tune that contains a triplet is already refined at the third when
 it opens, which means its first press takes you to the finest and the second wraps to plain. Where
 a later tempo cannot divide the chosen refinement, that part of the tune keeps the plain grid
