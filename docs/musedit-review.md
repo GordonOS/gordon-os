@@ -494,7 +494,7 @@ refusal it produces (**F9**).
 | `tools/temp/symout/assemble-tasks.vs` | committed artifact | **removed**, and `/tools/temp/` ignored (**F6**) |
 | `MS#` numbers | `:373`, `:6770`, `musedit.md:551`/`:616` | three-way disagreement — **fixed**, the encoder carries 999 (**F1**) |
 | generated-file table | `development.md:637` | two generators missing — **fixed** (**F7**) |
-| the plan's tune references | `docs/plans/musedit-plan.md` | already pruned to the shipment's own tunes |
+| the plan's tune references | the phase-1 plan (retired to `Documents/GordonOSPlans/`) | already pruned to the shipment's own tunes |
 
 Nothing else: `tools/vice-step.ps1`, `vice-test.ps1` and `drive-string-tests.ps1` were deleted on
 this branch and nothing in the tree refers to them; the message table has no other orphans; the
@@ -531,9 +531,10 @@ Very little, given the size. In descending order of "would I cut this":
    is heavy for that, but both emit *committed* files that must agree with something else
    (`sidplay.inc`, and the piano's own geometry), and the `-Check` steps are what make the
    agreement enforceable. Keep them; document them (**F7**).
-4. **`docs/plans/musedit-plan.md`** is 1,652 lines. That is a process choice, not a code one, and
-   it is the record this project works from — but it is now longer than some of the code it
-   describes, and its verification notes duplicate what `bugs.md` and the gates already say.
+4. **The phase-1 plan** ran to 1,652 lines. That is a process choice, not a code one, and it is
+   the record this project worked from — but at that length it was longer than some of the code it
+   described, and its verification notes duplicated what `bugs.md` and the gates already said. It
+   is retired to `Documents/GordonOSPlans/`; `docs/plans/` now carries only the phase-2 plan.
 
 What is *not* overengineering, in case it looks it: the three image windows (the tune is never in
 RAM, so edits are page-granular and the pool holds 70 code pages instead of a 65 KB tune), the
@@ -654,6 +655,12 @@ Almost. Measured against `reference/sidplayer-mus-file-format.md`:
    with the range-diff undo it already has. Medium.
 
 The first three are hours each; the fourth is the only real design change.
+
+**Where these went.** All six are carried into [musedit-phase2-plan.md](./plans/musedit-phase2-plan.md)
+with a byte budget, a funding line and a gate each — and one of them has already landed: `MS#` was
+delivered at the format's own ceiling of **999**, not 1023 (the fourth block's option range ends at
+`$E7`, so 1000-1023 are not in the encoding). That plan also carries the five features the phase-1
+plan had parked.
 
 ---
 
