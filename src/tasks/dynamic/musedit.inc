@@ -216,8 +216,7 @@
 .label muRrWant     = MU_ZP_BASE+219  // ...and bytes wanted
 .label muUcOf       = MU_ZP_BASE+220  // the stack cursor's offset inside its page
 .label muUcPg       = MU_ZP_BASE+221  // ...and its page
-.label muUcDirty    = MU_ZP_BASE+222  // the window has writes the file has not seen
-.label muUcTmp      = MU_ZP_BASE+223  // the byte muUndoGet carries across its own restore
+.label muUcTmp      = MU_ZP_BASE+223  // the one byte a stack transfer carries
 .label muInsFrom    = MU_ZP_BASE+227  // 2 bytes  the first row a splice touched
 .label MU_ZP_END    = MU_ZP_BASE+229
 .assert "the zero page region fits the declared window", (MU_ZP_END - MU_ZP_BASE) <= MU_ZP_LEN ? 1 : 0, 1
@@ -6853,7 +6852,7 @@ mqShCmdShift: .byte 4,    2,    6
 //  MU_RECNEWN. The record carries the voice (so the gap op can fix its length
 //  word), the old bytes and the new bytes, so undo and redo are each a single
 //  range replace -- no multi-step offsets to keep in step as a gap shifts the
-//  tail. Records grow up muUndoBuf; a trailing length byte lets undo walk back.
+//  tail. Records grow up the stack; a trailing length byte lets undo walk back.
 //  Layout: off_lo, off_hi, voice, oldN, newN, old[oldN], new[newN], total.
 
 // --- muRecAtSek -- the undo record points at the pair the seek found ---
@@ -6913,81 +6912,42 @@ muRecKPtr:
     rts
 
 // ==========================================
-//  The stack's window: one page of the REU file at a time
+//  The stack: one byte at a time, nothing resident
 // ==========================================
-//  The stack is MU_UNDO_SIZE bytes of the REU file `musedit.und`, and ONE page of it
-//  is resident in muUndoBuf -- the window. The cursor (muUcPg, muUcOf) is the virtual
-//  offset of the byte being written or read, and every byte goes through
-//  muUndoPut/muUndoGet, which seat the window when the cursor enters a new page. The
-//  page being left is flushed on the way out, so the file and the window only differ
-//  for the page in hand.
-//  A record is 6 + oldN + newN bytes and cannot exceed 255 -- the total is stored in
-//  one byte -- so it spans at most two pages. The accessors cross that boundary a
-//  byte at a time, which is why no caller has to know where a page ends.
+//  The stack is MU_UNDO_SIZE bytes of the REU file `musedit.und`, and NO part of it
+//  lives in the image: every byte is one kReuReadAt or kReuWriteAt of length 1 at the
+//  cursor's position, so the task carries no window page, no dirty flag and no
+//  page-boundary arithmetic. The cursor (muUcPg, muUcOf) is the virtual offset of the
+//  byte being read or written -- the page IS the position's high byte, so seating it
+//  is two loads -- and it advances one byte per access.
+//  A record is 6 + oldN + newN bytes and cannot exceed 255 (the total is one byte), so
+//  an edit costs one transfer per record byte: tens of DMAs for a push, each a single
+//  1-byte range with no directory scan, which is nothing next to the edit itself.
+//  The file is created zeroed at open and dropped at exit, so a session always starts
+//  with an empty stack.
 
-// --- muUndoIo -- A = page: kArg..kArg+7 and kPtr set for a 256-byte transfer ---
+// --- muUndoAt -- kArg = the stack file at the cursor, len 1, kPtr = MU_UCTMP ---
 //  kReuReadAt/kReuWriteAt take the record pointer, the position, the length and the
-//  C64 end in the kArg block with kPtr; the position is page * 256 and the C64 end is
-//  the window.
-muUndoIo:
-    sta kArg+3                  // pos = page * 256
-    lda #0
+//  C64 end in the kArg block with kPtr; here the position is the cursor and the C64
+//  end is the one byte MU_UCTMP holds.
+//  Clobbers A, X, Y, kArg..kArg+7, kPtr.
+muUndoAt:
+    lda muUcPg
+    sta kArg+3                  // pos = page * 256 + offset: the page IS the high byte
+    lda muUcOf
     sta kArg+2
-    sta kArg+6
     lda #1
-    sta kArg+7                  // len = 256
+    sta kArg+6                  // len = 1
+    lda #0
+    sta kArg+7
     ldx #<muUndoRec
     ldy #>muUndoRec
     stx kArg
     sty kArg+1
-    ldx #<muUndoBuf
-    ldy #>muUndoBuf
+    ldx #<muUcTmp
+    ldy #>muUcTmp
     stx kPtr
     sty kPtr+1
-    rts
-
-// --- muUndoFlush -- write the window back to the page it came from ---
-//  Clobbers A, X, Y, kArg..kArg+7, kPtr.
-muUndoFlush:
-    lda muUcDirty
-    beq muUfRts
-    lda muUcWin
-    cmp #$ff
-    beq muUfRts
-    jsr muUndoIo
-    jsr kReuWriteAt
-    lda #0
-    sta muUcDirty
-muUfRts:
-    rts
-
-// --- muUndoWind -- the window holds the cursor's page ---
-//  kPtr and Y survive. A caller copying a record through the cursor holds the image
-//  pointer in kPtr, and the seat's own DMA would otherwise eat it.
-muUndoWind:
-    lda muUcPg
-    cmp muUcWin
-    beq muUwRts
-    tya
-    pha
-    lda kPtr
-    pha
-    lda kPtr+1
-    pha
-    jsr muUndoFlush
-    lda muUcPg
-    sta muUcWin
-    jsr muUndoIo
-    jsr kReuReadAt
-    lda #0
-    sta muUcDirty
-    pla
-    sta kPtr+1
-    pla
-    sta kPtr
-    pla
-    tay
-muUwRts:
     rts
 
 // --- muUndoSet -- the stack cursor := A/X (lo/hi of the virtual offset) ---
@@ -6996,43 +6956,63 @@ muUndoSet:
     stx muUcPg
     rts
 
+// --- muUndoNext -- the cursor advances one byte ---
+muUndoNext:
+    inc muUcOf
+    bne muUnRts
+    inc muUcPg
+muUnRts:
+    rts
+
 // --- muUndoGet -- A = the stack byte at the cursor; the cursor advances ---
-//  X and Y survive, so a copy loop can index with them across the call.
+//  X, Y and kPtr survive, so a copy loop can index the image with them across the
+//  call: the transfer puts its own pointers in kArg and kPtr.
 muUndoGet:
     txa
     pha
-    jsr muUndoWind
-    ldx muUcOf
-    lda muUndoBuf,x
-    inc muUcOf
-    bne muUgDone
-    inc muUcPg
-muUgDone:
-    sta muUcTmp
+    tya
+    pha
+    lda kPtr
+    pha
+    lda kPtr+1
+    pha
+    jsr muUndoAt
+    jsr kReuReadAt
+    jsr muUndoNext
+    pla
+    sta kPtr+1
+    pla
+    sta kPtr
+    pla
+    tay
     pla
     tax
     lda muUcTmp
     rts
 
 // --- muUndoPut -- the stack byte at the cursor := A; the cursor advances ---
-//  X and Y survive.
+//  X, Y and kPtr survive, as above.
 muUndoPut:
-    sta muUcTmp                 // the value: the seat below clobbers A
+    sta muUcTmp                 // the value: the transfer reads it from here
     txa
     pha
-    jsr muUndoWind
-    lda #1
-    sta muUcDirty
-    ldx muUcOf
-    lda muUcTmp
-    sta muUndoBuf,x
-    inc muUcOf
-    bne muUpDone
-    inc muUcPg
-muUpDone:
+    tya
+    pha
+    lda kPtr
+    pha
+    lda kPtr+1
+    pha
+    jsr muUndoAt
+    jsr kReuWriteAt
+    pla
+    sta kPtr+1
+    pla
+    sta kPtr
+    pla
+    tay
     pla
     tax
-    rts
+    jmp muUndoNext
 
 // --- muUndoArg -- kArg/kArg+1 = the stack file's name ---
 muUndoArg:
@@ -10139,17 +10119,21 @@ muQuitDrain:
     jsr syscall
     jmp muQuit                  // never reached
 
-// --- muScrDrop -- remove <base>.wrk, which the next load rebuilds ---
+// --- muScrDrop -- remove the two working files, which the next load rebuilds ---
 //  Called from the exit path AFTER the music child is reaped: the player pages
-//  the same file through its own windows, so it must not be dropped under it.
-//  A delete is a tombstone, so the space is freed by `compact`, not here; the
-//  test on the library matters because kReuDelete's cold stub leaves the task
-//  through libFailExit when filesys.lib cannot load.
+//  the same <base>.wrk through its own windows, so it must not be dropped under it.
+//  The stack file goes with it -- a session's undo history is that session's, and a
+//  file left behind would be a 2 KB tombstone in the directory. A delete is a
+//  tombstone, so the space is freed by `compact`, not here; the test on the library
+//  matters because kReuDelete's cold stub leaves the task through libFailExit when
+//  filesys.lib cannot load.
 muScrDrop:
     lda libStartPage+LIB_FILESYS
     cmp #$ff
-    beq muSdRts                 // the library never loaded: there is no file to drop
+    beq muSdRts                 // the library never loaded: there are no files to drop
     jsr muSFArg
+    jsr kReuDelete
+    jsr muUndoArg
     jmp kReuDelete
 muSdRts:
     rts
@@ -10501,7 +10485,7 @@ muHistRLo:  .fill 3*MU_HIST, 0
 muHistRHi:  .fill 3*MU_HIST, 0
 
 // --- the undo stack and the dirty guard ---
-muUndoTop:  .word 0             // the next free byte in muUndoBuf (the stack top)
+muUndoTop:  .word 0             // the next free byte in the stack (the stack top)
 muUndoLim:  .word 0             // the redo limit: actions undone are redoable to here
 muRecOff:   .word 0             // the record being built/applied: image offset...
 muRecOld:   .byte 0, 0          // ...and the old bytes (oldN is 0 or 2)
@@ -10513,9 +10497,7 @@ muItN1:     .byte 0             // the events the front, silence...
 muItNr:     .byte 0             // ...
 muItN2:     .byte 0             // ...and remainder take
 muInsNoteV: .byte $ff           // the voice that gets the note ($ff = all rests)
-muRrSrc:    .word 0             // ...from this offset in muUndoBuf
-muUndoBuf:  .fill 256, 0            // the window: the one page of the stack that is here
-muUcWin:    .byte $ff           // the page the window holds, $ff = none read yet
+muRrSrc:    .word 0             // ...from this offset in the stack
 muUndoOk:   .byte 0             // the stack file resolved (0 = edits are not undoable)
 muUndoRec:  .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
 muUndoName: .text "musedit.und"

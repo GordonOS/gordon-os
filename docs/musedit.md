@@ -701,8 +701,9 @@ gives that space back when you run `compact`.
 that split a longer one undoes as a single step, not one per event it wrote. A long run of recent
 actions is held; opening a tune resets the history.
 
-The history lives in a 2 KB file called `musedit.und`, made on the first run and reused from
-then on, so `dir` shows it and it costs the same space however much you edit.
+The history lives in a 2 KB file called `musedit.und`, made when the editor opens and **deleted when
+you quit**, so a session leaves nothing behind. It costs the same space however much you edit, and
+`compact` is what returns the directory slot to the filesystem.
 
 ## Troubleshooting
 

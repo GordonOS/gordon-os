@@ -13,18 +13,18 @@
 
 | | |
 |---|---|
-| code | **17,913 bytes**, 1,817 fixups, **70 code pages** of a 256-byte granule (71 measured working) |
-| pool | **103 pages of 109** (code 70, `sid.lib` 14, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
+| code | **17,622 bytes**, 1,811 fixups, **69 code pages** of a 256-byte granule (71 measured working) |
+| pool | **102 pages of 109** (code 69, `sid.lib` 14, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
 | zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`) |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
 Two numbers govern everything below, and neither is negotiable without a design change:
 
-- **The editor can carry 263 more bytes of code.** `musedit` is 17,913 bytes — 7 bytes under the
-  70-page line (17,920) — but **71 pages has been measured working**: with `sid.lib` trimmed to 14
-  pages, a 71-page build (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune
-  and played it. So the usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on
-  pool margin 4, which is the figure that refused to play before the trim, and is untested.
+- **The editor can carry 554 more bytes of code.** `musedit` is 17,622 bytes, 69 code pages, and
+  **71 pages has been measured working**: with `sid.lib` trimmed to 14 pages, a 71-page build
+  (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune and played it. So the
+  usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on pool margin 4, which is
+  the figure that refused to play before the trim, and is untested.
 - **The wall moves with the pool, not with the byte count.** The voice-terminator check was first
   written at 136 bytes, which put the code at 71 pages; the pool budget gate printed `margin 4` and
   the machine refused to play — `sid.lib` did not fit. The budget gate adds pages up; a load needs
@@ -40,12 +40,17 @@ levers. They are listed in the order I would try them: cheapest and most certain
 | lever | yield | cost |
 |---|---|---|
 | **`muMnTab` at four bytes a field** | **49 bytes** | the table is 49 × 5 (`"TEM  UTL  …"`), the trailing spaces being what lets a command line print exactly one field. Every mnemonic is three characters except **`CALL`**, which is four — so four bytes a field holds them all (196 bytes instead of 245) and the print blits one space after the four cells, giving the same 5-cell output. Not three bytes: `CALL` would not fit. The panel's one table read (`:6776`) changes its ×5 to ×4. |
-| **`muUndoBuf` out of the image** | **256 bytes** (exactly one page) | the undo stack's *window* page lives in the image (`:10517`); the records it windows already live in `musedit.und`. Moving the window to a page of that file costs one DMA per push/pop — undo is not a hot path — and takes the allocator's one in-image buffer away. |
 | **more shared tails** | measured: **3 bytes** for `muWinPtr` | extraction only pays for itself; it is not a strategy. Worth doing opportunistically, per item. |
 
-Plan-level budget, if the levers are taken in order: `muMnTab` + `muUndoBuf` ≈ **305 bytes** — more
-than items 1, 3 and 5 together. With the 263 bytes already available (17,913 to the 71-page line),
-items 1, 5 and 7 fit without a lever; items 3, 4 and 6 are where the funding comes in.
+**Done already — the undo history is out of the image.** `muUndoBuf`, the 256-byte window page, is
+gone: every stack byte is now one `kReuReadAt`/`kReuWriteAt` of length 1 at the cursor, so nothing of
+the stack is resident and no page-boundary arithmetic is needed. That took `musedit` from 17,913 to
+**17,622 bytes and 70 code pages to 69**, and the pool from 103 to **102 of 109 (margin 7)**. The
+file is also deleted at exit now, so a session leaves nothing behind.
+
+Plan-level budget: `muMnTab` is worth ≈ 49 bytes on top of the **554 bytes already in hand**
+(17,622 to the 71-page line, 18,176). Items 1, 3, 5 and 7 fit in that; item 6 (blocks, 350-450
+bytes) is the one that needs a lever of its own.
 
 **Where the player lives, and where it stays.** The music runs in a **thread child of the editor**:
 it shares the editor's code pages and the editor declares `sid.lib` for the session, paging
@@ -315,7 +320,7 @@ A suggested order — smallest risk first, and each one independently shippable:
 
 | step | items | why here |
 |---|---|---|
-| 2.1 | `muMnTab` at 4 bytes, `muUndoBuf` to the file | buys ~305 bytes before anything grows; both are byte-neutral to the user |
+| 2.1 | `muMnTab` at 4 bytes | buys ~49 bytes; byte-neutral to the user (the undo history is already out of the image) |
 | 2.2 | **item 1 (`JIF`)** | self-contained, ~70 bytes, one new gate, and it takes the drawn set from 49 to the format's full 50 |
 | 2.3 | **item 5 (delete row / bar)** | no new UI, reuses `muDelGap`/`muInsGap`, and it is the inverse the editor is most obviously missing |
 | 2.4 | **item 3 (description)** | UI-only, ~200 bytes, needs the keys decision |
@@ -346,6 +351,6 @@ hears or types into; a py65 harness alone is not "verified".
 7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
    `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
    default tempo, which is a different number and would have to say so)?
-8. **Funding**: are the two levers (§ 2: `muMnTab` ≈ 49 bytes, the undo window ≈ 256) the whole
-   budget, or should item 6 find its own? Worth knowing before item 6 is scheduled, because that is
-   the only item that needs more than the 263 bytes in hand.
+8. **Funding**: `muMnTab` (§ 2, ≈ 49 bytes) plus the 554 bytes in hand is the whole budget —
+   enough for items 1, 3, 5 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
+   which does the list prefer?

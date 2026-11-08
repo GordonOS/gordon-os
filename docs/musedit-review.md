@@ -537,7 +537,7 @@ Very little, given the size. In descending order of "would I cut this":
    is retired to `Documents/GordonOSPlans/`; `docs/plans/` now carries only the phase-2 plan.
 
 What is *not* overengineering, in case it looks it: the three image windows (the tune is never in
-RAM, so edits are page-granular and the pool holds 70 code pages instead of a 65 KB tune), the
+RAM, so edits are page-granular and the pool holds 69 code pages instead of a 65 KB tune), the
 per-voice page cache, the `muHist` ring (32 slots × 3 voices — it removes a second walk of the
 tune per frame), the six-page `kMalloc` block shared with the player child, and the `MU_SPIN` /
 call-depth guards in the walk (they model the player's own limits). Each of those is load-bearing.
@@ -671,13 +671,13 @@ features the phase-1 plan had parked.
 
 | tenant | pages | notes |
 |---|---|---|
-| `musedit` code | 70 | 17,913 bytes, 1,817 fixups; ~256 B of it is the resident undo window (`muUndoBuf`) — a buffer living in the image |
+| `musedit` code | 69 | 17,622 bytes, 1,811 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
 | `sid.lib` | 14 | declared lazy, reserved at spawn, loaded on the first PLAY |
 | `filesys.lib` | 10 | needed for `<base>.wrk` and `musedit.und`; touched at startup |
 | mouse | 2 | |
 | sprite | 1 | the pointer and the three dots |
 | `kMalloc` block | 6 | 1,536 B: three 256 B image windows for the editor, three for the player child |
-| **total** | **103 of 109** | margin 6, and `basic` fits the pool **exactly** — the gate warns on every build |
+| **total** | **102 of 109** | margin 7, and `basic` fits the pool **exactly** — the gate warns on every build |
 
 Kernel side: 116 bytes free across 21 pockets, and this branch spent carefully — `tickCount` went
 into a 1-byte pocket that `verify-map.ps1` now pins, and the core grew only through re-pointed
@@ -685,7 +685,7 @@ jumps.
 
 **Assessment.**
 
-- **Code density is good.** 70 pages for a full tracker editor with mouse, piano, undo, command
+- **Code density is good.** 69 pages for a full tracker editor with mouse, piano, undo, command
   authoring, playback and a phrase-aware walk is tight. The ZP map (229 bytes of the 234 available)
   is why: the hot state is `zp,X` and one byte per reference.
 - **The largest structural cost is `sid.lib`'s 14 pages held for the whole session** (**F12**) — 13%
@@ -704,7 +704,7 @@ jumps.
 - **`<base>.wrk` costs 65 KB of *REU filesystem*, not pool** (**F11**), and the space comes back on
   `compact`. Worth stating in the guide; not worth changing.
 
-No waste worth chasing at margin 6, other than the 14 pages above.
+No waste worth chasing at margin 7, other than the 14 pages above.
 
 ---
 
@@ -776,7 +776,7 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 | `python tools/check-musedit-walk.py` | `immig` and `katmand` both match the editor over 19 lines each — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,913 bytes / 70 pages / 1,817 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 103 of 109, margin 6 (`basic` fits exactly — pre-existing) |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,622 bytes / 69 pages / 1,811 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 102 of 109, margin 7 (`basic` fits exactly — pre-existing) |
 | `python tools/check-mus-pitch.py` | 224 note options through the assembled `muPitchSplit`, **0 disagreements** with `mus-sim.py`; clamping the model's octave roll to 6 makes it report the two B-sharp-at-the-top options and exit 1 |
 | `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 1,984 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK, 139 entries |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |
