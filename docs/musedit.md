@@ -511,6 +511,10 @@ the next row the tempo is the **last** of them (voice 3's, since the player proc
 order). Rows that become illegal because of a tempo change are flagged on the grid rather than
 silently kept.
 
+One corner a foreign file can carry: a note pair whose duration byte is exactly `$00`. The format
+does not say what such a pair means — the reference notes that only the player decides — and the
+player plays it as a 64th note, so the grid draws it as one and it is written back unchanged.
+
 ## Commands — envelopes, waveforms, vibrato, filter and the rest
 
 Commands are the sound of the tune. `.mus` commands are 2-byte events placed **before the note
@@ -745,3 +749,16 @@ The first release does **not** do these, by design:
   instrument macros, no jam recording, no mute/solo.** The file is fully readable and
   editable without them.
 - **No `.wds` words**, no printing, no playlists.
+
+Two numbers bound what you can build, and neither is in the file:
+
+- **A tune can grow to about 65 KB.** The editor works on a 65,280-byte scratch copy of the tune in
+  the REU filesystem, and a fresh one takes that room when the tune is first opened, whatever the
+  tune's size. That is fourteen times the largest bundled tune, so it is not a limit you will meet
+  by writing, and the space it takes comes back on `compact` once you stop editing. `? no space`
+  means that cap, not the pool.
+- **A voice must end on its `01 4F` terminator.** Every voice is a stream of two-byte commands, so
+  a `.mus` whose voice ends anywhere else has lost or gained a byte and cannot be read as the
+  format says — the editor refuses it at open with `? not a valid .mus file` rather than draw
+  commands the tune never wrote. All the bundled tunes are well formed; a file that is not is
+  damaged or was written by something else.

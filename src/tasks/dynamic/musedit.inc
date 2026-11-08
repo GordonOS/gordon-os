@@ -9274,9 +9274,9 @@ muPfBlind:
 //  call, which is what lets the band draw only the line that arrives: a row with
 //  three commands is four lines, and the playhead walks past all of them.
 //
-//  A screen row therefore no longer names a time row, so MU_LNTBLO/HI record which
-//  row each visible line holds -- that is what the cursor, the header's BAR/R and
-//  the seek read.
+//  A screen row is not a time row, because a command line sits between them, so
+//  MU_LNTBLO/HI record which row each visible line holds -- that is what the
+//  cursor, the header's BAR/R and the seek read.
 
 // --- muLnNext -- emit the next line at MU_LNSCR, or discard it if that is $ff ---
 //  Out: C=1 when the tune has no more lines. Draws what it emits.

@@ -16,8 +16,8 @@ message needs no copy and no terminator hunt beyond the NUL the slot carries.
 The .bin holds SCREEN CODES, not ASCII -- the editor prints it straight to the
 screen, and the two differ for every letter. A lower-case letter is $01-$1A; an
 upper-case one is its ASCII code ($41-$5A); everything else passes through. That is
-exactly what `.text` under `.encoding "screencode_mixed"` emits, which is what
-these strings used to be, so the screen shows what it always showed.
+exactly what `.text` under `.encoding "screencode_mixed"` emits, so a message reads
+the same whether it is assembled into the task or loaded from the image.
 
 Output, both from assets/ui/musedit-msgs.txt:
 

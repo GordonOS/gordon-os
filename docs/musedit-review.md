@@ -197,7 +197,7 @@ more that need **no assembler** and no binaries — they are plain Python over t
 
 | gate | what it protects |
 |---|---|
-| `check-mus-commands.py` | 30,463 pairs: the editor's command tables against `gen-mus.py` |
+| `check-mus-commands.py` | 30,695 pairs: the editor's command tables against `gen-mus.py` |
 | `check-mus-timing.py` | the duration/unit/bar model against `sidplay.inc` (an 8,192-case sweep) |
 | `check-musedit-walk.py` | the host walk against a captured screen |
 | `gen-musedit-glyphs.py -Check`, `gen-musedit-tables.py -Check`, `gen-musedit-msgs.py -Check` | the four generated includes are current |
@@ -454,6 +454,11 @@ a hard limit on what a user can build, and `musedit.md` never mentions it. One s
 closes it. The fixed size is a deliberate trade (no recreate-and-copy on every insert), and the
 guide already explains that the space comes back on `compact`.
 
+**Fixed.** *Limits* now carries both hard numbers the file never states: the 65,280-byte scratch
+copy — with the note that `? no space` means that cap rather than the pool, and that the space
+returns on `compact` — and the rule that every voice must end on its `01 4F` terminator, with the
+refusal it produces (**F9**).
+
 ---
 
 ## 2. Stale code
@@ -462,11 +467,11 @@ guide already explains that the space comes back on `compact`.
 |---|---|---|
 | `muClkNotR` + `M_NOT_YET` | `musedit.inc:8654` | unreachable — **deleted** (**F2**) |
 | `mqRefuseCmd` + `M_NOT_YET` | `musedit.inc:6263` | unreachable — **deleted**, with the shape test that reached it (**F2**) |
-| `M_NOT_TUNE` | `musedit-msgs.txt` | unused — **kept on purpose**: it is the message F9's even-length check needs |
-| `MU_BAR_INS` comment | `musedit.inc:403` | wrong — fix (**F3**) |
+| `M_NOT_TUNE` | `musedit-msgs.txt` | unused then — now the refusal both load checks share, as `? not a valid .mus file` (**F9**) |
+| `MU_BAR_INS` comment | `musedit.inc:403` | wrong — **fixed** (**F3**) |
 | `tools/temp/symout/assemble-tasks.vs` | committed artifact | **removed**, and `/tools/temp/` ignored (**F6**) |
-| `MS#` numbers | `:373`, `:6770`, `musedit.md:551`/`:616` | three-way disagreement (**F1**) |
-| generated-file table | `development.md:637` | two generators missing (**F7**) |
+| `MS#` numbers | `:373`, `:6770`, `musedit.md:551`/`:616` | three-way disagreement — **fixed**, the encoder carries 999 (**F1**) |
+| generated-file table | `development.md:637` | two generators missing — **fixed** (**F7**) |
 | the plan's tune references | `docs/plans/musedit-plan.md` | already pruned to the shipment's own tunes |
 
 Nothing else: `tools/vice-step.ps1`, `vice-test.ps1` and `drive-string-tests.ps1` were deleted on
@@ -527,7 +532,7 @@ reviewed cold shows so few defects:
   pages), plus the kernel's new `$54A2`/`$54AA` asserts.
 - **Two independent models.** `mus-sim.py` is a host re-implementation of the *player*, and
   `check-mus-commands.py` compares the editor's encoder tables against `gen-mus.py`'s decoder over
-  30,463 pairs. That is the strongest form of "does the grid agree with the music" available
+  30,695 pairs. That is the strongest form of "does the grid agree with the music" available
   without hardware.
 - **The kernel changes are minimal and defensive.** `tickCount` is one `inc` in the Timer A path
   at a published, asserted address; `sid.asm` now takes *only* an exact 1 as "stream" (a wrong
@@ -561,7 +566,7 @@ The discrepancies are:
 | 1 | `musedit.md:551` "`MS#` up to 767" vs `:616` "0-999" | the encoder capped at **767**; the format's limit is 999 (**F1**) — fixed: the encoder now carries 999 and both places say so |
 | 2 | the troubleshooting table (`:700-717`) | 11 of 23 messages documented, counting the body text; twelve reachable ones were not (**F4**) — fixed: all 23 have a row |
 | 3 | `:562` "**Every** command the picker offers is writable" | true (no shape 9), and `JIF` is correctly absent from the picker — this claim is *right* and worth keeping |
-| 4 | the tune-size cap | never mentioned (**F11**) |
+| 4 | the tune-size cap | never mentioned — **fixed**: *Limits* now states the ~65 KB scratch copy, and that a voice must end on its `01 4F` terminator (**F11**, **F9**) |
 | 5 | `:39` "`? sid.lib in use` … printed by the shell before `musedit` starts" | correct, and the branch added exactly that (`shell.inc:1516`, `msgDynSidBusy`) |
 | 6 | `:214` "`JIF` … no bundled tune uses it" | verified: zero `JIF` pairs in the nine bundled tunes |
 | 7 | `:88` dots "red / yellow / cyan" | `muVoiceCol: .byte 2, 7, 3` ✓ |
@@ -593,7 +598,7 @@ Almost. Measured against `reference/sidplayer-mus-file-format.md`:
 | tie bit | ✓ | armable, and never on a rest |
 | accidental / EORed octave | ✓ | including the B♯→next-C roll the player applies |
 | `$00` "absolute pitch" pairs | treated as a 64th note | **as the player does**; the reference itself says the option byte's meaning is undocumented. The guide does not mention this |
-| 48 of 49 command mnemonics | ✓ drawn, authored, clamped | verified against `gen-mus.py` over 30,463 pairs |
+| 48 of 49 command mnemonics | ✓ drawn, authored, clamped | verified against `gen-mus.py` over 30,695 pairs |
 | `JIF` | not drawn, not authorable, preserved in the file | deliberate; see below |
 | `MS#` 768-1023 | drawn correctly, clamped on edit | **F1** |
 | `FLG` / `.wds` interlock | `FLG` drawn and authored | the `.wds` side has no counterpart (§ Limits) |
@@ -636,7 +641,7 @@ The first three are hours each; the fourth is the only real design change.
 
 | tenant | pages | notes |
 |---|---|---|
-| `musedit` code | 70 | 17,850 bytes, 1,805 fixups; ~256 B of it is the resident undo window (`muUndoBuf`) — a buffer living in the image |
+| `musedit` code | 70 | 17,916 bytes, 1,814 fixups; ~256 B of it is the resident undo window (`muUndoBuf`) — a buffer living in the image |
 | `sid.lib` | 15 | declared lazy, reserved at spawn, loaded on the first PLAY |
 | `filesys.lib` | 10 | needed for `<base>.wrk` and `musedit.und`; touched at startup |
 | mouse | 2 | |
@@ -707,22 +712,26 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 - **`sid.asm`'s strict-1 mode check is a genuine safety fix**, not a tidy-up: the old `and #1`
   made mode 3 stream from a garbage config. Worth keeping the paragraph.
 - **The shell's `rfSidBusy` opens the target file twice** (once to sniff the libMask, once to
-  load). That is the right trade — a load that fails on the pool never returns to the shell — but
-  it is worth a line in `docs/development.md`'s loader section, because "every `run` reads the file
-  header twice" is the kind of thing that surprises a later optimisation.
+  load). That is the right trade — a load that fails on the pool never returns to the shell — and
+  it is now stated in `docs/lib-sid.md`, because "every `run` reads the file header twice" is the
+  kind of thing that surprises a later optimisation.
 - **`musedit.inc` is 10,454 lines in one file.** The sectioning is excellent (each block has a
   header comment that states its contract), but a 6502 assembler has no scoping, so every label is
   global to the task. It has stayed disciplined; if it grows further, splitting the walk, the
   drawer and the command panel into `.import source` files with a unique prefix each (the pattern
   `musedit-glyphs.inc` already uses) would keep it navigable — remembering that every `.inc` must
   be listed in `project-config.json`'s `sources` for auto-rebuild.
-- **`tools/mus-sim.py`'s `pitch_name` now models the editor's rolled enharmonics** (this branch
-  fixed both sides). Worth a `-Check`-style assertion that the host model and `muPitchSplit` agree
-  over all 224 options — the py65 harness used for the B♯ fix is not in the tree, and that check is
-  reproducible.
-- **Two behaviours are described only in code comments** and deserve a guide line each: that a
-  utility-duration note (`$04`/`$24`) takes its length from `UTL`/`UTV`, and that a `.mus` whose
-  voice length is odd is not a `.mus` this editor can trust.
+- **`tools/mus-sim.py`'s `pitch_name` models the editor's rolled enharmonics** (this branch
+  fixed both sides). **Fixed as a gate**: `tools/check-mus-pitch.py` runs the assembled
+  `muPitchSplit` under py65 over all 224 note options and compares it with the model — semitone,
+  octave and the roll flag — so the two statements of one rule now check each other. It needs the
+  built binary, so it runs in the task build rather than in CI, and it was shown to bite: clamping
+  the model's octave roll to 6 makes it report exactly the two B-sharp-at-the-top options and exit 1.
+- **Two behaviours I thought were code-comment-only are in the guide after all**: the
+  utility-duration note (`$04`/`$24` take their length from `UTL`/`UTV`) is in *Utility lengths*,
+  and the odd-length refusal is now in *Limits* as well as the troubleshooting table. One corner
+  was genuinely missing and is now stated: a pair whose duration byte is `$00`, which the player
+  plays as a 64th and the grid draws as one.
 
 ---
 
@@ -732,11 +741,12 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 |---|---|
 | `python tools/check-mus-commands.py` | 30,695 pairs checked against `gen-mus.py`, 49 mnemonics — OK (the `MS#` sweep runs to 999 now, not 767) |
 | `python tools/check-mus-timing.py` | 32×7 chart with 0 disagreements, tables byte-identical to `sidplay.inc`, 8,192-case sweep, all 256 tempos have a unit — OK |
-| `python tools/check-musedit-walk.py` | `immig` matches the editor over 19 lines — OK |
+| `python tools/check-musedit-walk.py` | `immig` and `katmand` both match the editor over 19 lines each — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,850 bytes / 70 pages / 1,805 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
-| `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 1,984 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK, 141 entries |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,916 bytes / 70 pages / 1,814 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
+| `python tools/check-mus-pitch.py` | 224 note options through the assembled `muPitchSplit`, **0 disagreements** with `mus-sim.py`; clamping the model's octave roll to 6 makes it report the two B-sharp-at-the-top options and exit 1 |
+| `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 1,984 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK, 139 entries |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |
 | py65, `mqClamp` on the built image | 300 against max 255 → **255** with the high half cleared, 300 with a stale `$0F` (the reproduced bug); `P-W`/`DTN` 4095, `POR` 16383, `MS#` 999 (768 → 768, 1000 → 999, 1023 → 999) all correct |
 | py65, `muLnDec` on the built image | every `MS#` pair from 0 to 1023 decodes to id 47 with its value intact — so 768-999 in a foreign file still draws as itself |

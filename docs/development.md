@@ -209,7 +209,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-tasks.ps1   # Wi
    only `fplib` sets (it emits `fp.bin`). A task that is not genuinely
    position-independent fails the build here instead of misbehaving on the machine.
 6. **`check-task-headers.py --quiet`** re-derives every header field of every binary
-   just written and checks the ABI invariants.
+   just written and checks the ABI invariants, and **`check-mus-pitch.py`** runs the
+   assembled `muPitchSplit` under py65 over all 224 note options against
+   `mus-sim.py`'s model of the same rule — see the gates table in §6.
 7. **Writes `tasks-out/build.stamp`** — a content hash of `tools/tasks.json` plus every
    `.asm`/`.inc` under `src/`, which is the input set the assembly actually reads (a task
    pulls shared files in with `.import source`, so the manifest's `source` list is not the
@@ -353,6 +355,7 @@ show up on the machine as a wrong number, a stale binary or a garbled screen.
 | `check-zp-map.py` | **two labels on one zero-page byte**. The assembler gives them the same address silently and the task's asserts pin only the top of the window (`MU_ZP_END`), so a duplicate is invisible until the two owners interleave — and then it reads as a logic bug in whichever one is overwritten. The span of each name comes from its `// N bytes` comment; the end marker (`*_END`) is not storage | task build, and CI |
 | `check-pool-budget.ps1` | a task's **live footprint** — its code, the libraries it holds while alive (the eager ones its `libMask` names *and* the lazy ones its own code loads: a `$LiveLazy` table, since no header can state that) and the `kMalloc` blocks it holds (`$LiveMallocMusic`, recomputed from each tune file, and `$LiveMallocFixed`, in pages). The loader's pre-need sum counts the eager libraries only, so an over-budget task loads and then dies at the first lazy call | task build |
 | `check-task-headers.py` | every built binary's header, re-derived from its bytes: magic, size identity, trailer, fixup bounds and order, the `$FFFF` sentinel, zero padding, page-aligned origin | end of the task build |
+| `check-mus-pitch.py` | `muPitchSplit` **run under py65 on the assembled task** over all 224 note options, against `mus-sim.py`'s `pitch_name` — the semitone, the octave and the roll flag. The editor and the host model are two statements of the player's own rolling rule (a sharp on B is the next octave's C), and they were once wrong in the same way at the same time, so each is what checks the other | task build (it reads `tasks-out/musedit.bin`) |
 | `check-mus-commands.py` | `musedit`'s command encoder tables against `gen-mus.py`'s decoder over every pair the format can hold — 30,695 of them, 49 mnemonics — so the editor and the tool that writes test tunes cannot disagree about which bits carry a value, or about the wide phrase encodings | task build, and CI |
 | `check-mus-timing.py` | `musedit`'s duration, unit and bar model against `sidplay.inc`'s own duration routine: the tempo chart re-derived, the two tables compared byte for byte, an 8,192-case sweep of legal and refused lengths, and every one of the 256 tempos given a row unit | task build, and CI |
 | `check-musedit-walk.py` | the host walk model (`mus-sim.py --walk`) against a screen captured from the running editor, line for line — two captures: `immig`'s opening, one command a line, and `katmand`'s, three on a line plus `FLG` and `TEM`. A capture is the grid's 19 rows from a freshly opened tune, so it starts at walk line 1 (the row column is bar-relative); the playhead, the scroll, the split and undo are behaviour, not grid text, and no capture can see them | task build, and CI |

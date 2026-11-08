@@ -66,6 +66,11 @@ from a garbage filesystem offset into them.
   page there means a player owns the chip — the shell reads that byte (with the
   target's `libMask`) and refuses `run` of any task that declares `sid.lib` while
   it is loaded, with `? sid.lib in use`.
+  That check needs the target's `libMask`, which is in the binary's header, so
+  `run` of a task that declares any library opens the file **twice**: once to read
+  the header and once to load it. It is the right trade — a load that fails on the
+  pool never returns to the shell — but it is why a run costs two FS opens, and
+  the header read leaves `kArg` alone precisely so the load can follow it.
 
 ## `kSidPlay` — play a tune at a given speed
 

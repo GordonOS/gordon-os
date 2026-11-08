@@ -5,12 +5,12 @@ musedit builds a command pair from a mnemonic id and an operand (muObjEnc and th
 mq* tables). tools/gen-mus.py builds the same pair from the format's definition,
 and is what the tunes in music/ were made with. Nothing kept the two in step, so
 a table row could drift from the format and the only symptom would be a tune that
-plays something other than what the grid says -- which is exactly what bug #192
-was (a CALL/DEF of phrases 16-23 written as a different command).
+plays something other than what the grid says -- as when a CALL or DEF of phrases
+16-23 is written as a different command.
 
 So this gate sweeps every mnemonic the editor can encode, over every operand the
 editor allows, and compares the pair it would write with the generator's. Both
-phrase encodings are covered, because that is the pair bug #192 lived in.
+phrase encodings are covered, because that is where the two forms can disagree.
 
 Usage
     python tools/check-mus-commands.py            # exit 1 on a mismatch
@@ -183,7 +183,7 @@ def reference(gen, mnemonic, value):
             return (0x01, (value << 4) | (0x06 if mnemonic == "DEF" else 0x02))
         # 16-23: bits 4-6 hold phrase-16, bit 3 picks CALL from DEF, bit 7 is set by
         # the +8 (which is also why the renderer tests bit 7 before calling it a
-        # mnemonic at all -- see muDecOpt, bug #192).
+        # mnemonic at all -- see muDecOpt's wide-phrase branch).
         return (0x01, ((value - 16 + 8) << 4) | low)
     if mnemonic == "TAL":
         return gen.TAL
@@ -242,7 +242,7 @@ SOUND = {
 
 
 def decode_editor_wide(opt):
-    """muDecOpt's wide-phrase branch, transcribed -- the renderer bug #192 fixed.
+    """muDecOpt's wide-phrase branch, transcribed.
 
     It is the independent statement of the form the round-trip is checked against:
     low three bits $03 AND bit 7 set, phrase = 16 + bits 4-6, bit 3 picks CALL.

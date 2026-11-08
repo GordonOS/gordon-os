@@ -125,6 +125,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $PythonExe (Join-Path $PSScriptRoot 'check-task-headers.py') --quiet
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# The pitch split: the editor turns an option byte into a semitone and an octave
+# with muPitchSplit, and mus-sim.py models the same rule for the host. Both were
+# wrong about a sharp on B at once, so this runs the ASSEMBLED routine over all 224
+# note options and compares it with the model. Needs the binary above, hence here.
+& $PythonExe (Join-Path $PSScriptRoot 'check-mus-pitch.py')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # Tripwire for the pool's LIVE footprint: a task's code, plus the eager libraries
 # its libMask declares, plus any lazy library its own startup code touches, must
 # fit POOL_PAGES. The loader counts only the eager ones, so a task over budget

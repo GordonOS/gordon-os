@@ -98,7 +98,7 @@ $LiveMallocFixed = @{
     'musedit' = 6    # the window service: three 256-byte read windows for the editor
                      #   and three more handed to the music child in kSidPlay's mode-1
                      #   config. The tune itself is PAGED out of <base>.wrk, so its
-                     #   length is no longer a pool question.
+                     #   length is not a pool question.
     'edit'   = 32    # the document: MAX_CHUNKS x CHUNK_PAGES (8 chunks of 4 pages).
                      # The clipboard is NOT here: it is transient, and a select-all
                      # copy of a full document asks for ~32 more pages, which the
