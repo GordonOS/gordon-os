@@ -3266,7 +3266,11 @@ muBarPrev:
     beq muBarIdle               // bar 1 has nothing before it
 
 // --- muBarGo -- jump to bar MU_OBJVAL, or say there is no such bar ---
+//  A bar move is refused while the player runs: the playhead's follow owns the band,
+//  and the search below walks the tune, so a jump would leave the two apart.
 muBarGo:
+    jsr muPlaying
+    bcs muBarIdle
     jsr muBarFind
     bcc mbgGo
     jsr muBandRebuild           // the search walked the producer: put it back
@@ -3294,7 +3298,7 @@ muBarNext:
 //  the prompt opens showing where you are, and the first digit typed replaces it.
 muBarPrompt:
     jsr muPlaying               // a jump would fight the playhead's follow
-    bcs mbtOut                  // "? stop first" owns row 0 until it retires
+    bcs muBarIdle               // "? stop first" owns row 0 until it retires
     jsr muBarOf
     sta muObjVal
     stx muObjValHi
@@ -3338,8 +3342,6 @@ mbtTake:
 mbtRts:
     jsr muDrawHead              // the prompt only touched row 0: the head takes it back
     jmp muKeyIdle
-mbtOut:
-    jmp muKeyIdle               // "? stop first" already owns row 0
 
 // ==========================================
 //  Phrase bodies
@@ -3393,8 +3395,7 @@ muPhTick:
     lda #0
     sta muPhPend
     lda #M_IN_PHRASE
-    jsr muMsgSet
-    jsr muStatus
+    jsr muSay
     jmp muPhNum
 muPtDone:
     rts
@@ -3403,8 +3404,7 @@ muPtDone:
 //  In: MU_PHBAD = the phrase, + 1. Returns with the status line showing it.
 muPhRefuse:
     lda #M_BAD_PHRASE
-    jsr muMsgSet
-    jsr muStatus
+    jsr muSay
 // --- muPhNum -- " n x c" at the text cursor, for MU_PHBAD ---
 //  muStatus leaves the cursor right after its message, so the numbers simply follow
 //  it; muNum16 already prints at the text cursor and squashes a leading zero.
@@ -9323,8 +9323,7 @@ muPtLost:
 muPtNoPlayer:
     jsr muBarPlayOff            // nothing is playing: the redraw below drops it
     lda #M_NO_PLAYER
-    jsr muMsgSet
-    jsr muStatus
+    jsr muSay
     jmp muRedrawAll             // the kernel's load-failure text landed in our grid
 muPtPlaying:
     lda frameCount              // playing: move the playhead once per displayed frame
@@ -10273,12 +10272,16 @@ muHistAdd:
     sta muHistOpt,y
     rts
 
+// --- muSay -- A = a message id -> the status line, cursor left after the text ---
+muSay:
+    jsr muMsgSet
+    jmp muStatus
+
 // --- muPlaying -- C=1 and a "? stop first" status when the player is on ---
 muPlaying:    lda muPlayOn
     beq muPlNo
     lda #M_STOP_FIRST
-    jsr muMsgSet
-    jsr muStatus
+    jsr muSay
     sec
     rts
 muPlNo:

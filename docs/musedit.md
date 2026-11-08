@@ -1388,7 +1388,7 @@ recording, mute and solo, and editing the tune's description text. They are abse
 different reasons, and it is worth being straight about which is which:
 
 - **Room.** `musedit` is one of the largest tasks on the machine — about 18 KB of code — its own
-  code page is full to the last byte, and the pool it loads into has only a few pages to spare. A
+  code page is packed to the last few bytes, and the pool it loads into has only a few pages to spare. A
   raw event view, a sections map, a clipboard for blocks, a text editor for the description and a
   jam recorder are all things the file would allow; each is another screen and several hundred
   more bytes of the walker, and there is nowhere to put them without taking room from something

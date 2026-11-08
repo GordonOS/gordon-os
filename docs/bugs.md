@@ -21,7 +21,35 @@
 
 ---
 
+## Bug #209 — `SHIFT+N` and `SHIFT+P` moved the window during playback and left the follow behind 🟡 ✅ FIXED (2026-11-08)
+
+**Symptoms.** Starting the tune and then stepping a bar with `SHIFT+N`/`SHIFT+P` moved the grid while
+the playhead kept running, and the two no longer agreed: the highlighted row drifted away from the
+music, and the window could end up showing rows the player was nowhere near. The page keys and
+`SHIFT+U` refused correctly, so only these two keys did it.
+
+**Root cause.** Those four keys are meant to be refused while the player runs -- the guide says so, and
+`SHIFT+U`, `SHIFT+<` and `SHIFT+>` each call `muPlaying` first. `muBarNext` and `muBarPrev` did not:
+they went straight to `muBarGo`, whose search walks the tune and then calls `mlkJump` to replace the
+window and the cursor.
+
+**Fix.** `muBarGo` now opens with the `muPlaying` test, so a bar move answered `? stop first` before
+the search runs -- the guard has to come first, or the search has already walked the producer and the
+band would need rebuilding. One guard covers `SHIFT+N`, `SHIFT+P` and the `SHIFT+B` prompt's
+`RETURN`. The five bytes came back out of the status-line calls: the four sites that set a message and
+then print it now go through `muSay`, which ends in `jmp muStatus`, so `musedit` nets 17,919 ->
+17,914 bytes and stays at 70 code pages with its pool margin of 5.
+
+**Rule.** A key that changes what the band shows belongs behind the same guard as an edit: the follow
+owns the window and the cursor while the player runs, so anything that moves either is a desync, not
+a jump. Guard at the routine that owns the move (`muBarGo`), not at each key, or the next key added
+to the group misses it. And a task at a page boundary cannot pay for a guard with a new page -- find
+the bytes: `lda #m / jsr muMsgSet / jsr muStatus` is 8 where a shared tail makes it 5.
+
+---
+
 ## Bug #208 — SHIFT+P in `musedit` crashed the editor once the cursor reached bar 1 🟠 ✅ FIXED (2026-11-08)
+
 
 **Symptoms.** `run musedit immig`, a few SHIFT+N presses to walk forward, SHIFT+U to refine the row
 unit, then SHIFT+P repeatedly: the editor crashed part way back. The refined unit is what makes it
