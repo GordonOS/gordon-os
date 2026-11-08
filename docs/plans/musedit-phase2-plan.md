@@ -13,14 +13,14 @@
 
 | | |
 |---|---|
-| code | **17,622 bytes**, 1,811 fixups, **69 code pages** of a 256-byte granule (71 measured working) |
-| pool | **102 pages of 109** (code 69, `sid.lib` 14, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
-| zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`) |
+| code | **17,881 bytes**, 1,863 fixups, **70 code pages** of a 256-byte granule (71 measured working) |
+| pool | **103 pages of 109** (code 70, `sid.lib` 14, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
+| zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`), every one of them declared |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
 Two numbers govern everything below, and neither is negotiable without a design change:
 
-- **The editor can carry 554 more bytes of code.** `musedit` is 17,622 bytes, 69 code pages, and
+- **The editor can carry 295 more bytes of code.** `musedit` is 17,881 bytes, 70 code pages, and
   **71 pages has been measured working**: with `sid.lib` trimmed to 14 pages, a 71-page build
   (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune and played it. So the
   usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on pool margin 4, which is
@@ -48,8 +48,8 @@ the stack is resident and no page-boundary arithmetic is needed. That took `muse
 **17,622 bytes and 70 code pages to 69**, and the pool from 103 to **102 of 109 (margin 7)**. The
 file is also deleted at exit now, so a session leaves nothing behind.
 
-Plan-level budget: `muMnTab` is worth ≈ 49 bytes on top of the **554 bytes already in hand**
-(17,622 to the 71-page line, 18,176). Items 1, 3, 5 and 7 fit in that; item 6 (blocks, 350-450
+Plan-level budget: `muMnTab` is worth ≈ 49 bytes on top of the **295 bytes already in hand**
+(17,881 to the 71-page line, 18,176). Items 1, 3 and 7 fit in that; item 6 (blocks, 350-450
 bytes) is the one that needs a lever of its own.
 
 **Where the player lives, and where it stays.** The music runs in a **thread child of the editor**:
@@ -199,9 +199,27 @@ practical, so the gate is a **walk-model** one — `tools/mus-sim.py` already mo
 each voice's position, and a `--state N` report (what the streams have set by tick N) is the piece
 to add on the host side; the player must agree with it on the first row it plays after a seek.
 
-## 7. Item 5 — Delete row, delete bar
+## 7. Item 5 — Delete row, delete bar — **done**
 
-**What exists.**
+`muDelRows` (`R` = one row, `SHIFT+R` = a bar) deletes N rows at the cursor from every voice. Per
+voice it seeks with `muSeekAt` and takes one of two cases: **nothing sounds** on the row (kind 2) is
+left alone, and an event **of exactly one row** has its pair spliced out by `muDelPair` — the 2-byte
+`muDelGap` delete `muDelKey` uses, extracted so both share it. All three voices are **checked before
+any is spliced**, so a refused delete leaves the image byte-identical, and an event that spans the
+row refuses it with `? a note in voice N spans the row` (three new `msgs` slots, chosen by index so
+the voice needs no dynamic text).
+
+The action is **one `Z`**: the first push opens the group (`muRecCont = 0`) and every push after it
+appends (`muRecCont = 1`, which `muPushEdit` clears again, so the flag is closed at the end of the
+operation and the next edit starts its own action). A row with nothing on it at all answers
+`? no event here`.
+
+Cost: **259 bytes** (17,622 → 17,881, code 69 → 70 pages, pool 102 → 103 of 109, margin 6), of which
+the `muDelPair` extraction paid back 26. The inverse-duration and split cases (item 3 in the list
+below) are **not** built: they need the jiffies-to-duration inverse, which does not exist in the
+editor.
+
+**What existed, for the record.**
 - `muInsertTime` inserts N rows of silence by splicing a rest into *each* voice at the cursor's
   row, guarded by `muPhBlock` (a phrase body's timing is every call site's timing). The `INS` cell
   calls it with N = 1.
@@ -211,30 +229,13 @@ to add on the host side; the player must agree with it on the first row it plays
 - `muCurBar` already answers "the rows a bar has at the cursor's row" (the tempo's own table,
   through `muFit`), and `muSekEnd` gives the row a voice's event ends on.
 
-**So the gap is symmetry, not primitive work.** `INS` opens a row in all three voices and nothing
-closes one in all three; there is no delete-rows and no insert/delete-bar. The operation needs,
-per voice, one of three cases:
+**Still open, if the long form is ever wanted** — shortening a note that runs past the row instead of
+refusing it needs the **inverse of `muRowsToJif`** (jiffies to a duration class and value; the editor
+only ever converts forward) and a **split** (`muInsGap` a new pair so the tail keeps the note), ≈ 160
+bytes in all.
 
-1. **nothing sounds** (a gap) — nothing to delete in that voice;
-2. **an event of exactly N rows** — `muDelGap` its pair, which is what `muDelKey` already does;
-3. **a longer event** — shorten it. This needs the **inverse of `muRowsToJif`**: jiffies to a
-   duration class and value. The editor only ever converts *forward* (a key picks the class, the
-   length follows), so the inverse does not exist here — `mus-sim.py` has it and the player's own
-   class lookup defines it, so it would be ~50 bytes plus a gate that holds the two together. A
-   note that has to keep sounding after the deletion also needs a **split**: `muInsGap` a new pair
-   so the tail keeps the note.
-
-Deleting a **bar** is the same operation with N = `muCurBar`, so it costs the same code; the record
-for a bar should be one grouped action (the `muInsFirst` convention), not N undo records.
-
-**The cheap version worth building first:** cases 1 and 2 only, and a refusal that names the voice
-whose event spans the row (`? voice 2 spans the row` — a new message slot, so the `msgs` binary and
-the REU image are regenerated with it). That is the exact inverse of `INS` for rows the editor
-itself opened, needs no jiffies-to-duration inverse, and is ~60 bytes.
-
-**Cost** ≈ 60 bytes for the cheap version; ≈ 160 with the inverse and the split. Gate: extend
-`check-musedit-walk.py`'s fixtures with an insert-then-delete round trip that must return the file
-to its `muHist`-identical bytes, and a py65 case for the spanning-event refusal.
+**Gate as built**: `check-pool-budget` (103 of 109), the 83 asserts, and a VICE round trip — insert N
+rows, delete N rows, save, and the `.mus` must come back byte-identical to the file that was opened.
 
 ## 8. Item 6 — Block copy/paste
 
@@ -322,7 +323,7 @@ A suggested order — smallest risk first, and each one independently shippable:
 |---|---|---|
 | 2.1 | `muMnTab` at 4 bytes | buys ~49 bytes; byte-neutral to the user (the undo history is already out of the image) |
 | 2.2 | **item 1 (`JIF`)** | self-contained, ~70 bytes, one new gate, and it takes the drawn set from 49 to the format's full 50 |
-| 2.3 | **item 5 (delete row / bar)** | no new UI, reuses `muDelGap`/`muInsGap`, and it is the inverse the editor is most obviously missing |
+| 2.3 | ~~**item 5 (delete row / bar)**~~ — **done**, `R` and `SHIFT+R` | it was the inverse the editor was most obviously missing |
 | 2.4 | **item 3 (description)** | UI-only, ~200 bytes, needs the keys decision |
 | 2.5 | **item 4 (play from cursor)** | first `sid.lib` change; (a) then (b) |
 | 2.6 | **item 7 (jump to a bar or measure)** | small, no format work, and it pays for itself the first time a tune runs past a screenful |
@@ -343,14 +344,13 @@ hears or types into; a py65 harness alone is not "verified".
    completeness only: draw it and author it so a foreign tune round-trips faithfully, or drop it
    and leave the pair untouched (`docs/musedit.md` says it is kept in the file as-is)?
 3. **Description**: one scrolled line in row 0, or a full-screen text mode? Which keys?
-4. **Delete row**: the cheap version (delete an event of exactly N rows, refuse the voice that
-   spans the row) or the full one (a jiffies-to-duration inverse plus a split)? Is a bar delete
-   wanted at all, given `muCurBar` makes it nearly free once rows work?
+4. **Delete row** (item 5) is closed at the cheap version: it refuses a note that spans the row.
+   Does anything need the long form (a jiffies-to-duration inverse plus a split, ~160 bytes)?
 5. **Play from cursor**: offsets-only (cheap, wrong sound state) or a pre-roll too?
 6. **Blocks**: is a block rows × voices, and does paste re-time the following events?
 7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
    `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
    default tempo, which is a different number and would have to say so)?
-8. **Funding**: `muMnTab` (§ 2, ≈ 49 bytes) plus the 554 bytes in hand is the whole budget —
-   enough for items 1, 3, 5 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
+8. **Funding**: `muMnTab` (§ 2, ≈ 49 bytes) plus the 382 bytes in hand is the whole budget —
+   enough for items 1, 3 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
    which does the list prefer?

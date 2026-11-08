@@ -108,8 +108,8 @@ every item on one row; each does the work of the key it names. Every one of them
 `RST`, `INS` and `DEL` are what make an editing session possible without the keyboard: with the
 piano below for pitches and the grid for the cursor, entering notes, inserting time, changing one,
 resting or deleting it, undoing and saving all happen from the pointer alone. `1`-`9` (arming a
-specific length), `.` (the dots), `X` (redo) and `SHIFT+I` (insert a whole bar) are still
-keyboard-only.
+specific length), `.` (the dots), `X` (redo), `SHIFT+I` (insert a whole bar), `R` and `SHIFT+R`
+(delete a row or a bar) are still keyboard-only.
 
 The tie is the duration byte's bit 6: the player holds the note into the one after it, so it
 joins two notes into one sound. It applies to a note that is *newly written* — a pitch typed over
@@ -405,6 +405,8 @@ itself works, and it is why the grid never shows overlaps.
 | `SHIFT+INST/DEL` | **delete** the event and close the gap; on a command line it removes that command |
 | `I` | **insert a row** at the cursor, pushing everything below down |
 | `SHIFT+I` | **insert a bar** (the rows a bar has at the tempo in force where the cursor is) |
+| `R` | **delete a row** at the cursor, in all three voices (see *Inserting time*) |
+| `SHIFT+R` | **delete a bar** — the same rows `SHIFT+I` would open |
 | `M` | **insert/overwrite mode** for entering notes |
 | `C` | **write or edit the command** at the cursor (see *Commands*) |
 | `SHIFT+D` | **follow a phrase**: from a `CALL` to its `DEF`, from a `DEF` to the next `CALL` |
@@ -475,6 +477,14 @@ Inserting **time** — `I`, `SHIFT+I`, `INS` — is the operation that touches a
 three lanes are one timeline, so opening rows in one lane alone would slide it against the others
 with nothing to line it up again. Inserting a **note** in `INS` mode is that voice's own edit, and
 leaves the other two untouched.
+
+Deleting is the same operation backwards: **`R` closes one row** at the cursor and **`SHIFT+R`** the
+whole bar there, in all three voices, so the lanes stay lined up. A voice with nothing sounding on
+the row is left alone — there is nothing there to close. An event that runs **past** the row is
+refused instead and the message names the voice (`? a note in voice 2 spans the row`): a row
+boundary in the middle of a note is not a row to remove, because closing it could only make that
+note shorter. Shorten the note first — a rest on the row where it should end — and delete again. A
+row or a bar goes in one `Z`, however many events it took out.
 
 Either kind of insert is **refused** when the row belongs to a **phrase body**: `? phrase 3 x5`
 names the phrase and how many `CALL` sites play it, and nothing is written. Those rows are the
@@ -718,6 +728,7 @@ you quit**, so a session leaves nothing behind. It costs the same space however 
 | `? stop first` | an edit was attempted during playback |
 | `? illegal duration` | the current tempo cannot express that note length |
 | `? no event here` | the rest or delete key needs the cursor on a row where an event starts |
+| `? a note in voice 2 spans the row` | `R` or `SHIFT+R` met a note that runs past that row, so the row cannot be closed without shortening it — shorten the note first, then delete |
 | `? hlt ends the voice` | `SHIFT+INST/DEL` on a `hlt` line: that pair is what ends the voice, so removing it would leave the voice unreadable — delete the events above it instead, or retype the line |
 | `? phrase 3 x5` | an insert or a delete was attempted on a row inside phrase 3's `DEF` body, which 5 `CALL` sites play — move off it, or edit the phrase deliberately with a note |
 | `? nothing to undo` | `Z` with no action behind it — a freshly opened tune, or everything already undone |
@@ -743,9 +754,6 @@ The first release does **not** do these, by design:
   hard restart, per-track tempo and multispeed have no counterpart in this format. The nearest
   things are the sweeps and LFO commands listed above.
 - **No play-from-cursor.** See *Playing*.
-- **No delete row or delete bar.** Inserting opens time in all three voices, but the inverse —
-  closing a row in all three at once — is not offered: `SHIFT+INST/DEL` deletes one event in one
-  voice, and an insert you regret is a `Z`.
 - **No description editing, no raw event view, no sections view, no block copy/paste, no
   instrument macros, no jam recording, no mute/solo.** The file is fully readable and
   editable without them.

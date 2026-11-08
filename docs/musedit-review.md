@@ -537,7 +537,7 @@ Very little, given the size. In descending order of "would I cut this":
    is retired to `Documents/GordonOSPlans/`; `docs/plans/` now carries only the phase-2 plan.
 
 What is *not* overengineering, in case it looks it: the three image windows (the tune is never in
-RAM, so edits are page-granular and the pool holds 69 code pages instead of a 65 KB tune), the
+RAM, so edits are page-granular and the pool holds 70 code pages instead of a 65 KB tune), the
 per-voice page cache, the `muHist` ring (32 slots × 3 voices — it removes a second walk of the
 tune per frame), the six-page `kMalloc` block shared with the player child, and the `MU_SPIN` /
 call-depth guards in the walk (they model the player's own limits). Each of those is load-bearing.
@@ -671,13 +671,13 @@ features the phase-1 plan had parked.
 
 | tenant | pages | notes |
 |---|---|---|
-| `musedit` code | 69 | 17,622 bytes, 1,811 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
+| `musedit` code | 70 | 17,881 bytes, 1,863 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
 | `sid.lib` | 14 | declared lazy, reserved at spawn, loaded on the first PLAY |
 | `filesys.lib` | 10 | needed for `<base>.wrk` and `musedit.und`; touched at startup |
 | mouse | 2 | |
 | sprite | 1 | the pointer and the three dots |
 | `kMalloc` block | 6 | 1,536 B: three 256 B image windows for the editor, three for the player child |
-| **total** | **102 of 109** | margin 7, and `basic` fits the pool **exactly** — the gate warns on every build |
+| **total** | **103 of 109** | margin 6, and `basic` fits the pool **exactly** — the gate warns on every build |
 
 Kernel side: 116 bytes free across 21 pockets, and this branch spent carefully — `tickCount` went
 into a 1-byte pocket that `verify-map.ps1` now pins, and the core grew only through re-pointed
@@ -776,9 +776,9 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 | `python tools/check-musedit-walk.py` | `immig` and `katmand` both match the editor over 19 lines each — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,622 bytes / 69 pages / 1,811 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 102 of 109, margin 7 (`basic` fits exactly — pre-existing) |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,881 bytes / 70 pages / 1,863 fixups, `shell` 32 pages (margin 77); `msgs` 34 slots (2,176 bytes); pool 103 of 109, margin 6 (`basic` fits exactly — pre-existing) |
 | `python tools/check-mus-pitch.py` | 224 note options through the assembled `muPitchSplit`, **0 disagreements** with `mus-sim.py`; clamping the model's octave roll to 6 makes it report the two B-sharp-at-the-top options and exit 1 |
-| `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 1,984 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK, 139 entries |
+| `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 2,176 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |
 | py65, `mqClamp` on the built image | 300 against max 255 → **255** with the high half cleared, 300 with a stale `$0F` (the reproduced bug); `P-W`/`DTN` 4095, `POR` 16383, `MS#` 999 (768 → 768, 1000 → 999, 1023 → 999) all correct |
 | py65, `muLnDec` on the built image | every `MS#` pair from 0 to 1023 decodes to id 47 with its value intact — so 768-999 in a foreign file still draws as itself |

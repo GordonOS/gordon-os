@@ -216,6 +216,7 @@
 .label muRrWant     = MU_ZP_BASE+219  // ...and bytes wanted
 .label muUcOf       = MU_ZP_BASE+220  // the stack cursor's offset inside its page
 .label muUcPg       = MU_ZP_BASE+221  // ...and its page
+.label muDrRows     = MU_ZP_BASE+222  // the rows a delete still has to take out
 .label muUcTmp      = MU_ZP_BASE+223  // the one byte a stack transfer carries
 .label muInsFrom    = MU_ZP_BASE+227  // 2 bytes  the first row a splice touched
 .label MU_ZP_END    = MU_ZP_BASE+229
@@ -4809,6 +4810,24 @@ muKeyNotIns:
 muKnibIdle:
     jmp muKeyIdle
 muKeyNotInsBar:
+    cmp #'r'                    // R: delete one row from every voice
+    bne muKeyNotDelRow
+    jsr muPlaying
+    bcs muDrRowIdle
+    lda #1
+    jsr muDelRows
+muDrRowIdle:
+    jmp muKeyIdle
+muKeyNotDelRow:
+    cmp #$52                    // SHIFT+R: delete a whole bar
+    bne muKeyNotDelBar
+    jsr muPlaying
+    bcs muDrBarIdle
+    jsr muCurBar                // the rows a bar has at the cursor's tempo
+    jsr muDelRows
+muDrBarIdle:
+    jmp muKeyIdle
+muKeyNotDelBar:
     cmp #'m'                    // M: toggle insert/overwrite mode
     bne muKeyNotMode
     jsr muInsToggle
@@ -6159,19 +6178,10 @@ muRkGo:
     ldx muTgtHi
     jmp muCurSettleNext
 
-// --- muDelKey -- remove the event at the cursor and close the gap ---
-//  Only an onset answers, and the HLT pair is never a timed event, so the
-//  terminator cannot be deleted and the voice keeps its last pair.
-muDelKey:
-    jsr muSeek
-    lda muSekKind
-    beq muDkGo
-    lda #M_NO_EVENT
-    jsr muMsgSet
-    jmp muStatus
-muDkGo:
-    jsr muPhHere                // a body's timing is every call site's timing
-    bcs muDkPhrase
+// --- muDelPair -- splice the 2-byte event at MU_SEKLO/HI out of MU_SKV ---
+//  One undo record, so a caller that splices several voices decides the grouping
+//  itself through muRecCont. Clobbers A, X, Y, kPtr.
+muDelPair:
     jsr muRecAtSek  // the undo record: 2 bytes at the onset go away
     lda #2
     sta muRecOldN
@@ -6186,7 +6196,22 @@ muDkGo:
     sta muInsHi
     lda muSkV
     jsr muDelGap
-    jsr muPushEdit
+    jmp muPushEdit
+
+// --- muDelKey -- remove the event at the cursor and close the gap ---
+//  Only an onset answers, and the HLT pair is never a timed event, so the
+//  terminator cannot be deleted and the voice keeps its last pair.
+muDelKey:
+    jsr muSeek
+    lda muSekKind
+    beq muDkGo
+    lda #M_NO_EVENT
+    jsr muMsgSet
+    jmp muStatus
+muDkGo:
+    jsr muPhHere                // a body's timing is every call site's timing
+    bcs muDkPhrase
+    jsr muDelPair
     lda muSekRow                // the row the event was on: its line, and the HLT line
     ldx muSekRow+1              //   above it when this was the voice's first event
     jsr muBandRow
@@ -6196,6 +6221,118 @@ muDkGo:
     ldx muTgtHi
     jmp muCurSettle
 muDkPhrase:
+    jmp muPhRefuse
+
+// --- muDelRows -- delete the A rows at the cursor row from every voice ---
+//  A row of music is what all three voices play on it, so a row delete takes those
+//  rows' events out of every voice. The voices need not tile the rows the same way
+//  -- a whole-bar rest in one lane over sixteen 16ths in another is the same bar of
+//  music -- so each voice is walked on its own, consuming an event by its own length
+//  until the window is empty.
+//  Every voice is walked once BEFORE any of them is spliced, and an event that runs
+//  past either end of the window is refused with that voice named: a row boundary
+//  inside a note is not a row to remove. A refusal leaves the image untouched, and
+//  however many splices the delete takes, it is one undo action.
+//  In: A = rows to delete, 1 or more. Clobbers A, X, Y, kPtr.
+muDelRows:
+    sta muDrRows
+    jsr muPhBlock               // a body's timing is every call site's timing
+    bcc muDrOpen
+    jmp muDrPhrase              // out of branch range: the refusal prints the phrase
+muDrOpen:
+    jsr muCursorAbs             // the window starts on the cursor's row
+    sta muDrT0
+    stx muDrT0+1
+    lda #0
+    sta muDrPass
+    sta muRecCont               // the first splice opens the undo action
+    jmp muDrPassGo              // (the refusal below is reached by branch only)
+muDrSpan:
+    lda muSkV                   // the message names the voice that blocks the window
+    clc
+    adc #M_SPAN1
+    jsr muMsgSet
+    jmp muStatus
+muDrPassGo:
+    lda #0
+    sta muSkV
+muDrVoice:
+    lda muDrT0                  // every voice is walked from the top of the window
+    sta muTgtLo
+    lda muDrT0+1
+    sta muTgtHi
+    clc                         // muDrEnd = the row the window ends on
+    lda muTgtLo
+    adc muDrRows
+    sta muDrEnd
+    lda muTgtHi
+    adc #0
+    sta muDrEnd+1
+muDrEvent:
+    jsr muSeekAt
+    lda muSekKind
+    cmp #2
+    beq muDrVoiceNext           // the voice ends inside the window: nothing more
+    cmp #0
+    bne muDrSpan                // an event that starts above the window...
+    lda muDrEnd                 // ...or one that runs past the bottom of it
+    sec
+    sbc muSekEnd
+    lda muDrEnd+1
+    sbc muSekEnd+1
+    bcc muDrSpan
+    lda muDrPass
+    bne muDrTake
+    lda muSekEnd                // checking: step to the event that follows this one
+    sta muTgtLo
+    lda muSekEnd+1
+    sta muTgtHi
+    jmp muDrMore
+muDrTake:
+    jsr muDelPair               // the pair goes and the voice's tail closes up
+    lda #1                      // the next splice appends to the action in flight
+    sta muRecCont
+    lda muDrEnd                 // the window closes by the rows that event held
+    sec
+    sbc muSekSpan
+    sta muDrEnd
+    lda muDrEnd+1
+    sbc muSekSpan+1
+    sta muDrEnd+1
+muDrMore:
+    lda muTgtLo                 // rows are left while the walk is above the end
+    cmp muDrEnd
+    lda muTgtHi
+    sbc muDrEnd+1
+    bcc muDrEvent
+muDrVoiceNext:
+    inc muSkV
+    lda muSkV
+    cmp #3
+    bcc muDrVoice
+    lda muDrPass
+    bne muDrDone
+    lda #1
+    sta muDrPass                // every voice fitted: walk them again, splicing
+    jmp muDrPassGo
+muDrDone:
+    lda muRecCont               // nothing was spliced: the rows held no event
+    beq muDrNone
+    lda #0
+    sta muRecCont               // the action is closed: the next edit starts one
+    lda muDrT0
+    ldx muDrT0+1
+    jsr muBandRow
+    ldx #MU_GRID_BOT+1
+    jsr muRedrawRows
+    lda muDrT0                  // the cursor stays on the rows it emptied
+    ldx muDrT0+1
+    jmp muCurSettle
+muDrNone:
+    lda #M_NO_EVENT
+    jsr muMsgSet
+    jmp muStatus
+muDrPhrase:
     jmp muPhRefuse
 
 // --- muDelKey2 -- SHIFT+INST/DEL: the command on this line, else the row's event ---
@@ -10497,6 +10634,11 @@ muItN1:     .byte 0             // the events the front, silence...
 muItNr:     .byte 0             // ...
 muItN2:     .byte 0             // ...and remainder take
 muInsNoteV: .byte $ff           // the voice that gets the note ($ff = all rests)
+
+// --- delete rows: the window being taken out, and which pass is walking it ---
+muDrT0:     .word 0             // the first row of the window...
+muDrEnd:    .word 0             // ...and the row it ends on, per voice
+muDrPass:   .byte 0             // 0 = checking every voice, 1 = splicing
 muRrSrc:    .word 0             // ...from this offset in the stack
 muUndoOk:   .byte 0             // the stack file resolved (0 = edits are not undoable)
 muUndoRec:  .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
