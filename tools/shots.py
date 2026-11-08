@@ -255,7 +255,14 @@ def screen_code(ch):
 
 
 def rom_args():
-    """The -directory search path the project's own launch flow uses."""
+    """The -directory search path the project's own launch flow uses.
+
+    `-directory` REPLACES VICE's own search path, so naming a directory that is
+    not there makes the emulator fail to load its ROMs and exit before it draws a
+    window -- which reads as "VICE will not start". So a path is passed only when
+    it exists, and an install whose ROMs are where VICE looks by default gets no
+    argument at all.
+    """
     settings = ROOT / ".vscode" / "settings.json"
     if settings.exists():
         try:
@@ -268,7 +275,10 @@ def rom_args():
             pass
     #  No per-clone setting: the two locations a Linux VICE install uses, with the home
     #  directory expanded rather than assumed.
-    return ["-directory", str(Path.home() / ".local/share/vice") + ":/usr/share/vice"]
+    fallback = str(Path.home() / ".local/share/vice") + ":/usr/share/vice"
+    if any(Path(p).is_dir() for p in fallback.split(":")):
+        return ["-directory", fallback]
+    return []
 
 
 def launch(shot_png, port, extra=()):

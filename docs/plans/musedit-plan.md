@@ -1421,7 +1421,11 @@ This is the only design of the seven tried whose input *is* the quantity being d
   exactly what a screen dump decodes to. `immig`'s 19-line band matches over all 19 lines — the nine
   command lines above row 1 (including the lone `DEF 0`), the empty rows `02`-`08`, and the `F#2 8`
   / `F#2 16` cells in lane 3. Padding inside a lane is ignored, so the two renderers may differ on
-  where a command's operand starts; which lane holds which text is not.
+  where a command's operand starts; which lane holds which text is not. A second band, `katmand`'s,
+  adds the one shape a single-command capture cannot see: **three commands on one line**
+  (`VOL 10 | P-S 100 | P-S 20`), with `FLG` and `TEM` beside it. A capture is always taken from a
+  freshly opened tune, so it starts at walk line 1 — the row column is bar-relative, so a window
+  taken further in would need the model to reproduce the bar numbering.
 ### 13.4 Phrase-native editing
 
 The format's structure commands are what make it a language rather than a list of notes. In

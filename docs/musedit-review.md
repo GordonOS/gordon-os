@@ -41,8 +41,8 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 | F4 | Medium | `musedit.md:700-717` | The guide documented 11 of the editor's 23 messages; twelve reachable ones were missing — **fixed: all 23 now have a row, with the trigger read off the code** |
 | F5 | Medium | `.github/workflows/gates.yml` | The four pure-Python musedit gates never run in CI, so a PR can break the command tables or the timing model and stay green — **fixed: they run there now** |
 | F6 | Medium | `tools/temp/symout/assemble-tasks.vs` | A 5,852-line generated VS64 symbol dump is committed; nothing reads it — **fixed: removed, and `tools/temp/` is ignored** |
-| F7 | Low | `docs/development.md:637` | The generated-file table lists one of the three `gen-musedit-*` generators |
-| F8 | Low | `tools/check-musedit-walk.py` | The walk gate compares 19 lines of one tune — it cannot see the playhead, scrolling, split, undo or command authoring |
+| F7 | Low | `docs/development.md:637` | The generated-file table listed one of the three `gen-musedit-*` generators — **fixed: all three have a row, with their sources of truth** |
+| F8 | Low | `tools/check-musedit-walk.py` | The walk gate compared 19 lines of one tune with one command a line — **fixed: a second capture adds three-command lines, and the gate says what no capture can see** |
 | F9 | Low | `musedit.inc:679` (`muWinSeat`) | The "a command pair never straddles a window" proof needs every voice length to be even; nothing checks it (all nine bundled tunes are) |
 | F10 | Low | `musedit.inc:723`, `:782` | The window fill/flush ignore the REU transfer's C flag, so a failed transfer draws garbage or silently drops a scratch write |
 | F11 | Note | `musedit.inc:384`, `musedit.md` | `<base>.wrk` is a fixed 65,280 bytes per session and the guide never states the tune-size cap that implies |
@@ -236,11 +236,32 @@ hand gets no warning from the docs — only from the build.
 ### F8 — The walk gate is 19 lines deep (Low)
 
 `check-musedit-walk.py` compares `mus-sim.py --walk` against
-`tools/fixtures/musedit-walk-immig.txt`, which holds the **opening 19 lines** of `immig`. The gate
-works and is worth keeping, but the parts of the editor most likely to drift are not in it: the
-playhead and its follow, the scroll, the split, undo, and command authoring. Extending the fixture
-is cheap — capture a second window from the middle of a command-heavy tune (`katmand` has 3-command
-rows) and from a phrase body of `immig`.
+`tools/fixtures/musedit-walk-immig.txt`, which holds the **opening 19 lines** of `immig` — one
+command per line. The parts of the editor most likely to drift are not in it: the playhead and its
+follow, the scroll, the split, undo, and command authoring.
+
+**Half of that was a bad ask, and the other half is fixed.** A text capture can never see the
+playhead, the scroll, the split or undo: those are *behaviour*, and they leave no distinct grid
+text — they need a scripted session that performs the edit and reads the framebuffer, not a
+fixture. What a capture *can* add is more of the walk, and the gap that was real is
+**multi-command lines**: `immig`'s opening has one command per line, so a line carrying three —
+the shape a single-command fixture cannot see — was untested.
+
+So the gate now has a second case, `tools/fixtures/musedit-walk-katmand.txt`, captured from the
+running editor's band: **three commands on one line** (`VOL 10 | P-S 100 | P-S 20`), `FLG`, `TEM`,
+and a 16-row bar. It matched the model over all 19 lines first time. The gate's docstring now says
+how a capture is made (launch, `run musedit <tune>`, decode rows 2-20) and why a case must start at
+walk line 1 — the row column is **bar-relative**, so a window taken further in would need the model
+to reproduce the bar numbering, and nothing does that today.
+
+Proved to bite rather than asserted: with `P-S 100` changed to `P-S 101` in the fixture the gate
+reports `katmand DRIFTED at line 0` and exits 1; restored, both cases pass.
+
+Found on the way, and fixed: `tools/shots.py`'s `rom_args()` **invents** a `-directory` search path
+(`~/.local/share/vice:/usr/share/vice`) when `vs64.viceArgs` names none, and `-directory` *replaces*
+VICE's own path — so on a Windows install whose ROMs sit beside the exe, every launch died with
+`Couldn't load kernal ROM 'kernal-901227-03.bin'` and no window at all, which reads as "VICE will
+not start". The path is now passed only when it exists.
 
 ### F9 — The window invariant assumes even voice lengths (Low)
 

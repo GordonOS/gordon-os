@@ -1,0 +1,19 @@
+   >VOL 10      P-S 100     P-S 20
+    P-S 50      VDP 3       DCY 2
+    DCY 9       VRT 5       DCY 9
+    P&V 1       DCY 9       VDP 3
+    VDP 3       SUS 14      VRT 5
+    VRT 5
+    FLG 1
+    TEM 96
+ 01 E-5 8       ... 1       E-3 8
+ 02
+ 03
+ 04
+ 05 B-4 8                   B-2 8
+ 06
+ 07
+ 08
+ 09 D-5 8                   D-3 8
+ 10
+ 11

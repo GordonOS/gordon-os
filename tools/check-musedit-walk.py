@@ -7,7 +7,21 @@ the two, so a change to the walk -- or to a tune -- cannot quietly stop the mode
 matching the machine.
 
 The fixture is the editor's grid as text: lane 1 at column 4, lanes 12 apart, and a
-row's number right-aligned in columns 1-2 on the row's own line.
+row's number right-aligned in columns 1-2 on the row's own line. It is the band's
+19 rows (screen rows 2-20) of a freshly opened tune, so it always starts at walk
+line 1 -- the row column is BAR-relative, so a window captured further in would
+need the model to reproduce the bar numbering, and no case does that today.
+
+How to capture one (VICE, with the user's consent, per the emulator rules):
+
+    python tools/vice-drive.py launch
+    python tools/vice-drive.py type "run musedit <tune>"
+    python tools/vice-drive.py text            # the grid, and is it running
+    -> screen rows 2-20, right-stripped, one line each
+
+`immig` holds one command per line; `katmand` opens with three, plus FLG and TEM,
+which is why it is the second case: a line carrying three commands is the shape the
+single-command fixture could not see.
 
 usage: check-musedit-walk.py [--verbose]
 Exit: 0 agreement, 1 a drift, 2 could not run.
@@ -19,7 +33,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SIM = ROOT / "tools" / "mus-sim.py"
-CASES = [("immig", ROOT / "tools" / "fixtures" / "musedit-walk-immig.txt")]
+CASES = [("immig", ROOT / "tools" / "fixtures" / "musedit-walk-immig.txt"),
+         ("katmand", ROOT / "tools" / "fixtures" / "musedit-walk-katmand.txt")]
 
 LANES = re.compile(r"\|([^|]{11})\|([^|]{11})\|([^|]{11})\|")
 ROW = re.compile(r"^\s+\S+\s+(\S+)\s+\|")
