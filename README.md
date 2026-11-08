@@ -21,6 +21,8 @@ Every image is a real capture from VICE at the project's own profile
 | `ver`, `me` and `ps` at the shell | `pool`: 109 pages, with the libraries at the top |
 | ![GordonPaint on a new canvas](docs/img/grpaint-new.png) | ![the editor](docs/img/edit.png) |
 | **GordonPaint**, a new canvas with the band up | the **editor**, status bar and all |
+| ![musedit](docs/img/musedit.png) | ![musedit playing](docs/img/musedit-play.png) |
+| **musedit**: a tune open, the cursor on its command line | **musedit** playing from bar 1: the head counts rows |
 | ![gortris](docs/img/gortris-play.png) | ![gorkanoid](docs/img/grknoid-play.png) |
 | **gortris**: three pieces landed, one falling | **gorkanoid**: a damaged wall, ball in play |
 | ![gfxdemo](docs/img/gfxdemo.png) | ![spirog](docs/img/spirog.png) |
@@ -29,8 +31,6 @@ Every image is a real capture from VICE at the project's own profile
 | **sprdemo**: eight sprite balls, per-pixel collision | `dir *.com`: the commands in the image |
 | ![Gordon Basic](docs/img/basic.png) | ![granim](docs/img/granim.gif) |
 | **Gordon Basic** running a line | **granim**: 360 frames at 24 fps out of the REU |
-| ![musedit](docs/img/musedit.png) | ![musedit playing](docs/img/musedit-play.png) |
-| **musedit**: a tune open, the cursor on its command line | **musedit** playing from bar 1: the head counts rows |
 
 The rest, one per subsystem, sit in the docs they belong to: the `dir` options in
 [quick-start.md](docs/quick-start.md), each game in its own guide

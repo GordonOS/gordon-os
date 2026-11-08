@@ -22,6 +22,8 @@ what you get by following the [quick start](quickstart.binaries.md).
 | `ver`, `me` and `ps` at the shell | `pool`: 109 pool pages, the libraries at the top |
 | ![GordonPaint on a new canvas](docs/img/grpaint-new.png) | ![the editor](docs/img/edit.png) |
 | **GordonPaint**, a new canvas with the band up | the **editor**, status bar and all |
+| ![musedit](docs/img/musedit.png) | ![musedit playing](docs/img/musedit-play.png) |
+| **musedit**: a tune open, the cursor on its command line | **musedit** playing: the head counts rows |
 | ![gortris](docs/img/gortris-play.png) | ![gorkanoid](docs/img/grknoid-play.png) |
 | **gortris**: three pieces landed, one falling | **gorkanoid**: a damaged wall, ball in play |
 | ![gfxdemo](docs/img/gfxdemo.png) | ![spirog](docs/img/spirog.png) |
@@ -30,8 +32,6 @@ what you get by following the [quick start](quickstart.binaries.md).
 | **sprdemo**: eight sprite balls, per-pixel collision | `dir *.com`: the commands in the image |
 | ![Gordon Basic](docs/img/basic.png) | ![granim](docs/img/granim.gif) |
 | **Gordon Basic** ([language reference](docs/gordonbasic.md)) | **granim**: 360 frames at 24 fps out of the REU |
-| ![musedit](docs/img/musedit.png) | ![musedit playing](docs/img/musedit-play.png) |
-| **musedit**: a tune open, the cursor on its command line | **musedit** playing: the head counts rows |
 
 ## Guides
 
