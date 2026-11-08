@@ -13,19 +13,24 @@
 
 | | |
 |---|---|
-| code | **17,913 bytes**, 1,817 fixups, **70 code pages** of a 256-byte granule |
+| code | **17,913 bytes**, 1,817 fixups, **70 code pages** of a 256-byte granule (71 measured working) |
 | pool | **103 pages of 109** (code 70, `sid.lib` 14, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
 | zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`) |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
 Two numbers govern everything below, and neither is negotiable without a design change:
 
-- **The editor has 7 bytes of code space.** `musedit` must stay at or under 17,920 bytes to keep
-  70 code pages. Every item in this plan therefore arrives with a funding line (§ 2).
-- **70 code pages is the measured wall, not 105 pool pages.** The voice-terminator check was first
-  written at 136 bytes, which put the code at 71 pages; the pool budget gate printed `margin 4`
-  and the machine refused to play — `sid.lib` did not fit. The budget gate adds pages up; a load
-  needs them in one run, and the run it needed was no longer there. Treat **70 pages** as hard.
+- **The editor can carry 263 more bytes of code.** `musedit` is 17,913 bytes — 7 bytes under the
+  70-page line (17,920) — but **71 pages has been measured working**: with `sid.lib` trimmed to 14
+  pages, a 71-page build (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune
+  and played it. So the usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on
+  pool margin 4, which is the figure that refused to play before the trim, and is untested.
+- **The wall moves with the pool, not with the byte count.** The voice-terminator check was first
+  written at 136 bytes, which put the code at 71 pages; the pool budget gate printed `margin 4` and
+  the machine refused to play — `sid.lib` did not fit. The budget gate adds pages up; a load needs
+  them in one run. Every page of pool margin spent on the editor's code is one that `sid.lib` (14)
+  and `filesys.lib` (10) then have to do without, so growth past 71 pages needs a funding lever
+  (§ 2), not just spare bytes.
 
 ## 2. Paying for the work
 
@@ -39,9 +44,10 @@ levers. They are listed in the order I would try them: cheapest and most certain
 | **more shared tails** | measured: **3 bytes** for `muWinPtr` | extraction only pays for itself; it is not a strategy. Worth doing opportunistically, per item. |
 | **the player becomes its own task** | **14 pages of pool**, and the run the code loads into grows by the same 14 | the structural lever, and the only one that lifts the 70-page wall. `sid.lib` would be declared by a player task that exists only while playing; `musedit` drops the declaration and stops carrying 14 pages it uses for one feature. New task ~2 code pages + a 3-page window block, so the pool peak while playing is ~108 — margin 1. Needs the shell's `? sid.lib in use` arbitration (already there) and a player that pages the same `.wrk` file (already possible: `kSidPlay` mode 1). |
 
-Plan-level budget, if the levers are taken in order: `muMnTab` + `muUndoBuf` ≈ **305 bytes** —
-more than items 1, 3 and 5 together. Items 4 and 6 and the inherited wishlist are where the wall
-comes back, and that is when the player-task split earns its place.
+Plan-level budget, if the levers are taken in order: `muMnTab` + `muUndoBuf` ≈ **305 bytes** — more
+than items 1, 3 and 5 together. With the 263 bytes already available (17,913 to the 71-page line),
+items 1, 5 and 7 fit without a lever; items 3, 4 and 6 are where the funding comes in, and a
+further 256-byte page is where the player-task split earns its place.
 
 ## 3. Item 1 — `JIF`, the one command with no line
 
