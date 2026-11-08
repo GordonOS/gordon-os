@@ -25,6 +25,7 @@ including tunes written years ago by some other editor.
 - [Editing the timeline](#editing-the-timeline)
 - [Playing](#playing)
 - [Commands: envelopes, waveforms, vibrato, filter and the rest](#commands-envelopes-waveforms-vibrato-filter-and-the-rest)
+- [A few habits that make a tune sound better](#a-few-habits-that-make-a-tune-sound-better)
 - [Undo and redo](#undo-and-redo)
 - [Saving, quitting, and what is left behind](#saving-quitting-and-what-is-left-behind)
 - [When musedit says no](#when-musedit-says-no)
@@ -763,6 +764,11 @@ BMP 1
 BMP 1
 ```
 
+Two things follow from the volume being chip-wide. **Use it in one lane only.** A `VOL` in two
+lanes writes the same register twice, which is harmless, but a `BMP` in two lanes on the same row
+bumps the volume twice. And a fade is better written as one long `RLS` on the last note than as a
+run of `BMP`s: each bump moves in a visible step, while a release glides.
+
 The format's own table describes the down value as "volume − group", i.e. dropping several steps at
 once; in this player both values move exactly one step.
 
@@ -850,8 +856,15 @@ raise `PNT` towards the note's length for a softer, more legato line, and lower 
 `HLD` is the opposite guard, for staccato: it holds the note at full gate for its first `HLD` jiffies,
 so a very short note is not released before it has been heard.
 
+Three habits are worth keeping. `PNT 0` never releases a note at all, which
+is the cheapest legato there is — a run of notes with `PNT 0` sounds as one continuous line without a
+tie on every event. `ATK 0` is worth avoiding when all three voices start notes together, because the
+chip can then fail to gate them at once and one voice will speak first; `ATK 1` costs nothing. And a
+release of 0 sometimes cuts voices off unevenly, so 1 to 15 is safer. `SUS` is the only per-voice
+volume there is, so a harmony voice one level below the melody is what lets the melody sit on top.
+
 ```
-ATK 0
+ATK 1
 DCY 9
 SUS 4
 REL 8
@@ -881,6 +894,11 @@ and `P-S 254` creeps back down (254 being -2), a small value gives a slow, wide 
 the fast shimmer of a dance lead. `PVD`/`PVR` are the gentler version of the same
 thing — depth and rate of a vibrato applied to the *width* rather than the pitch, which is what makes
 a held lead sound alive without going out of tune.
+
+Three practical notes on the pulse. Some chips play it noticeably out of tune in the bottom octaves,
+so keep it out of octaves 0 and 1. A width much below about 100 (or above about 4000) is near silence
+on some chips, so stay nearer the middle. And a big `P-S` rate can carry the width past 4095, where it
+wraps — the wrap is an audible pop, so either slow the sweep or split the note.
 
 `SNC` and `RNG` are the SID's two cross-oscillator tricks and each is a plain 0/1 switch. They use
 another oscillator as the modulator, so they do nothing interesting unless the neighbouring voice is
@@ -921,6 +939,10 @@ line into two. `TPS` transposes everything
 after it, which is how a tune changes key for a last chorus; `RTP` works from the note before it
 instead, so the same value follows the melody rather than the tune's own key.
 
+A transpose cannot extend the SID's range: past B7 the notes clamp to octave 7, so a `TPS` that
+overshoots plays the same pitch an octave lower than you asked for. Negative transposes can reach
+into octave -1, which is rarely useful but is legal.
+
 Both transposes pack their interval into one byte (sign, octaves, semitones), so the operand is not
 a semitone count: `TPS 15` is -95 and `TPS 176` is +95, and `RTP`'s 91 is "no change at all".
 *Signed operands* above has the details, and the practical way to write an interval in between is to
@@ -943,6 +965,10 @@ POR 40
 | `RES` | 0-15 | resonance: the peak at the cutoff |
 | `FLT` | 0 or 1 | routes **this voice** through the filter |
 | `F-X` | 0 or 1 | routes the external audio input through the filter |
+
+The filter is the part of the SID that varies most between machines — the same cutoff that opens a
+sound beautifully on one chip barely moves on another — so it is worth hearing a filtered sound on
+more than one machine before leaning on it.
 
 The filter is one block for the whole chip: `F-M`, `F-C`, `RES` and `F-X` are chip-wide, while `FLT`
 decides which voices are fed into it. That is why a filtered bass and an unfiltered lead can coexist —
@@ -1011,7 +1037,7 @@ DST 2
 | `MS#` | 0-999 | a measure marker: the tune's own numbering of its sections. This player has no display for it, so it is written and kept but has no effect on the sound |
 | `UTV` | 0-255 | **this voice's** utility length, the per-voice twin of `UTL` (see *Tempo*, above) |
 | `FLG` | 0-255 | sets the player's flag byte — **no effect in GordonOS** |
-| `AUX` | 0-255 | reserved — **no effect** |
+| `AUX` | 0-255 | the "auxiliary" escape hatch: each player gives it its own meaning, and GordonOS's gives it none — **no effect**. See *Commands that are kept but do nothing here* |
 | `3-O` | 0 or 1 | switches voice 3 off, freeing it for sound effects |
 | `HLT` | — | stops this voice. Every voice must end on it |
 
@@ -1034,14 +1060,39 @@ into the next one's bytes.
 ### The one command with no line: `JIF`
 
 `JIF` is the only command in the format that the picker does not offer and the grid never draws. It
-would rescale the jiffy, and the player's jiffy is the scheduler tick, which a task cannot reload: the
-pair is decoded, its operand is consumed, and nothing follows from it.
+would rescale the jiffy, and in the Enhanced player that was a real facility: the tempo table fixes
+which note lengths a tempo can express, and a `JIF` shifted the jiffy so that a tempo could carry
+lengths its own table had no entry for — which is why a tune converted from another music system
+sometimes carries one. Here the jiffy is the scheduler tick, which a task cannot reload, so the pair
+is decoded, its operand consumed, and nothing follows from it.
 
 It is left out of the picker rather than offered as a dead entry because its operand is not a plain
 number: the value is the operand times four plus the top two bits of the command byte, a 10-bit
 signed range from -200 to 757. Drawing that truthfully would mean a signed field four times the
 size of every other operand on the grid, for a command that changes nothing. A `JIF` already in a
 tune is kept and written back untouched.
+
+## A few habits that make a tune sound better
+
+None of this is about the format; it is what the people who wrote tunes for this player learned, and
+it is worth ten minutes before you start writing something long.
+
+- **Do not leave all three voices on the default waveform and envelope.** The defaults are a plain
+  square wave and an organ-like envelope, chosen to be neutral: a whole tune of them sounds flat no
+  matter how good the notes are.
+- **Spend your time on the envelope.** It is the most ignored part of a tune and the one that
+  changes the character most: two voices with the same `WAV` and different `ATK`/`DCY`/`SUS`/`REL`
+  sound like two instruments.
+- **Do not let two voices play exactly the same pitch with the same waveform at the same moment.**
+  They can cancel each other out and vanish. If you want them together, detune one (`DTN`) or give
+  them different wave shapes.
+- **Use vibrato and pulse sweeping sparingly.** They are the two easiest effects in the format, and a
+  tune built on them sounds like a demonstration rather than a piece.
+- **Leave a rest after the last note of each voice.** A voice that stops dead on its last note cuts
+  that note's release; one row of rest is enough to let it fade.
+- **Bass lines vanish on a television.** The lowest octaves are mostly felt rather than heard on a
+  small speaker, so check a mix on something better than the monitor before deciding a bass part is
+  too quiet.
 
 ## Undo and redo
 
@@ -1175,15 +1226,22 @@ If you know what you want musically, this is the map:
 Four commands have no effect in the GordonOS player. All four are decoded and preserved in the
 file, and three of them are offered by the picker like any other:
 
-- **`JIF`** — "jiffy clock adjust". The player's jiffy is the **scheduler tick**; a task cannot
-  reload it, so the pair is decoded, its operand consumed, and nothing follows. It is also the one
+- **`JIF`** — "jiffy clock adjust". In the Enhanced player it earned its keep: the tempo table fixes
+  which note lengths a tempo can express, and `JIF` rescaled the jiffy so a tempo could carry lengths
+  its own table had no entry for. Here the jiffy is the **scheduler tick**; a task cannot reload it,
+  so the pair is decoded, its operand consumed, and nothing follows. It is also the one
   command the picker does not offer, because its value is not the operand alone but the operand times
   four plus the top two bits of the command byte: a 10-bit signed number that the grid's small
   decimal fields cannot draw truthfully. A `JIF` already in a tune is kept and written back
   untouched.
-- **`AUX`** — calls a function pointer that lives inside `sid.lib`'s own data, where no task can
-  install a routine. It is offered and written so that a tune made for the original player can be
-  opened, inspected and re-saved without losing it.
+- **`AUX`** — the "auxiliary" command, which is an escape hatch rather than an effect: the
+  pair carries a number and each player decides what the number means. The original C64 players
+  used 0-15 to set the colour of that voice's key on the on-screen piano (0 black, 2 red,
+  7 yellow, 14 light blue — the defaults for voices 1, 2 and 3), and the MIDI player used
+  16-31 for the voice's MIDI channel, 32-35 for the channel modes, 48+ for portamento time,
+  64+ for velocity and 128-255 for a program (tone) change. GordonOS's player defines none of
+  them, so every value is decoded and dropped — but the pair is written and preserved, so a
+  tune made for those players keeps the numbers it was written with.
 - **`FLG`** — sets the player's flag byte. In the original it was how a tune asked the *editor's*
   screen to print the next line of a `.wds` words file; this player has no screen and no `.wds`
   support, and nothing reads the flag, so the value is decoded and dropped. It is written like any
