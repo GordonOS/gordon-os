@@ -1093,12 +1093,16 @@ voice 1's and voice 2's destinations — 7 is the largest the command can hold. 
 holds a number of 0 to 3, so what a voice adds becomes a small fixed lift instead of anything that
 moves: a tune that sets `SRC 7` is detuning slightly, not modulating, whatever it meant to say.
 
-**How tunes actually use it.** `Layla` and `Dream_on` in the CGSC collection both aim a *pulse* at the
-frequency and then let `MAX` do the work, changing it before almost every note: `Layla`'s bass sets
-`LFO 1`, `RUP 3`, `RDN 3`, `SRC 0`, `DST 1`, `SCA 3`, `MAX 207` and then varies `MAX` (136, 242,
-148) and `SCA` note by note, so each note carries its own accent; `Dream_on` alternates `MAX 136`
-and `MAX 0` on one voice, which turns the effect on for one note and off for the next. Setting
-`MAX` per note is the idiom: it is much cheaper than re-wiring the oscillator for every row.
+**How tunes actually use it.** One ships with the machine: `run musedit layla` opens a tune whose
+third voice is the effect at work. It starts with `LFO 1`, `RUP 3`, `RDN 3`, `SRC 0`, `DST 1` and
+`SCA 3`, and then keeps rewriting `MAX` (`207`, `136`, `242`, `148`, ...) and `SCA` (`3`, `2`) as it
+plays: a pulse aimed at the frequency, with the depth set per note, so each note carries its own
+accent and none of them re-wires the oscillator. `MAX 0` is how a tune of this kind turns the effect
+off for a note — the archive's `Dream_on` alternates `MAX 136` and `MAX 0` throughout. Setting `MAX`
+is the cheap way to perform it: one command per note.
+
+Note also that this voice modulates *itself*. The software oscillator is per-voice, so a voice that
+uses it needs no partner — unlike `SNC` and `RNG` below, which each consume two voices.
 
 Two worked settings:
 
