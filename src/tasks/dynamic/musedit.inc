@@ -197,7 +197,6 @@
 .const muLogIdP     = MU_ZP_BASE+198  // 2 bytes  pointers into the instance buffer: the row's
 .const muLogLoP     = MU_ZP_BASE+200  // 2 bytes  logged commands (muHeapPtrs fills them)
 .label muDurTie     = MU_ZP_BASE+202  // 1 = the next new note is tied to the one after
-.label MU_ZP_END    = MU_ZP_BASE+227
 .label muDirty      = MU_ZP_BASE+203  // an image byte changed since the last save
 .label muWarn       = MU_ZP_BASE+204  // Q warned once; the next Q discards
 .label muRecV       = MU_ZP_BASE+205  // ...voice...
@@ -219,9 +218,10 @@
 .label muUcPg       = MU_ZP_BASE+221  // ...and its page
 .label muUcDirty    = MU_ZP_BASE+222  // the window has writes the file has not seen
 .label muUcTmp      = MU_ZP_BASE+223  // the byte muUndoGet carries across its own restore
-.label muInsFrom    = MU_ZP_BASE+224  // 2 bytes  the first row a splice touched
+.label muInsFrom    = MU_ZP_BASE+227  // 2 bytes  the first row a splice touched
+.label MU_ZP_END    = MU_ZP_BASE+229
 .assert "the zero page region fits the declared window", (MU_ZP_END - MU_ZP_BASE) <= MU_ZP_LEN ? 1 : 0, 1
-.assert "the declared window covers the last variable", (MU_ZP_END - MU_ZP_BASE) >= 227 ? 1 : 0, 1
+.assert "the declared window covers the last variable", (MU_ZP_END - MU_ZP_BASE) >= 229 ? 1 : 0, 1
 .assert "the zero page region stays below the kernel's IRQ bytes", (MU_ZP_BASE + MU_ZP_LEN) <= $f0 ? 1 : 0, 1
 
 // --- instance data: offsets into the 53-byte instance buffer ---
@@ -4167,6 +4167,14 @@ muBpKeep:
 //  Repaints only when the answer changes, so moving the mouse across the bar
 //  costs one redraw per item boundary.
 muBarHover:
+    cmp #MU_BAR_Q               // the lowest code with a handler, and ...
+    bcs muBhHigh
+    lda #0                      // ...0 and 1 are not items: nothing lights
+muBhHigh:
+    cmp #MU_BAR_INS+1           // MU_BAR_INS is the highest, so nothing above it
+    bcc muBhLive                //   lights either -- the bar never invites a click
+    lda #0                      //   that its dispatch chain would ignore
+muBhLive:
     cmp muBarHov
     beq muBhRts
     sta muBarHov
@@ -6234,17 +6242,8 @@ muObjKey:
     sta muObjKind               // 0 = a pair to be added at the boundary
     jmp mqPick
 mqHave:
-    sta muObjId
-    cmp #MU_MN_END+1            // ids above the structural nine are sound commands:
-    bcc mqHaveOk                //   they are writable once their shape is encoded
-    sec
-    sbc #1
-    tay
-    lda mqShape,y
-    cmp #9                      // 9 is a shape this build cannot write at all
-    beq mqRefuseCmd
-    lda muObjId
-mqHaveOk:
+    sta muObjId                 // every mnemonic the picker offers has an encoder,
+                                //   so a structural id and a sound one take the same path
     lda muCmdVal
     sta muObjVal
     lda muCmdValHi
@@ -6260,11 +6259,6 @@ mqHaveOk:
     bcc mqPick
 mqGone:
     jmp mqRefuse
-mqRefuseCmd:
-    jsr muBandRebuild
-    lda #M_NOT_YET
-    jsr muMsgSet
-    jmp muStatus
 mqRefuse:
     jsr muBandRebuild
     lda #M_NO_EVENT
@@ -6535,6 +6529,9 @@ muRecAtObj:
 //  The phrase commands take 0-15 in the option's high nibble; 16-23 are the eight
 //  whose high nibble also sets the option's top bit and whose low nibble names the
 //  command, which is why they carry their own base.
+//  mqMax holds the low half of the maximum, so the high half is cleared here on
+//  every pass: only the shapes that can exceed a byte (mqEncWide) set it, and a
+//  stale one would make mqClamp skip the clamp for every mnemonic picked after it.
 muObjEnc:
     lda muObjId
     sec
@@ -6546,6 +6543,8 @@ muObjEnc:
     sta muObjOptB
     lda mqMax,y
     sta muObjMax
+    lda #0
+    sta muObjMaxHi
     lda muObjId
     cmp #MU_MN_DEF
     beq mqEncPh
@@ -8644,12 +8643,8 @@ muClkNotRu:
     jmp muBarDel
 muClkNotDel:
     cmp #MU_BAR_INS
-    bne muClkNotR
-    jmp muBarIns
-muClkNotR:
-    lda #M_NOT_YET              // a labelled cell with nothing behind it yet
-    jsr muMsgSet
-    jmp muStatus
+    bne muClkRts                // a code with no handler: MU_BAR_INS is the last
+    jmp muBarIns                //   live one, and the hover lights no other
 muBarSave:
     jsr muSaveTry
     rts
@@ -10216,6 +10211,10 @@ muBarMap:
 muBarMapEnd:
 // A code per column, all 40 of them, and the text fills the row to the Q column --
 // so an edit to either has to keep up with the other or the build stops.
+// A non-zero code is an ITEM and lies in MU_BAR_Q..MU_BAR_INS: that is the range
+// the click chain dispatches and the only range the hover lights. 0 is a blank
+// column, and a code outside the range is inert in both paths -- the bar never
+// invites a click its dispatch chain would ignore.
 .assert "bar map covers the row", (muBarMapEnd - muBarMap) == MU_SCREEN_COLS ? 1 : 0, 1
 .assert "bar text fills the row to Q", M_BAR_LEN == 40 ? 1 : 0, 1
 // The three lane headers in row 1 are "ROW VOICE 1     VOICE 2     VOICE 3", so

@@ -1512,7 +1512,11 @@ rfPrint:
 //  a player already has the chip. The declaration itself has to be read from the
 //  file: a load that then fails on the pool never returns to this frame, so the
 //  refusal has to come first.
-//  In: kPtr = the target's filename (screen codes). Out: kPtr unchanged.
+//  In: kPtr = the target's filename (screen codes).
+//  Out: C=1 when the target declares sid.lib and it is loaded. kPtr and the
+//       loader's argument bytes kArg+2/+3 come back as they arrived: the FS calls
+//       below use the whole kArg block, and kArg+2 is the program-RAM page count
+//       `kDynLoad` reads as its first act.
 rfSidBusy:
     ldy #TSKNAME                // park the filename pointer -- the FS calls
     lda kPtr                    //   clobber kPtr and the whole kArg block
@@ -1520,6 +1524,10 @@ rfSidBusy:
     iny
     lda kPtr+1
     sta (dataPtr),y
+    lda kArg+2                  // the loader's argument, kept across the FS calls
+    pha
+    lda kArg+3
+    pha
     lda libStartPage+LIB_SID
     cmp #$ff
     beq rsNo                    // not loaded -> nothing to refuse
@@ -1577,6 +1585,10 @@ rsOut:
     iny
     lda (dataPtr),y
     sta kPtr+1
+    pla                         // the loader's argument, back as it arrived
+    sta kArg+3
+    pla
+    sta kArg+2
     rts
 pcRunOk:
     jsr kEnableCursor          // restore the shell cursor after the spawn
