@@ -544,7 +544,7 @@ gordon-os/
 │                          `run granim llama`
 ├── music/                 COMPUTE!'s Enhanced Sidplayer tunes (*.mus, seeded raw
 │                          into the REU FS: commodo, fsonata, seffsng, tambrn, tetris and the
-│                          archive's ringmod, syncmod and layla, plus grknoid's
+│                          archive's ringmod, syncmod, layla and daytrip, plus grknoid's
 │                          katmand, immig and firstdt)
 ├── docs/                  Design docs -- the Documentation table below indexes
 │                          them: guides (quick-start.md, tutorial.md,

@@ -1093,6 +1093,10 @@ voice 1's and voice 2's destinations — 7 is the largest the command can hold. 
 holds a number of 0 to 3, so what a voice adds becomes a small fixed lift instead of anything that
 moves: a tune that sets `SRC 7` is detuning slightly, not modulating, whatever it meant to say.
 
+`run musedit daytrip` is a tune that reads a source rather than the oscillator: its second voice sets
+`SRC 2`, `DST 1` and `SCA 3`, so it is voice 3's *envelope* that moves voice 2's pitch — a wobble
+that follows the shape of voice 3's notes instead of a cycle of its own.
+
 **How tunes actually use it.** One ships with the machine: `run musedit layla` opens a tune whose
 third voice is the effect at work. It starts with `LFO 1`, `RUP 3`, `RDN 3`, `SRC 0`, `DST 1` and
 `SCA 3`, and then keeps rewriting `MAX` (`207`, `136`, `242`, `148`, ...) and `SCA` (`3`, `2`) as it
