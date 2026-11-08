@@ -1055,7 +1055,7 @@ aimed at all three voices independently — which is why it takes several comman
 | `RUP` | 0-31 | with `LFO 0`: how much the value climbs each jiffy. With `LFO 1`: how many jiffies it stays high |
 | `RDN` | 0-31 | with `LFO 0`: how much it falls each jiffy. With `LFO 1`: how many jiffies it stays low (0 means 32 in pulse mode) |
 | `MAX` | 0-255 | the top of the range: the ceiling the climb turns round at, and the level a pulse sits at when it is high. **0 switches the effect off** |
-| `SRC` | 0-2 | what a voice reads: 0 the software oscillator above, 1 the chip's own oscillator 3 output, 2 its envelope 3 output |
+| `SRC` | 0-2 | what a voice reads: 0 the software oscillator above, 1 the chip's own oscillator 3 output, 2 its envelope 3 output. Anything higher is not a source — the player reads a three-byte table, so it would pick up whatever follows it |
 | `SCA` | 0-7 up, 249-255 down | how much of that reading the voice takes, as a shift: each step up doubles it, each step down halves it, 3 is eight times and 253 an eighth |
 | `DST` | 0-3 | where the voice adds it: 0 nowhere, 1 to its frequency, 2 to its pulse width, 3 to the filter cutoff |
 
