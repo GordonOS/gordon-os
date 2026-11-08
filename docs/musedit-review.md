@@ -13,7 +13,7 @@ Tools: `mus-sim.py` (the host model), three `gen-musedit-*` generators, four
 
 **Method.** The diff was read directly; the gates in the tree were run (see the appendix); each
 documented behaviour in `musedit.md` was traced to the routine that implements it; the format was
-checked against `reference/sidplayer-mus-file-format.md` and against the nine bundled tunes with a
+checked against `reference/sidplayer-mus-file-format.md` and against the bundled tunes with a
 host probe; the pool figures come from `check-pool-budget.ps1` and the build output.
 
 **Verdict.** The work is in good shape: the invariants that matter are asserted, gated or modelled,
@@ -43,7 +43,7 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 | F6 | Medium | `tools/temp/symout/assemble-tasks.vs` | A 5,852-line generated VS64 symbol dump is committed; nothing reads it — **fixed: removed, and `tools/temp/` is ignored** |
 | F7 | Low | `docs/development.md:637` | The generated-file table listed one of the three `gen-musedit-*` generators — **fixed: all three have a row, with their sources of truth** |
 | F8 | Low | `tools/check-musedit-walk.py` | The walk gate compared 19 lines of one tune with one command a line — **fixed: a second capture adds three-command lines, and the gate says what no capture can see** |
-| F9 | Low | `musedit.inc:679` (`muWinSeat`) | The "a command pair never straddles a window" proof needs every voice length to be even; nothing checks it (all nine bundled tunes are) |
+| F9 | Low | `musedit.inc:679` (`muWinSeat`) | The "a command pair never straddles a window" proof needs every voice length to be even; nothing checked it. Census of 18,613 `.mus` files found 1 odd-length file and 3 even-length damaged ones — **fixed: each voice must end on its `01 4F` pair**, verified against the real files |
 | F10 | Low | `musedit.inc:723`, `:782` | The window fill/flush ignore the REU transfer's C flag, so a failed transfer draws garbage or silently drops a scratch write |
 | F11 | Note | `musedit.inc:384`, `musedit.md` | `<base>.wrk` is a fixed 65,280 bytes per session and the guide never states the tune-size cap that implies |
 | F12 | Note | `check-pool-budget` | `sid.lib`'s 15 pages are reserved for the whole session — 14% of the pool — for a feature used only on PLAY |
@@ -272,12 +272,76 @@ That holds only if every voice's stream starts at an even offset — header 8, t
 always even; the format does not say so, and the editor does not check.
 
 I probed all nine bundled tunes: every length is even and every stream starts even, so nothing in
-the repository is exposed. A hand-written or foreign file with an odd length would read a pair
+the repository was exposed. A hand-written or foreign file with an odd length would read a pair
 across the page boundary — the address still lands inside a window, so this is wrong data on
 screen, not corruption — and everything after the first odd voice would be misparsed.
 
-**Fix:** at open, reject a length with bit 0 set, saying `? not a tune` (the message already
-exists and is unused). Six bytes in `muLoadImage`/`muParseHeader`.
+**The library says which half of that matters, and it says something better.** Every `.mus` on this
+machine was measured — 16,601 in CGSC v147 and 2,012 elsewhere, 18,613 in all — classifying each by
+whether the three streams are well formed under the format's own rule (**a stream of two byte
+commands, terminated by `01 4F`**):
+
+| finding | tunes |
+|---|---|
+| all three voices end exactly on `01 4F` at an even offset | **18,606** |
+| odd length (voice 1 or 2 — displaces a later stream's start) | **0** |
+| odd length (voice 3 — the last stream) | **1**, and it is damaged |
+| even lengths, but a stream runs past its end (slipped, not straddled) | **3** |
+
+The one odd-length file is `DC_Star_and_Cpr/Cross_my_Heart_A.mus` — 1452 / 654 / **851**. Its
+`01 4F` occurs exactly once, at **offset 849** into voice 3, an odd offset: a pair-aligned walk sees
+pairs (848, 849), so the terminator straddles two pairs and the last byte is never read.
+
+```
+pair-aligned from the declared start     the same bytes read with the slip removed
+2952: 02 14  P-W pulse width $014        14 A2  note D3 8th
+2954: 9B 01  POR 9729                    01 02  CALL 0
+2956: 92 14  P-W $914                    14 9B  note E4 8th
+2958: A2 01  P-W $A01                    01 92  CALL 9
+2960: 0F 0C  POR 780                     14 A2  note D3 8th
+2962: A0 01  note C?7 dbl-dotted 64th    01 0F  TAL / 0C A0 rest / 01 4F HLT
+-> no HLT inside the declared bytes
+```
+
+**And the tune itself is fine.** The collection ships it twice: `Cross_my_Heart_B.mus` has voices 1
+and 2 **byte-identical**, the same trailer, and a voice 3 of 1240 bytes that terminates properly —
+and it plays cleanly through the same model (1,571 events, 12,168 ticks, every voice stopped). The
+two diverge at byte 545 of voice 3: one byte is lost (or gained) there, which is what makes the
+length odd and shifts every pair after it. So the tune is supported; the *file* is a damaged copy
+of it, uncatalogued — the collection marks its three known-broken tunes in their names
+(`Another_Thing_Comin_(BAD)`, `Against_the_Grain_(BAD)`, `Escape_-BAD-`) and all three of those are
+the even-length, slipped kind.
+
+Both files ship so the difference can be seen: `crossmy.mus` plays, `badlen.mus` faults with
+`voice 3: 64th at tempo $80 is not a length`.
+
+**So do valid tunes need uneven lengths?** Not in 18,613 files: an odd length was a damage signal
+every time it appeared, and no tune requires one. What the census *does* change is the check:
+parity catches the odd file and **misses the three even-length damaged ones**. The format's own
+contract is the terminator, so the check is that — **each voice's last pair must be `01 4F`** —
+which refuses all four damaged files and rejects none of the 18,606 well-formed ones.
+
+**Fixed.** `muLdVoEnds` (`musedit.inc`), called from `muLdCheck`, walks the three size words, tests
+parity first (a stream of pairs fills an even number of bytes, so an odd length has no last pair at
+all), then reads the pair at `start + len - 2` through window 0 and refuses unless it is `01 4F`. A
+length of 0 is refused too — its "last pair" would be read out of the voice before it. Because
+parity goes first, the offset that is read is always EVEN, which is what keeps both bytes of the
+pair inside one window. `muLdCheck`'s two refusals now share one `musedit.md` message, `? not a
+tune`, and the size words are read with `muImgSeat` + the loader's existing idiom, so no new
+mechanism.
+
+Verified against the real thing rather than by inspection — the assembled routine was run under
+py65 on actual files, with only the REU page copy stubbed (the harness fills the window when the
+routine asks for a page):
+
+| input | verdict |
+|---|---|
+| the ten good tunes (`arose` … `tetris`, `crossmy`) | **accepted**, all ten |
+| `badlen.mus` (odd length) | **refused** |
+| `Another_Thing_Comin_(BAD)`, `Against_the_Grain_(BAD)`, `Escape_-BAD-` (even, slipped) | **refused**, all three |
+| 300 random CGSC tunes | **0 refused** |
+
+`musedit` is 17,986 bytes (+136) and 105 pool pages of 109, margin 4.
 
 ### F14 — The command prompt's 16-bit clamp goes stale after a 14-bit command (Medium)
 
@@ -396,7 +460,7 @@ guide already explains that the space comes back on `compact`.
 | `tools/temp/symout/assemble-tasks.vs` | committed artifact | **removed**, and `/tools/temp/` ignored (**F6**) |
 | `MS#` numbers | `:373`, `:6770`, `musedit.md:551`/`:616` | three-way disagreement (**F1**) |
 | generated-file table | `development.md:637` | two generators missing (**F7**) |
-| the plan's tune references | `docs/plans/musedit-plan.md` | already pruned to the nine shipping tunes |
+| the plan's tune references | `docs/plans/musedit-plan.md` | already pruned to the shipment's own tunes |
 
 Nothing else: `tools/vice-step.ps1`, `vice-test.ps1` and `drive-string-tests.ps1` were deleted on
 this branch and nothing in the tree refers to them; the message table has no other orphans; the
@@ -492,7 +556,7 @@ The discrepancies are:
 | 3 | `:562` "**Every** command the picker offers is writable" | true (no shape 9), and `JIF` is correctly absent from the picker — this claim is *right* and worth keeping |
 | 4 | the tune-size cap | never mentioned (**F11**) |
 | 5 | `:39` "`? sid.lib in use` … printed by the shell before `musedit` starts" | correct, and the branch added exactly that (`shell.inc:1516`, `msgDynSidBusy`) |
-| 6 | `:214` "`JIF` … no bundled tune uses it" | verified: zero `JIF` pairs in all nine tunes |
+| 6 | `:214` "`JIF` … no bundled tune uses it" | verified: zero `JIF` pairs in the nine original tunes (`badlen` carries one, and `JIF` is inert either way) |
 | 7 | `:88` dots "red / yellow / cyan" | `muVoiceCol: .byte 2, 7, 3` ✓ |
 | 8 | `:106` "quits, and answers `? unsaved` first" | `M_UNSAVED` is `"? unsaved - q again"`; the wording now gives the whole text |
 | 9 | `:552` "a value the command cannot hold is clamped to its maximum … what the prompt shows is always what gets written" | now true: the clamp's high half is re-derived on every prompt redraw (**F14**, fixed) |

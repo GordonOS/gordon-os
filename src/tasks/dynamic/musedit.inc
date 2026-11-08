@@ -1036,20 +1036,102 @@ muLdNewZ:
     sta (dataPtr),y
     jmp muLdCheck
 
-// --- muLdCheck -- a file too short to hold even the header is not a tune ---
+// --- muLdCheck -- the image has to be a tune before anything reads it ---
+//  A file shorter than the 8-byte header is not one, and neither is one whose
+//  voices do not end on the HLT pair: the format is a stream of two byte commands
+//  ended by 01 4F, so a voice whose last pair is something else has lost or gained
+//  a byte somewhere, every pair after that point is shifted, and the walk draws
+//  commands the tune never wrote. Refusing it is what turns that into one line the
+//  reader can act on.
 muLdCheck:
     ldy #MU_LEN+1
     lda (dataPtr),y
-    bne muLdGood
+    bne muLdEnds
     ldy #MU_LEN
     lda (dataPtr),y
     cmp #8
-    bcs muLdGood
+    bcs muLdEnds
+muLdBad:
     lda #M_NO_TUNE
     jsr muMsgSet
     sec
     rts
-muLdGood:
+muLdEnds:
+    jsr muLdVoEnds
+    bcs muLdBad
+    clc
+    rts
+
+// --- muLdVoEnds -- every voice ends on its HLT pair ---
+//  In: the working file holds the image, window 0 free. Out: C=1 when a voice does
+//  not end there. The last pair sits at start + len - 2, and an odd length has no
+//  last pair at all -- a stream of pairs fills an even number of bytes -- so parity
+//  is tested first and the read that follows is always at an EVEN offset, which is
+//  what keeps both of its bytes inside one window.
+//  Clobbers A, X, Y, kPtr, MU_SCANOFF/LEN/V and the window state.
+muLdVoEnds:
+    lda #8
+    sta muScanOff
+    lda #0
+    sta muScanOff+1
+    sta muScanV
+mveVoice:
+    jsr muImgSeat               // the size word: offset 2 + 2 * voice, always page 0
+    lda muScanV
+    asl
+    clc
+    adc #2
+    tay
+    lda (kPtr),y
+    sta muScanLen
+    iny
+    lda (kPtr),y
+    sta muScanLen+1
+    lda muScanLen
+    lsr                         // C = the bit a pair can never leave over
+    bcs mveBad
+    ora muScanLen+1             // len >> 1 worth nothing and no high byte: no pair
+    beq mveBad
+    lda muScanOff               // the byte after the stream, less two: its last pair
+    clc
+    adc muScanLen
+    sta muWinOfs
+    lda muScanOff+1
+    adc muScanLen+1
+    sta muWinOfs+1
+    lda muWinOfs
+    sec
+    sbc #2
+    sta muWinOfs
+    bcs mveSeat
+    dec muWinOfs+1
+mveSeat:
+    ldx #0
+    jsr muWinSeat
+    ldy #0
+    lda (kPtr),y
+    cmp #$01                    // HLT is the pair 01 4F
+    bne mveBad
+    iny
+    lda (kPtr),y
+    cmp #$4f
+    bne mveBad
+    lda muScanOff               // the next voice starts where this one ends
+    clc
+    adc muScanLen
+    sta muScanOff
+    lda muScanOff+1
+    adc muScanLen+1
+    sta muScanOff+1
+    inc muScanV
+    lda muScanV
+    cmp #3
+    bcs mveRts
+    jmp mveVoice
+mveBad:
+    sec
+    rts
+mveRts:
     clc
     rts
 
