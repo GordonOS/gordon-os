@@ -14,6 +14,19 @@ including tunes written years ago by some other editor.
 
 ![commodo open in musedit, the cursor on the first row](img/musedit.png)
 
+**And a tune is no longer limited by the machine's own memory.** The original Sidplayer had to hold
+the song and the editor in the C64's 64 KB together, so a long tune was entered in pieces and merged
+afterwards. GordonOS keeps its music in the **REU filesystem**, and `musedit` works on a 65 KB
+scratch copy of the tune — more memory than the whole of the C64's RAM, and something the old
+players could not offer because they never touched the REU at all.
+
+That is not only an editor convenience. A tune is *streamed*: `godzi`, `gortris` and `grknoid` keep
+three 256-byte windows of the tune they are playing and refill them from the REU as the music moves
+on, so what a game spends on music is a buffer of a few hundred bytes rather than the size of the
+tune. With megabytes of REU against tunes of a few kilobytes, a game can carry a whole library of
+music for the price of one — which is the kind of thing this machine makes possible and a stock
+C64 could not. (`sidplay` is the simple case: it loads the one tune it is given whole.)
+
 ## Contents
 
 - [Before you start](#before-you-start)
