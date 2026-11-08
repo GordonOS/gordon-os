@@ -701,13 +701,17 @@ moment and play stays unavailable until `musedit` is restarted; the same message
 `SHIFT+S` (or `SAVE` on the control bar) saves to the same name. If the tune has grown beyond
 the room the file was given, the editor recreates the file with room to spare; otherwise it
 writes in place. A failed save reports `? no space` or `? dir full` and leaves the old file
-untouched.
+untouched. A save **while the tune is playing** is refused with `? stop first`: the player and the
+save both set the transfer registers up around their own REU work, so overlapping them could
+corrupt one of the two.
 
 The description that ships inside the file — the text `sidplay` can print — is preserved
 exactly, including any bytes after its terminator. The first release does not edit it.
 
-`Q` quits. If there are unsaved changes it does not quit: the status line warns and you must
-press `Q` again to discard them, or `SHIFT+S` to save.
+`Q` quits. It does not quit **while the tune is playing** — the player would be pulled out
+from under the music, so it answers `? stop first`, like every other action that must not run
+during a pass. Nor does it quit with unsaved changes: the status line warns and you must press
+`Q` again to discard them, or `SHIFT+S` to save.
 
 While you edit, the tune you are working on lives in a scratch copy called `<name>.wrk`; the
 `<name>.mus` itself is only touched by a save. The scratch is removed when you quit, so it does
@@ -734,7 +738,7 @@ you quit**, so a session leaves nothing behind. It costs the same space however 
 | `? no space` | the pool cannot hold the tune's new size; nothing was changed |
 | `? no windows` | the pool could not seat the three read windows, and the grid cannot be read without them — nothing was opened |
 | `? no player` | the SID was taken by another task during playback, or `sid.lib` could not load |
-| `? stop first` | an edit was attempted during playback |
+| `? stop first` | an edit, a save, a jump or a quit was attempted during playback |
 | `? illegal duration` | the current tempo cannot express that note length |
 | `? no event here` | the rest or delete key needs the cursor on a row where an event starts |
 | `? a note in voice 2 spans the row` | `R` or `SHIFT+R` met a note that runs past that row, so the row cannot be closed without shortening it — shorten the note first, then delete |

@@ -1344,7 +1344,9 @@ muFsRts:
 //  A `jsr` entry: it ends in a tail jump into the status line, whose last routine
 //  returns, so the frame it returns through has to be this one.
 muSaveTry:
-    jsr muSaveNow
+    jsr muPlaying               // a save sets kArg up around its own REU transfers, and
+    bcs muSvRts                 //   the player's window refill writes the same block from
+    jsr muSaveNow               //   the other task: stop first (? stop first)
     bcc muSvTold
     jmp muStatus                // MU_STR is the reason
 muSvTold:
@@ -1354,6 +1356,8 @@ muSvTold:
     lda #M_SAVED
     jsr muMsgSet
     jmp muStatus
+muSvRts:
+    rts
 
 // ==========================================
 //  Timing
@@ -10237,6 +10241,10 @@ muMtExit:
 //  Exit
 // ==========================================
 muQuit:
+    jsr muPlaying               // the pass must not be pulled out from under the
+    bcc muQuitChk               //   player: stop first (? stop first)
+    rts
+muQuitChk:
     lda muDirty                 // unsaved changes warn once; the next Q discards
     beq muQuitGo
     lda muWarn

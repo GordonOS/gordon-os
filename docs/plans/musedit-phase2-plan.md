@@ -14,14 +14,14 @@
 
 | | |
 |---|---|
-| code | **17,859 bytes**, 1,869 fixups, **70 code pages** (61 bytes under the next boundary) of a 256-byte granule (71 measured working) |
+| code | **17,871 bytes**, 1,871 fixups, **70 code pages** (49 bytes under the next boundary) of a 256-byte granule (71 measured working) |
 | pool | **104 pages of 109** (code 70, `sid.lib` 15, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
 | zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`), every one of them declared |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
 Two numbers govern everything below, and neither is negotiable without a design change:
 
-- **The editor can carry 317 more bytes of code.** `musedit` is 17,859 bytes, 70 code pages, and
+- **The editor can carry 305 more bytes of code.** `musedit` is 17,871 bytes, 70 code pages, and
   **71 pages has been measured working**: with `sid.lib` trimmed to 14 pages, a 71-page build
   (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune and played it. So the
   usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on pool margin 4, which is
@@ -49,8 +49,8 @@ the image and no page-boundary arithmetic is needed. The file is also deleted at
 leaves nothing behind.
 
 Plan-level budget: the `muMnTab` lever is spent and item 4 has taken `sid.lib` over its 14th page,
-so the **317 bytes in hand** — 17,859 to the 71-page line at 18,176 — are the whole budget. `musedit`
-is also only 61 bytes short of its own page boundary, and the pool sits at margin 5, so a change past
+so the **305 bytes in hand** — 17,871 to the 71-page line at 18,176 — are the whole budget. `musedit`
+is also only 49 bytes short of its own page boundary, and the pool sits at margin 5, so a change past
 that boundary costs a page as well. Item 3 fits by taking that page; item 6 (blocks, 350-450 bytes)
 needs a lever of its own.
 
@@ -177,7 +177,7 @@ a note already sounding when the mask lifts is caught earlier in its envelope. E
 sets is exact.
 
 **Cost**: `sid.lib` **+63 bytes** (3,548 → 3,611), which took it from 14 to **15 pages** — it had 36
-bytes of room in its 14th page and the fold needs more; `musedit` **+32 bytes** (17,827 → 17,859,
+bytes of room in its 14th page and the fold needs more; `musedit` **+38 bytes** (17,827 → 17,871,
 still 70 pages). Pool 103 → **104 of 109, margin 5**, the configuration this plan measured working.
 Every task that declares `sid.lib` pays the page with it (`gortris` 51 → 52, `sidplay` 30 → 31,
 `godzi` 33 → 34, `grknoid` 47 → 48).
@@ -342,6 +342,6 @@ hears or types into; a py65 harness alone is not "verified".
 7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
    `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
    default tempo, which is a different number and would have to say so)?
-8. **Funding**: the **317 bytes** in hand — the `muMnTab` lever is spent — are the whole budget,
+8. **Funding**: the **305 bytes** in hand — the `muMnTab` lever is spent — are the whole budget,
    enough for items 3 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
    which does the list prefer?
