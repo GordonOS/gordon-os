@@ -21,7 +21,31 @@
 
 ---
 
+## Bug #208 — SHIFT+P in `musedit` crashed the editor once the cursor reached bar 1 🟠 ✅ FIXED (2026-11-08)
+
+**Symptoms.** `run musedit immig`, a few SHIFT+N presses to walk forward, SHIFT+U to refine the row
+unit, then SHIFT+P repeatedly: the editor crashed part way back. The refined unit is what makes it
+look random -- it turns every bar into several, so the walk back is longer and the crash arrives
+several presses later, at bar 1.
+
+**Root cause.** `muBarPrev` computed the cursor's bar minus one and, when the answer was zero (bar 1
+has nothing before it), ended in a bare `rts`. The key chain dispatches with `jmp` -- `muKeyLoop` is
+reached by `jmp` and loops with `jmp muKeyIdle` -- so no frame of its own exists: that `rts` popped
+whatever the task was entered with and the CPU carried on into garbage. `muLinkKey` carries a comment
+saying it "ends in the idle loop, not in an rts" for exactly this reason; `muBarPrev` did not.
+
+**Fix.** `muBarPrev` now falls into `muBarGo` when there is a bar to go to, and branches to the idle
+tail (`muBarIdle`, shared with `muBarGo`'s own refusal path) when there is not. Unchanged code size:
+17,919 -> 17,918 bytes, so `musedit` stays at 70 code pages and no pool budget moves.
+
+**Rule.** A handler reached from the key chain with a `jmp` must end in `jmp muKeyIdle` (or another
+`jmp` that does). Test it: a routine dispatched by `jmp` may never `rts`, and a routine dispatched by
+`jsr` must not fall into the idle loop.
+
+---
+
 ## Bug #207 — `SRC 1` and `SRC 2` modulated with a constant zero, because the port stopped sampling the two SID outputs 🟠 ✅ FIXED (2026-11-08)
+
 
 **Symptoms.** A voice modulating from the chip's own generators — `SRC 1` (oscillator 3) or `SRC 2`
 (envelope 3) — moved nothing: no pitch bend, no pulse-width movement, no filter sweep. Nothing

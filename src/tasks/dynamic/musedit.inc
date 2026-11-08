@@ -3250,6 +3250,21 @@ mbfTake:
     clc
     rts
 
+// --- muBarPrev -- the bar before the cursor's, when there is one ---
+//  Falls into muBarGo when there is one. The key chain reaches this routine with a
+//  jmp, so the "nothing before bar 1" path ends in the idle loop like every other
+//  key handler: an rts here pops a frame the chain never pushed.
+muBarPrev:
+    jsr muBarOf
+    sec
+    sbc #1
+    sta muObjVal
+    txa
+    sbc #0
+    sta muObjValHi
+    ora muObjVal
+    beq muBarIdle               // bar 1 has nothing before it
+
 // --- muBarGo -- jump to bar MU_OBJVAL, or say there is no such bar ---
 muBarGo:
     jsr muBarFind
@@ -3257,6 +3272,7 @@ muBarGo:
     jsr muBandRebuild           // the search walked the producer: put it back
     lda #M_NO_BAR
     jsr muMsgGo                 // this path returns: the dispatch pushed no frame
+muBarIdle:
     jmp muKeyIdle
 mbgGo:
     jmp mlkJump
@@ -3271,19 +3287,6 @@ muBarNext:
     adc #0
     sta muObjValHi
     jmp muBarGo
-
-// --- muBarPrev -- the bar before the cursor's, when there is one ---
-muBarPrev:
-    jsr muBarOf
-    sec
-    sbc #1
-    sta muObjVal
-    txa
-    sbc #0
-    sta muObjValHi
-    ora muObjVal
-    bne muBarGo
-    rts                         // bar 1 has nothing before it
 
 // --- muBarPrompt -- row 0: type the bar to go to ---
 //  The object panel's operand entry with a different last step: RETURN jumps to the
