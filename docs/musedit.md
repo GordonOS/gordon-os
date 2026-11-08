@@ -1056,7 +1056,7 @@ aimed at all three voices independently — which is why it takes several comman
 | `RUP` | 0-31 | with `LFO 0`: how much the value climbs each jiffy. With `LFO 1`: how many jiffies it stays high |
 | `RDN` | 0-31 | with `LFO 0`: how much it falls each jiffy. With `LFO 1`: how many jiffies it stays low (0 means 32 in pulse mode) |
 | `MAX` | 0-255 | the top of the range: the ceiling the climb turns round at, and the level a pulse sits at when it is high. **0 switches the effect off** |
-| `SRC` | 0-2 | what a voice reads: 0 the software oscillator above, 1 the chip's own oscillator 3 output, 2 its envelope 3 output. Anything higher is not a source — the player reads a three-byte table, so it would pick up whatever follows it |
+| `SRC` | 0-2 | what a voice reads: 0 the software oscillator above, 1 the chip's own oscillator 3 output, 2 its envelope 3 output. Nothing above 2 is a source — the player reads a three-byte table and walks off its end |
 | `SCA` | 0-7 up, 249-255 down | how much of that reading the voice takes, as a shift: each step up doubles it, each step down halves it, 3 is eight times and 253 an eighth |
 | `DST` | 0-3 | where the voice adds it: 0 nowhere, 1 to its frequency, 2 to its pulse width, 3 to the filter cutoff |
 
@@ -1086,6 +1086,12 @@ follows that instead of a clock, and with voice 3 in noise mode the register rea
 number, which gives a random wobble. 2 is voice 3's envelope output, a shape that follows a
 note's attack and decay rather than a steady cycle. Whichever you choose, the reading is scaled
 by `SCA` and added to `DST` the same way, one way only.
+
+The three entries sit at the head of a block of the player's work bytes, so a larger `SRC` reads one
+of the next ones instead: 3, 4 and 5 are the three voices' own source selections, and 6 and 7 are
+voice 1's and voice 2's destinations — 7 is the largest the command can hold. Every one of those
+holds a number of 0 to 3, so what a voice adds becomes a small fixed lift instead of anything that
+moves: a tune that sets `SRC 7` is detuning slightly, not modulating, whatever it meant to say.
 
 **How tunes actually use it.** `Layla` and `Dream_on` in the CGSC collection both aim a *pulse* at the
 frequency and then let `MAX` do the work, changing it before almost every note: `Layla`'s bass sets
