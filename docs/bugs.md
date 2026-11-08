@@ -39,6 +39,15 @@ processed: `lda $d41b` / `sta WorkOscillatorVoice3` and `lda $d41c` / `sta WorkE
 That is 12 bytes in `sid.lib`, which stays at 15 pages, so no task's pool budget moves (`basic` is
 still exactly full at 109).
 
+**Verified on the emulator.** A 196-byte hand-written probe -- `TEM 112`, `WAV 4`, `SRC n`, `DST 1`,
+`SCA 1`, four whole notes of C-4 on voice 1, and 64 sixteenths of C-2 on voice 3 to keep envelope 3
+moving -- with `$D400`/`$D401` read from the binary monitor at ~50 Hz: `SRC 2` walked 31 distinct
+frequencies across `$08B3`-`$0A4B` inside a single held note, `SRC 1` flipped between `$08B3` and
+`$0AB1` (oscillator 3 aliased at one sample per jiffy, so it reads as an on/off buzz), and the same
+tune without `SRC`/`DST` sat at `$08B3` for every one of 248 samples. `$D41B`/`$D41C` themselves
+read as 0 through the monitor: its memory read does not go through the SID's read handler for those
+two registers, so the frequency register is the evidence, not the source byte.
+
 **Rule.** A commented-out store is only safe once every *reader* has been found, and an array
 indexed by a command operand (`lda WorkLFO,y`) makes its neighbours part of its API — search the
 label, not just the obvious use. Reading these two SID registers has no side effect on the chip, so
