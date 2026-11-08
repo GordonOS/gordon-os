@@ -978,8 +978,9 @@ the bass lane carries `FLT 1` and the lead lane `FLT 0` — but they share one c
 changes it: `F-S 3` opens, `F-S 253` closes, and the bigger the number the faster it travels. `AUT`
 is key-follow: it sets the cutoff from the note's own pitch, so high notes come out brighter than low
 ones, and the operand offsets that whole curve — `AUT 20` a little brighter everywhere, `AUT 236`
-(which is -20) a little darker. It is what keeps a bass line from disappearing behind a lead. Resonance is the character of the sweep, and a lot of it is loud — drop
-`VOL` when you raise `RES`.
+(which is -20) a little darker. It is what keeps a bass line from disappearing behind a lead.
+Resonance is the character of the sweep, and a lot of it is loud — drop `VOL` when you raise
+`RES`.
 
 ```
 F-M 1
@@ -989,46 +990,72 @@ F-S 3
 FLT 1
 ```
 
-### Modulation — `LFO`, `RUP`, `RDN`, `SRC`, `DST`, `SCA`, `MAX`
+### Modulation — `LFO`, `RUP`, `RDN`, `MAX`, `SRC`, `DST`, `SCA`
+
+The modulation group is not a SID feature at all. It is a small oscillator the **player** runs in
+software: it produces one number that rises and falls, and each voice can add that number to one
+thing of its choosing. Because the chip does none of the work, it costs nothing to run and can be
+aimed at all three voices independently — which is why it takes several commands to set up.
 
 | name | operand | what it does |
 |---|---|---|
-| `LFO` | 0 or 1 | the shape of the player's own low-frequency oscillator: 0 triangle, 1 pulse |
-| `RUP` | 0-31 | how much the LFO's value climbs each jiffy |
-| `RDN` | 0-31 | how much it falls back each jiffy |
-| `MAX` | 0-255 | the ceiling the climb stops at, where the ramp turns round |
-| `SRC` | 0-2 | what feeds a voice's modulation: 0 the software LFO, 1 oscillator 3's output, 2 envelope 3 |
-| `DST` | 0-3 | where a voice's modulation goes: 0 off, 1 frequency, 2 pulse width, 3 filter cutoff |
-| `SCA` | 0-7 up, 249-255 down (a signed byte) | the scale applied to the modulation, as a shift: each step up doubles it, each step down halves it |
+| `LFO` | 0 or 1 | which shape the oscillator runs: 0 a **ramp** that climbs and falls, 1 a **pulse** that switches between two levels |
+| `RUP` | 0-31 | with `LFO 0`: how much the value climbs each jiffy. With `LFO 1`: how many jiffies it stays high |
+| `RDN` | 0-31 | with `LFO 0`: how much it falls each jiffy. With `LFO 1`: how many jiffies it stays low (0 means 32 in pulse mode) |
+| `MAX` | 0-255 | the top of the range: the ceiling the climb turns round at, and the level a pulse sits at when it is high |
+| `SRC` | 0-2 | what a voice reads: 0 the oscillator above, 1 the chip's oscillator 3 output, 2 its envelope 3 output. **Only 0 does anything in this player** — see below |
+| `SCA` | 0-7 up, 249-255 down | how much of that reading the voice takes, as a shift: each step up doubles it, each step down halves it, 3 is eight times and 253 an eighth |
+| `DST` | 0-3 | where the voice adds it: 0 nowhere, 1 to its frequency, 2 to its pulse width, 3 to the filter cutoff |
 
-This is the format's one true modulator, and it is **software**: the player ramps a counter up by
-`RUP` each jiffy until it reaches `MAX`, then down by `RDN`, in a triangle (or a pulse), and adds
-whatever `SCA` leaves of it to the destination `DST` names. Nothing here is a SID feature, so it
-costs the chip nothing and can be aimed at any of the three voices independently.
+**The two shapes work differently, and that is the thing to know.** With `LFO 0` the value walks: it
+starts at 0, adds `RUP` every jiffy until it reaches `MAX`, turns round, subtracts `RDN` every jiffy
+until it is back at 0, and turns round again — a triangle, with `RUP` and `RDN` as *speeds* in
+units per jiffy. Setting one of them to 0 gives a one-way ramp instead, because the value snaps back
+to the other end as soon as it arrives: `RDN 0` is a rising sawtooth and `RUP 0` a falling one.
 
-The wiring is three separate decisions, which is why it takes several commands to set up:
+With `LFO 1` the value does not ramp at all: it jumps to `MAX`, stays there for `RUP` jiffies, drops
+to 0, stays there for `RDN` jiffies, and repeats. Here `RUP` and `RDN` are *durations*, not speeds,
+and 0 means 32 jiffies. A whole cycle is `RUP + RDN` jiffies, so `RUP 8` and `RDN 8` is a pulse of
+about 3.7 cycles a second at the machine's 60 Hz tick.
 
-1. **`LFO` `RUP` `RDN` `MAX`** — what the modulation *is*: a triangle or a pulse, how fast it climbs,
-   how fast it falls, and how high it goes.
-2. **`SRC`** — what a voice *reads*: the software LFO, or one of the SID's own generators to use as a
-   modulator instead.
-3. **`DST` `SCA`** — where that voice *sends* it (off, frequency, pulse width or cutoff) and how much
-   (each step of `SCA` doubles or halves it).
+**The value is never negative.** All three destinations are *added* to, so the modulation moves a
+voice one way only — upward from the note as written, wider on the pulse, brighter on the cutoff.
+For a wobble that goes both ways you want the pitch vibrato (`VDP`/`VRT`), not this.
 
-`SCA` is the volume knob of all this: it shifts the modulation up or down in powers of two, so
-`SCA 3` is eight times the swing and `SCA 253` (which is -3) is an eighth of it. A slow pulse-width
-wobble on a held string part is a typical use — `LFO 0` (triangle), a small `RUP` and `RDN`, a modest
-`MAX`, `SCA 2` and `DST 2` — and `DST 3` at a slow rate is a filter sweep you do not have to write any
-`F-S` lines for.
+**Where it lands matters too.** On the frequency and the pulse width the scaled value is a straight
+offset, so the modulation is heard at once. On the cutoff it is added into the filter's *sweep*, so
+the cutoff drifts up at a rate set by the value rather than being shifted — which makes `DST 3` a
+hands-free sweep, the same idea as `F-S` but driven by the oscillator.
+
+**`SRC` 1 and 2 are silent here.** The player never samples the chip's oscillator-3 and envelope-3
+outputs, so those two sources deliver a constant zero and nothing moves. Only `SRC 0`, the software
+oscillator above, does anything — so leave `SRC` at 0 unless a tune you are reading already sets it.
+
+Two worked settings:
 
 ```
 LFO 0
-RUP 1
-RDN 1
-MAX 40
+RUP 2
+RDN 2
+MAX 60
+SCA 2
+DST 2
+```
+
+A slow shimmer on a held pulse note: the value climbs 2 a jiffy to 60 (about half a second), falls
+back the same way, and the voice sees up to 240 units of pulse width (60 doubled twice).
+
+```
+LFO 1
+RUP 8
+RDN 8
+MAX 30
 SCA 3
 DST 2
 ```
+
+A pulse-width tremolo instead: the width jumps between its written value and that value plus 240
+(30 eight times) about four times a second — a much harder sound, useful on a bass.
 
 ### Misc — `MS#`, `UTV`, `FLG`, `AUX`, `3-O`, `HLT`
 
