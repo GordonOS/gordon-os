@@ -36,7 +36,7 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 | # | Sev | Where | Finding |
 |---|---|---|---|
 | F1 | Medium | `musedit.inc:373`, `:6770`, `musedit.md:551`/`:616` | `MS#` was documented three ways (999 / 767 / 1023) and the encoder capped at 767 — **fixed: the encoder carries the format's 999, asserted against its mask** |
-| F2 | Low | `musedit.inc:8647`, `:6236`, `musedit-msgs.txt` | Two unreachable "`? not yet`" branches and one unused message (`? not a tune`) — **fixed: the branches are gone and the hover no longer lights a code with no action** |
+| F2 | Low | `musedit.inc:8647`, `:6236`, `musedit-msgs.txt` | Two unreachable "`? not yet`" branches and one unused message (`? not a valid .mus file`) — **fixed: the branches are gone and the hover no longer lights a code with no action** |
 | F3 | Low | `musedit.inc:403` | `MU_BAR_INS`'s comment said "toggles insert/overwrite"; the cell inserts one row — **fixed: the comment says what it does** |
 | F4 | Medium | `musedit.md:700-717` | The guide documented 11 of the editor's 23 messages; twelve reachable ones were missing — **fixed: all 23 now have a row, with the trigger read off the code** |
 | F5 | Medium | `.github/workflows/gates.yml` | The four pure-Python musedit gates never run in CI, so a PR can break the command tables or the timing model and stay green — **fixed: they run there now** |
@@ -114,7 +114,7 @@ source gates pass.
 - `mqRefuseCmd` was reached only when `mqShape` held a `9` ("a shape this build cannot
   write at all"). `mqShape` (`:6756-6762`) is 49 bytes of `0..7` and never holds a `9`.
 
-`M_NOT_TUNE` (`? not a tune`, `assets/ui/musedit-msgs.txt`) is referenced nowhere.
+`M_NOT_TUNE` (`? not a valid .mus file`, `assets/ui/musedit-msgs.txt`) is referenced nowhere.
 
 Both placeholders are the same fossil: the bar's `INS` cell once meant *mode toggle* (see the
 stale comment in **F3**) and the mode later moved to the row-1 button, while the sound commands'
@@ -171,7 +171,7 @@ loader's and `? sid.lib in use` the shell's — and the body mentions `? dir ful
 | `? no definition` / `? no call` | `SHIFT+D` on a `CALL` with no `DEF`, or a `DEF` with no call site |
 | `? saved` | the save succeeded |
 | `? unsaved - q again` | `Q` with unsaved edits — `:106` names only `? unsaved` |
-| `? not a tune` | the file is shorter than a tune header |
+| `? not a valid .mus file` | the file is shorter than a tune header |
 
 `? not yet` no longer exists (F2), so it is not among the 23.
 
@@ -179,15 +179,15 @@ loader's and `? sid.lib in use` the shell's — and the body mentions `? dir ful
 two rows are the loader's `? already running` and the shell's `? sid.lib in use`): six added in the
 editing group (`? hlt ends the voice`, `? nothing to undo`, `? nothing to redo`, `? no definition`,
 `? no call`, `? not a phrase`), one at startup (`? no windows`), and seven in a new files group
-(`? no fs`, `? no scratch`, `? dir full`, `? write failed`, `? not a tune`, `? saved`,
+(`? no fs`, `? no scratch`, `? dir full`, `? write failed`, `? not a valid .mus file`, `? saved`,
 `? unsaved - q again`). Each trigger was read off the code rather than guessed, and the rows carry
 what the reader needs to act on: `? no scratch` names the 255-page working file and its 65,280
 bytes; `? no fs` says the shipped image always carries the signature, so the fix is to put that
 image back rather than `format` it (the host builder seeds the files, and `format` makes an empty
 filesystem); and `? write failed` says the working file still holds the image, so a second save is
-safe. `? not a tune` is documented here as what it does today — refuse a file shorter than a
-header — and F9 will give it its second trigger. The census was re-run against the edited guide
-string by string: **11 of 23 before, 23 of 23 now.**
+safe. `? not a valid .mus file` was documented then as what it did — refuse a file shorter than a
+header — and F9 has since given it its second trigger. The census was re-run against the edited
+guide string by string: **11 of 23 before, 23 of 23 now.**
 
 ### F5 — The musedit gates are not in CI (Medium)
 
@@ -312,8 +312,8 @@ of it, uncatalogued — the collection marks its three known-broken tunes in the
 (`Another_Thing_Comin_(BAD)`, `Against_the_Grain_(BAD)`, `Escape_-BAD-`) and all three of those are
 the even-length, slipped kind.
 
-Both files ship so the difference can be seen: `crossmy.mus` plays, `badlen.mus` faults with
-`voice 3: 64th at tempo $80 is not a length`.
+Neither copy is in this tree: the check was verified against the collection's own files, and the
+measured verdicts are in the table below.
 
 **So do valid tunes need uneven lengths?** Not in 18,613 files: an odd length was a damage signal
 every time it appeared, and no tune requires one. What the census *does* change is the check:
@@ -345,8 +345,8 @@ routine asks for a page):
 
 | input | verdict |
 |---|---|
-| the ten good tunes (`arose` … `tetris`, `crossmy`) | **accepted**, all ten |
-| `badlen.mus` (odd length) | **refused** |
+| the ten good tunes (`arose` … `tetris`, and the collection's `Cross_my_Heart_B`) | **accepted**, all ten |
+| `Cross_my_Heart_A` (odd length) | **refused** |
 | `Another_Thing_Comin_(BAD)`, `Against_the_Grain_(BAD)`, `Escape_-BAD-` (even, slipped) | **refused**, all three |
 | 300 random CGSC tunes | **0 refused** |
 
@@ -563,7 +563,7 @@ The discrepancies are:
 | 3 | `:562` "**Every** command the picker offers is writable" | true (no shape 9), and `JIF` is correctly absent from the picker — this claim is *right* and worth keeping |
 | 4 | the tune-size cap | never mentioned (**F11**) |
 | 5 | `:39` "`? sid.lib in use` … printed by the shell before `musedit` starts" | correct, and the branch added exactly that (`shell.inc:1516`, `msgDynSidBusy`) |
-| 6 | `:214` "`JIF` … no bundled tune uses it" | verified: zero `JIF` pairs in the nine original tunes (`badlen` carries one, and `JIF` is inert either way) |
+| 6 | `:214` "`JIF` … no bundled tune uses it" | verified: zero `JIF` pairs in the nine bundled tunes |
 | 7 | `:88` dots "red / yellow / cyan" | `muVoiceCol: .byte 2, 7, 3` ✓ |
 | 8 | `:106` "quits, and answers `? unsaved` first" | `M_UNSAVED` is `"? unsaved - q again"`; the wording now gives the whole text |
 | 9 | `:552` "a value the command cannot hold is clamped to its maximum … what the prompt shows is always what gets written" | now true: the clamp's high half is re-derived on every prompt redraw (**F14**, fixed) |
