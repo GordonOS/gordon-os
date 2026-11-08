@@ -230,14 +230,22 @@ reason a line can be written, changed and removed without moving a single row �
 |---|---|
 | place the cursor | click a cell in the grid |
 | move one row | cursor up / down; at the bottom the window scrolls a line, at the top it moves back a whole page |
+| move a whole page | `SHIFT`+`,` a page back, `SHIFT`+`.` a page on |
 | change voice | cursor left / right, or click a cell in another lane |
 | jump to the start of the voice | `CLR/HOME` |
 
 The playhead follows playback and the window follows the playhead. **While the tune is playing
-the cursor is the playhead**, so `CRSR-UP`/`CRSR-DOWN` are refused — the follow would drag the
-marker straight back. `CRSR-LEFT`/`CRSR-RIGHT` still work, and are the useful pair while playing:
-they move the dots to another voice, so you can see which note that voice is sounding. Editing
-does not work while the tune is playing either — stop first (`? stop first`).
+the cursor is the playhead**, so `CRSR-UP`/`CRSR-DOWN` and the page keys are refused — the follow
+would drag the marker straight back. `CRSR-LEFT`/`CRSR-RIGHT` still work, and are the useful pair
+while playing: they move the dots to another voice, so you can see which note that voice is
+sounding. Editing does not work while the tune is playing either — stop first (`? stop first`).
+
+A page on lands on the row the window's own bottom line holds, so the next page starts on a row you
+were already looking at and no row is missed; a tune that ends inside the window has no page on, and
+the key does nothing. A page back is the same distance counted back from the window's top row — 19
+rows, the number the grid holds — and it stops at the tune's first row. Both move the window under
+the cursor: the cursor keeps its line on the screen, and the row under it changes with what the
+window now holds.
 
 The cursor marker `>` is drawn in the free cell immediately **left of the lane the cursor is
 in** — column 3, 15 or 27 — so it says which voice a key will act on as well as which line you

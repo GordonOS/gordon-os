@@ -3,8 +3,9 @@
 > **Status: a draft to be revised.** The six items below are the gaps found while reviewing the
 > editor against the `.mus` format (`docs/musedit-review.md`, § 6); the five carried over from the
 > phase-1 plan's § 12 are the wishlist that plan recorded before it was retired. Two of the six are
-> settled — `JIF` is won't-do (§ 3) and `MS#` stops at 999 (§ 4) — and one is built (§ 7). The
-> order, the sizes and the remaining designs are open questions; § 12 lists them.
+> settled — `JIF` is won't-do (§ 3) and `MS#` stops at 999 (§ 4) — and three are built: play from
+> the cursor (§ 6), delete row/bar (§ 7) and the page keys (§ 9). The order, the sizes and the
+> remaining designs are open questions; § 12 lists them.
 >
 > **The phase-1 plan is closed.** It lives at `Documents/GordonOSPlans/musedit-plan.md`, outside
 > this repo, and describes how the editor that exists today was built. This file is the only plan
@@ -14,14 +15,14 @@
 
 | | |
 |---|---|
-| code | **17,871 bytes**, 1,871 fixups, **70 code pages** (49 bytes under the next boundary) of a 256-byte granule (71 measured working) |
+| code | **17,876 bytes**, 1,866 fixups, **70 code pages** (44 bytes under the next boundary) of a 256-byte granule (71 measured working) |
 | pool | **104 pages of 109** (code 70, `sid.lib` 15, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
 | zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`), every one of them declared |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
 Two numbers govern everything below, and neither is negotiable without a design change:
 
-- **The editor can carry 305 more bytes of code.** `musedit` is 17,871 bytes, 70 code pages, and
+- **The editor can carry 300 more bytes of code.** `musedit` is 17,876 bytes, 70 code pages, and
   **71 pages has been measured working**: with `sid.lib` trimmed to 14 pages, a 71-page build
   (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune and played it. So the
   usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on pool margin 4, which is
@@ -42,17 +43,18 @@ levers. They are listed in the order I would try them: cheapest and most certain
 |---|---|---|
 | **`muMnTab` at four bytes a field** — **done**, **54 bytes** | the table was 49 × 5 (`"TEM  UTL  …"`, 245 bytes) and is now 49 × 4 (196): every mnemonic is three characters and a padding space, except **`CALL`**, which fills the field. Four bytes is the only width that holds them all (three would not fit `CALL`). `muMnPrint` needs no padding byte: it stops at that space or at the fourth cell, so it emits the same cells as before for all 49 ids. The stride multiply became two `asl`s, which is the other **5** bytes. The space between a mnemonic and its operand was always the caller's, not the table's. Not free: the gate that parses this table (`tools/check-mus-commands.py`) slices it by field width, so its stride changed in the same commit. |
 | **more shared tails** | measured: **3 bytes** for `muWinPtr` | extraction only pays for itself; it is not a strategy. Worth doing opportunistically, per item. |
+| **`muMsgGo`, one message-and-print tail** — **done**, **45 bytes** | `jsr muMsgSet` / `jmp muStatus` was the last two lines of **17** handlers, 6 bytes each. `muMsgGo` is those four instructions once (6 bytes) and each site is a `jmp muMsgGo` (3), so the pattern costs 3 bytes instead of 6 wherever it appears. Nothing else changed: the message index still arrives in A, and `muStatus` is still the tail. Not free: the sites read `jmp muMsgGo` where the pair used to name both routines, so a reader has one more name to follow. |
 
 **Done already — the undo history is out of the image.** There is no resident window page: every
 stack byte is one `kReuReadAt`/`kReuWriteAt` of length 1 at the cursor, so nothing of the stack is in
 the image and no page-boundary arithmetic is needed. The file is also deleted at exit, so a session
 leaves nothing behind.
 
-Plan-level budget: the `muMnTab` lever is spent and item 4 has taken `sid.lib` over its 14th page,
-so the **305 bytes in hand** — 17,871 to the 71-page line at 18,176 — are the whole budget. `musedit`
-is also only 49 bytes short of its own page boundary, and the pool sits at margin 5, so a change past
-that boundary costs a page as well. Item 3 fits by taking that page; item 6 (blocks, 350-450 bytes)
-needs a lever of its own.
+Plan-level budget: the `muMnTab` lever is spent, `muMsgGo` paid for all but 5 bytes of item 7, and
+item 4 has taken `sid.lib` over its 14th page, so the **300 bytes in hand** — 17,876 to the 71-page
+line at 18,176 — are the whole budget. `musedit` is also only 44 bytes short of its own page
+boundary, and the pool sits at margin 5, so a change past that boundary costs a page as well. Item 3
+fits by taking that page; item 6 (blocks, 350-450 bytes) needs a lever of its own.
 
 **Where the player lives, and where it stays.** The music runs in a **thread child of the editor**:
 it shares the editor's code pages and the editor declares `sid.lib` for the session, paging
@@ -248,43 +250,45 @@ the funding from § 2. Gate: a round trip — copy a block, paste it one bar
 later, delete the pasted rows, and the file must be byte-identical to before (the same `muHist`
 comparison the undo tests use).
 
-## 9. Item 7 — Jump to a bar or a measure
+## 9. Item 7 — navigation: the page keys — **done**
 
 Not a format gap — a navigation gap. Scrolling to bar 96 means holding a cursor key through ~90
-screens, and nothing in the editor can name a position and go there.
+screens, and the editor had no way to move the window by more than a line.
 
-**What exists to build on.** The walk already computes an **absolute bar number for every line** it
-produces (`muLnBarLo/Hi`, "the bar each line's row falls in, from the walk" — a tempo change cuts a
-bar short, so the bar is not a division of the row), `muCurBar` returns the rows a bar has at the
-cursor, and `muBarOf` reads the cursor's bar out of the line table. The producer can be rewound
-(`muSimInit`, tick 0) and stepped one event at a time (`muStep`), which is exactly what scrolling
-already does — so a jump is **a scan with the producer it already has**, not a second walk.
+**Built: `SHIFT`+`,` a page back, `SHIFT`+`.` a page on** (50 bytes).
 
-**What is missing.** Two things, and they are not the same size:
+- **Back** is `muCurUpPage`, the block the CRSR-up path already runs when the cursor reaches the
+  window's top: the window's top row less `MU_GRID_ROWS` (clamped at row 0), the line offset back to
+  0, a full repaint. Sharing it costs the key its `jmp` and nothing else.
+- **On** is `muPageDown`, and it needed no walk of its own. The band's own bottom line already names
+  the row it holds (`muLnTbHi+MU_GRID_ROWS-1`, filled by every repaint), and the walk reached that
+  row, so it *is* a page forward — and the band starting there cannot be empty. `$ff` in that entry
+  is the tune ending inside the band, which has no page to show, and the key refuses. The step is
+  therefore not a fixed count of rows: a tempo change, a phrase body or a long run of command lines
+  moves the bottom line, and the key lands wherever the bottom line said it did. The two pages
+  overlap by one row, so no row is skipped.
+- Both move the window **under** the cursor, as the CRSR-up page already did: the cursor keeps its
+  screen line and its row changes with what the window now holds. Both are refused while the player
+  runs, through the same `muPlaying` guard the other editing keys use.
+- The keys are `SHIFT`+`,` and `SHIFT`+`.` because the four CRSR codes are all taken (`$84`-`$87`,
+  with SHIFT picking the second pair) and every function key is the kernel's screen switch.
 
-- **Bars** need no new state at all: scan until `muLnBarLo/Hi` reaches the number asked for.
-- **Measures** need a number the editor does not keep. It *draws* `MS#` (the decode table maps it
-  to `MU_MN_MS`) but never stores its value, so the walk has to carry one measure number per voice
-  as it produces lines — `MS#` is a **per-voice** command (`aa 011110` + option, voice column V),
-  so the three voices may disagree about which measure a row is in. The jump's target is the
-  cursor voice's number, and a tune that never writes `MS#` has no measures at all: it must say so
-  rather than guess.
+**Paid for** by the `muMsgGo` lever (§ 2): 45 of the 50 bytes, so the editor stayed at 70 pages and
+the pool at margin 5 — the page keys cost the plan **5 bytes** of its 305-byte budget.
 
-**Where the state goes.** Not zero page: it is 229 of the 234 bytes already (`MU_ZP_END` is one
-byte under `$F0`). A per-voice measure number belongs in the line record beside `muLnBarLo/Hi`
-(2 bytes over `MU_GRID_ROWS`), which also makes the scan a comparison against a line rather than
-against a running variable.
+**Not built: a jump to a named bar or measure.** Measured at the time, on the machinery the walk
+already has (the bar number of every line, `muBarOf`, and `muLinkKey`'s "show the found row" tail):
 
-**The prompt.** The control bar cannot take a new cell: `muBarMap` is 40 columns with the assert
-`M_BAR_LEN == 40`, and the dispatch and hover range is `MU_BAR_Q..MU_BAR_INS` — so this is a
-**key** plus a numeric prompt, reusing the command panel's value-entry path (`MU_OBJVAL` +
-`muNum16`). "There is no such bar or measure" and "this tune has no `MS#`" are one new message
-slot each, so the `msgs` binary and the REU image are regenerated with them.
+- **next/previous bar** — a scan until `muLnBarLo/Hi` reaches `muBarOf ± 1`, sharing the show tail:
+  ≈ **109 bytes** for both keys, i.e. two code pages' worth once the 49-byte slack was used up.
+- **type a bar number** — plus a prompt, an echo and a refusal message: **+65**, so ≈ 160-175.
+- **a measure** is dearer again: the editor *draws* `MS#` but never stores its value, and `MS#` is
+  per voice, so a measure jump needs a per-voice number carried in the line record (2 bytes over
+  `MU_GRID_ROWS`) as well as the prompt.
 
-**Cost** ≈ 140-180 bytes (scan loop, prompt, two refusals, and the head's readout if it shows the
-measure). Gate: a py65 case that jumps to a bar and to a measure and checks the cursor's row
-against `mus-sim.py --walk`'s bar and measure for that row — the same model the walk fixture
-already uses.
+So the page keys answer the same complaint for a third of the bar jump's price and none of its
+state. A bar jump still buys exactness — "go to bar 96" rather than "go about two screens" — and it
+is the item to reopen if a lever appears that can carry ~110 bytes.
 
 **Independent of the player.** Nothing here reads the player's state: `MS#` is parsed from the
 image by the editor's own walk, so the player's `MS#` handling can be anything at all — it keeps
@@ -314,7 +318,7 @@ A suggested order — smallest risk first, and each one independently shippable:
 | 2.2 | ~~**item 5 (delete row / bar)**~~ — **done**, `R` and `SHIFT+R` | it was the inverse the editor was most obviously missing |
 | 2.3 | **item 3 (description)** | UI-only, ~200 bytes, needs the keys decision |
 | 2.4 | ~~**item 4 (play from cursor)**~~ — **done**, the silent fast-forward | it cost `sid.lib` a page, which is why it wanted to be after the byte work |
-| 2.5 | **item 7 (jump to a bar or measure)** | small, no format work, and it pays for itself the first time a tune runs past a screenful |
+| 2.5 | ~~**item 7 (navigation)**~~ — **done**, the page keys at 50 bytes, 45 of them funded by `muMsgGo` | small, no format work, and it pays for itself the first time a tune runs past a screenful |
 | 2.6 | **item 6 (blocks)** | the largest; needs the funding decision at that point |
 | 2.7 | § 10 wishlist | re-ranked after 2.1-2.6 |
 
@@ -337,11 +341,13 @@ hears or types into; a py65 harness alone is not "verified".
 3. **Description**: one scrolled line in row 0, or a full-screen text mode? Which keys?
 4. **Delete row** (item 5) is closed at the cheap version: it refuses a note that spans the row.
    Does anything need the long form (a jiffies-to-duration inverse plus a split, ~160 bytes)?
-5. **Play from cursor**: offsets-only (cheap, wrong sound state) or a pre-roll too?
+5. **Play from cursor** is closed at the silent fast-forward (§ 6): the player runs the tune
+   silently for the ticks before the cursor's row, then sounds it. The measured alternatives are
+   in that section.
 6. **Blocks**: is a block rows × voices, and does paste re-time the following events?
-7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
-   `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
-   default tempo, which is a different number and would have to say so)?
-8. **Funding**: the **305 bytes** in hand — the `muMnTab` lever is spent — are the whole budget,
-   enough for items 3 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
+7. **Navigation** (item 7) is closed at the page keys: `SHIFT`+`,` / `SHIFT`+`.`, refused while
+   playing, the window moving under the cursor. A bar jump (~110 bytes) and a measure jump (that
+   plus per-voice `MS#` state) are recorded in § 9 for whoever next has the bytes.
+8. **Funding**: the **300 bytes** in hand — `muMnTab` and `muMsgGo` are both spent — are the whole
+   budget, enough for item 3. Item 6 (blocks) needs a lever of its own or a cheaper design;
    which does the list prefer?

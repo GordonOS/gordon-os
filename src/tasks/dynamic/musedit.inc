@@ -1354,8 +1354,7 @@ muSvTold:
     sta muDirty
     sta muWarn
     lda #M_SAVED
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muSvRts:
     rts
 
@@ -3628,8 +3627,7 @@ mlkSay:
     jsr muBandRebuild
 mlkMsg:
     pla
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 mlkJump:
     lda muFndRow
     sta muTop
@@ -4486,6 +4484,13 @@ muMsg:
     jsr muMsgSet
     jmp muTextAt
 
+// --- muMsgGo -- one message, straight onto the head row ---
+//  In: A = a M_* index. Wherever a refusal or a done-notice is the last thing a
+//  handler says, it says it through here: the set and the print are one tail.
+muMsgGo:
+    jsr muMsgSet
+    jmp muStatus
+
 // --- muMsgSet -- load one message and point MU_STR at it, without printing ---
 //  In: A = a M_* index. The file is one MU_MSG_SLOT-byte record per index, so the
 //  offset is index * 64 and needs no table; ONE kReuReadAt brings the whole message
@@ -4863,8 +4868,20 @@ muKeyN2:
     jmp muCurRight
 muKeyN3:
     cmp #$87                    // CRSR left: previous voice
-    bne muKeyIdle
+    bne muKeyPgUp
     jmp muCurLeft
+muKeyPgUp:
+    cmp #'<'                    // SHIFT+, -- the window a page back
+    bne muKeyPgDn
+    jsr muPlaying
+    bcs muKeyIdle
+    jmp muCurUpPage
+muKeyPgDn:
+    cmp #'>'                    // SHIFT+. -- the window a page on
+    bne muKeyIdle
+    jsr muPlaying
+    bcs muKeyIdle
+    jmp muPageDown
 muKeyIdle:
     jsr muPointerTick
     jsr muStatusTick
@@ -4876,6 +4893,23 @@ muKeyIdle:
     lda #SYS_YIELD
     jsr syscall
     jmp muKeyLoop
+
+// --- muPageDown -- the window a page on ---
+//  The band's own bottom line names the row it holds, and the walk reached it, so
+//  that row is a page forward and the band it starts cannot be empty. An empty
+//  entry there is the tune ending inside the band, which has no page to show.
+muPageDown:
+    lda muLnTbHi+MU_GRID_ROWS-1
+    cmp #$ff
+    bne muPdGo
+    jmp muKeyIdle
+muPdGo:
+    sta muTop+1
+    lda muLnTbLo+MU_GRID_ROWS-1
+    sta muTop
+    lda #0
+    sta muToff
+    jmp muCurRedraw
 
 muCurDown:
     jsr muCurDownGo
@@ -5370,12 +5404,10 @@ muNcStore:
     jmp muCurSettleNext
 muNcIllegal:
     lda #M_ILLEGAL
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muNcNoEvt:
     lda #M_NO_EVENT             // a command's line holds no note to write
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muNcRts:
     rts
 
@@ -5809,8 +5841,7 @@ muInsertTime:
     jmp muCurSettle
 muItIllegal:
     lda #M_ILLEGAL
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muItPhrase:
     jmp muPhRefuse              // out of branch range: the refusal prints the phrase
 
@@ -6155,8 +6186,7 @@ muRestKey:
     lda muSekKind
     beq muRkGo
     lda #M_NO_EVENT
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muRkGo:
     jsr muRecAtSek  // the undo record: 2 bytes at the onset
     lda #2
@@ -6210,8 +6240,7 @@ muDelKey:
     lda muSekKind
     beq muDkGo
     lda #M_NO_EVENT
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muDkGo:
     jsr muPhHere                // a body's timing is every call site's timing
     bcs muDkPhrase
@@ -6255,8 +6284,7 @@ muDrSpan:
     lda muSkV                   // the message names the voice that blocks the window
     clc
     adc #M_SPAN1
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muDrPassGo:
     lda #0
     sta muSkV
@@ -6334,8 +6362,7 @@ muDrDone:
     jmp muCurSettle
 muDrNone:
     lda #M_NO_EVENT
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muDrPhrase:
     jmp muPhRefuse
 
@@ -6354,14 +6381,12 @@ muDelKey2:
     bne mdkEvent                // the row's own line: the event's own delete
     jsr muBandRebuild           // a command line another lane owns: nothing here
     lda #M_NO_EVENT
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 mdkEvent:
     jmp muDelKey
 mdkKeep:
     lda #M_KEEP_HLT
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 mdkCmd:
     cmp #MU_MN_HLT              // the voice's last pair is its terminator: remove it
     beq mdkKeep                 //   and the walk has no end, so the voice cannot be
@@ -6402,8 +6427,7 @@ mdkCmd:
 mdkGone:
     jsr muBandRebuild
     lda #M_NO_EVENT
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 
 // ==========================================
 //  Command lines -- create, replace and remove
@@ -6465,8 +6489,7 @@ mqGone:
 mqRefuse:
     jsr muBandRebuild
     lda #M_NO_EVENT
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 mqRts:
     rts
 
@@ -7380,8 +7403,7 @@ muUndo:
     ora muUndoTop+1
     bne muUzLoop
     lda #M_NO_UNDO
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muUzLoop:
     lda muUndoTop               // the byte below the top: the trailing length
     sec
@@ -7437,8 +7459,7 @@ muRedo:
     cmp muUndoLim+1
     bne muUxLoop
     lda #M_NO_REDO
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muUxLoop:
     lda muUndoTop
     ldx muUndoTop+1
@@ -9073,8 +9094,7 @@ muPtStart:
     rts
 muPtNoChild:
     lda #M_NO_PLAYER
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 
 // --- muPlayBase -- the tick the cursor's row starts at, into MU_PHBASE ---
 //  The walk records every drawn line's tick, so the row under the cursor is the
@@ -10251,8 +10271,7 @@ muQuitChk:
     bne muQuitGo
     inc muWarn
     lda #M_UNSAVED
-    jsr muMsgSet
-    jmp muStatus
+    jmp muMsgGo
 muQuitGo:
     lda #16                     // drain by CAPACITY: a release folds to 0
     sta muDrain
