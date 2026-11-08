@@ -44,9 +44,9 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 | F7 | Low | `docs/development.md:637` | The generated-file table listed one of the three `gen-musedit-*` generators — **fixed: all three have a row, with their sources of truth** |
 | F8 | Low | `tools/check-musedit-walk.py` | The walk gate compared 19 lines of one tune with one command a line — **fixed: a second capture adds three-command lines, and the gate says what no capture can see** |
 | F9 | Low | `musedit.inc:679` (`muWinSeat`) | The "a command pair never straddles a window" proof needs every voice length to be even; nothing checked it. Census of 18,613 `.mus` files found 1 odd-length file and 3 even-length damaged ones — **fixed: each voice must end on its `01 4F` pair**, verified against the real files |
-| F10 | Low | `musedit.inc:723`, `:782` | The window fill/flush ignored the REU transfer's C flag, so a failed transfer drew garbage or silently dropped a scratch write — **fixed: both end in `muWinOut`, which reports it; the report was paid for by extracting `muWinPtr` (17,913 bytes, still 104 pages)** |
+| F10 | Low | `musedit.inc:723`, `:782` | The window fill/flush ignored the REU transfer's C flag, so a failed transfer drew garbage or silently dropped a scratch write — **fixed: both end in `muWinOut`, which reports it; the report was paid for by extracting `muWinPtr` (17,913 bytes, still 70 code pages)** |
 | F11 | Note | `musedit.inc:384`, `musedit.md` | `<base>.wrk` is a fixed 65,280 bytes per session and the guide never states the tune-size cap that implies |
-| F12 | Note | `check-pool-budget` | `sid.lib`'s 15 pages are reserved for the whole session — 14% of the pool — for a feature used only on PLAY |
+| F12 | Note | `check-pool-budget` | `sid.lib`'s 14 pages are reserved for the whole session — 13% of the pool — for a feature used only on PLAY |
 | F13 | Note | `musedit.inc:7021` | The undo stack's "no room" policy forgets the entire history; sound, but only because a record is bounded at 516 bytes |
 | F14 | Medium | `musedit.inc:6541` | `MU_OBJMAXHI` was only written by the 14-bit command encoders, so after any `P-W`/`DTN`/`POR`/`MS#` the prompt stopped clamping byte-wide operands — it showed `300` and wrote `44` — **fixed: cleared on every redraw** |
 | F15 | Medium | `musedit.inc:221` | `muInsFrom` (2 bytes, `+224`) **overlapped** `muObjValHi`/`muObjMaxHi`; latent, and invisible to the window asserts — **fixed: moved to `+227`, `MU_ZP_END` to `+229`, and a new gate checks the map** |
@@ -332,7 +332,7 @@ new mechanism.
 
 **The pool is why it looks like that.** The first version cost 136 bytes and took `musedit` from 70
 code pages to 71 — and with `sid.lib`'s 15 the pool no longer held a playing editor. This one costs
-**66 bytes**: 17,850 → 17,916, so musedit is back to 104 pool pages of 109 (margin 5), exactly where
+**66 bytes**: 17,850 → 17,916, so musedit is back inside 70 code pages, exactly where
 it was. Two consequences worth knowing: the old "shorter than 8 bytes" test is gone (a file too
 small reads the zeroes the copy leaves behind its data and fails the terminator test instead), and
 a **zero-length voice is not caught** — its "last pair" is read out of the voice before it, which
@@ -448,7 +448,7 @@ at the save path) — route these two here as well.
 set, and puts the voice back in X either way. It cost nothing: the five instructions that turn a
 voice into a window address were written out at three sites (the seat, the fill and the flush), so
 they are now one helper, `muWinPtr`, and the bytes that saved paid for the report. `musedit` went
-17,916 → **17,913** bytes — three smaller — and stays at 104 pool pages of 109 (margin 5).
+17,916 → **17,913** bytes — three smaller — and still 70 code pages.
 
 Verified on the assembled code under py65, with the two transfer entries stubbed to answer a chosen
 carry (`clc`/`sec` + `rts`, so both paths run) and `muMsgSet` watched rather than executed:
@@ -672,12 +672,12 @@ features the phase-1 plan had parked.
 | tenant | pages | notes |
 |---|---|---|
 | `musedit` code | 70 | 17,913 bytes, 1,817 fixups; ~256 B of it is the resident undo window (`muUndoBuf`) — a buffer living in the image |
-| `sid.lib` | 15 | declared lazy, reserved at spawn, loaded on the first PLAY |
+| `sid.lib` | 14 | declared lazy, reserved at spawn, loaded on the first PLAY |
 | `filesys.lib` | 10 | needed for `<base>.wrk` and `musedit.und`; touched at startup |
 | mouse | 2 | |
 | sprite | 1 | the pointer and the three dots |
 | `kMalloc` block | 6 | 1,536 B: three 256 B image windows for the editor, three for the player child |
-| **total** | **104 of 109** | margin 5, and `basic` fits the pool **exactly** — the gate warns on every build |
+| **total** | **103 of 109** | margin 6, and `basic` fits the pool **exactly** — the gate warns on every build |
 
 Kernel side: 116 bytes free across 21 pockets, and this branch spent carefully — `tickCount` went
 into a 1-byte pocket that `verify-map.ps1` now pins, and the core grew only through re-pointed
@@ -688,12 +688,12 @@ jumps.
 - **Code density is good.** 70 pages for a full tracker editor with mouse, piano, undo, command
   authoring, playback and a phrase-aware walk is tight. The ZP map (229 bytes of the 234 available)
   is why: the hot state is `zp,X` and one byte per reference.
-- **The largest structural cost is `sid.lib`'s 15 pages held for the whole session** (**F12**) — 14%
+- **The largest structural cost is `sid.lib`'s 14 pages held for the whole session** (**F12**) — 13%
   of the pool for a feature used only while PLAY is on. It cannot be released: `kLibHold` is
   one-way, and a released lazy library reloads through its cold stub uncredited, leaking its pages
   until reboot. The clean alternative is a spawn-on-demand player task that owns `sid.lib` (the
   shell's new `? sid.lib in use` arbitration already provides the lock), letting the editor drop
-  the declaration entirely and freeing 15 pages for an editor that is idle. That is a real change
+  the declaration entirely and freeing 14 pages for an editor that is idle. That is a real change
   to both tasks; not worth it today, but it is the one place a big win is available.
 - **The 6-page malloc block is minimal:** the editor cannot share its windows with the child
   because it draws while the child streams, and both read the same file.
@@ -702,7 +702,7 @@ jumps.
 - **`<base>.wrk` costs 65 KB of *REU filesystem*, not pool** (**F11**), and the space comes back on
   `compact`. Worth stating in the guide; not worth changing.
 
-No waste worth chasing at margin 5, other than the 15 pages above.
+No waste worth chasing at margin 6, other than the 14 pages above.
 
 ---
 
@@ -774,7 +774,7 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 | `python tools/check-musedit-walk.py` | `immig` and `katmand` both match the editor over 19 lines each — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,913 bytes / 70 pages / 1,817 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,913 bytes / 70 pages / 1,817 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 103 of 109, margin 6 (`basic` fits exactly — pre-existing) |
 | `python tools/check-mus-pitch.py` | 224 note options through the assembled `muPitchSplit`, **0 disagreements** with `mus-sim.py`; clamping the model's octave roll to 6 makes it report the two B-sharp-at-the-top options and exit 1 |
 | `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 1,984 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK, 139 entries |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |

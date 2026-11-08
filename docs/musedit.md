@@ -627,7 +627,7 @@ they read and write as plain counts; the reference below says what the player do
 Two commands are deliberately present and **do nothing in GordonOS**:
 
 - **`JIF`** would rescale the jiffy; the player's jiffy is the scheduler tick, which a task
-  cannot reload, so the value is stored and never used.
+  cannot reload, so the pair is decoded, the option byte is consumed, and nothing follows from it.
 - **`AUX`** calls a function pointer that lives inside `sid.lib`'s own data, where no task can
   install a routine.
 

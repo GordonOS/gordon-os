@@ -374,8 +374,11 @@ setInitVoiceValuesLoop: lda #$ff
                         sta WorkReleasePoint,x
                         lda DataMinCallStack,x
                         sta WorkPhraseCallStack,x
-                        lda #$5b
-                        sta WorkTPSC,x
+//  WorkTPSC is the raw transpose value for the original's screen; the live field is
+//  WorkTPSHalfSteps, which every reader uses, so this initialisation is commented out
+//  (as are the two stores in the RTP and TPS handlers below).
+//                      lda #$5b
+//                      sta WorkTPSC,x
                         lda SIDVoiceRegsLo,x
                         sta $04
                         lda #$00
@@ -651,10 +654,14 @@ goToNextVoice:          inx
 }
 
                                                 // (CIA timer untouched -- the scheduler is the jiffy clock)
-                        lda $d41b                       //   Read Oscillator Voice 3 / Random Number Generator
-                        sta WorkOscillatorVoice3
-                        lda $d41c                       //   Envelope Generator Voice 3 Output
-                        sta WorkEnvGenOutputVoice3
+//  The original player copied two read-only SID outputs into work bytes so its own
+//  screen could show them. This port has no screen and nothing reads either byte,
+//  so both read/store pairs are commented out: reading $d41b/$d41c has no side
+//  effect on the chip, so removing the four instructions changes nothing audible.
+//                      lda $d41b                       //   Read Oscillator Voice 3 / Random Number Generator
+//                      sta WorkOscillatorVoice3
+//                      lda $d41c                       //   Envelope Generator Voice 3 Output
+//                      sta WorkEnvGenOutputVoice3
                         // This calls a subroutine to process each voice.
                         // It will pull in the next command, run it and do so until it a note plays or it hits end of song for the voice
                         ldx #$00
@@ -662,7 +669,9 @@ goToNextVoice:          inx
 processVoiceLoop:       lda SID_STATUS
                         and DataVoiceBitMask,x
                         beq goToNextVoice
-                        stx WorkCurrentVoice            // Even though it is set here, nothing else in the code appears to ever read this.
+//  WorkCurrentVoice is set here and read nowhere (its own vendor comment says so),
+//  so the store is commented out; ProcessVoice takes the voice in X.
+//                      stx WorkCurrentVoice            // Even though it is set here, nothing else in the code appears to ever read this.
                         jsr ProcessVoice
                         lda SID_STATUS
                         and #%01111000                  // Are any of the error status bits set?
@@ -1298,7 +1307,7 @@ rc___101110:            bne rc___101110_SCA             // a=01 101110_SCA / a !
                         // Stack has value  -47 to 47
                         // x=voice     Like transpose, but a little different (See Page 211 of the Compute book)
 rc_00101110_RTP:  {     pla
-                        sta WorkTPSC,x
+//                      sta WorkTPSC,x                  // display state; the live field is WorkTPSHalfSteps
                         cmp #$5b
                         beq valueZero
                         tay
@@ -1355,9 +1364,13 @@ rc____11110:            lsr
                         // 01 011110    $00-$FF   MS#  Measure # (256-511)
                         // 10 011110    $00-$FF   MS#  Measure # (512-767)
                         // 11 011110    $00-$E7   MS#  Measure # (768-999)
-rc___0111_1_MSN:        sta WorkMeasureHi,x
-                        pla
-                        sta WorkMeasureLo,x
+//  The measure number is display state in the original player, and nothing in this
+//  port reads WorkMeasureLo/Hi, so the two stores are commented out. The decode is
+//  kept: `pla` still consumes the option byte, so the stream advances as before and
+//  a reader that wants the number reads it from the .mus image, not from here.
+rc___0111_1_MSN:        pla
+//                      sta WorkMeasureHi,x
+//                      sta WorkMeasureLo,x
                         rts
 
                         // Command: JIF Command (-200 to 757) Adjusts WorkCiaTimerA altering the length of a jiffy (no longer 1/60 second)
@@ -1365,14 +1378,19 @@ rc___0111_1_MSN:        sta WorkMeasureHi,x
                         // aa = New CIA Timer A lo byte
                         // Stack hsa the hi byte for CIA Timer A
                         //                             Example: A = 00000011
-rc___111110_JIF:        lsr                             //  A = 00000001 c=1
-                        ror                             //  A = 10000000 C=1
-                        ror                             //  A = 11000000  (Carry is now clear for addition below)
-                        adc #$00                        // (no CIA timer base -- jiffy is the scheduler tick)
-                        sta WorkCiaTimerA               //  Store it in our WorkCiaTimerA which will get loaded on the CIA A Timer
-                        pla                             //  This is the passed in option value
-                        adc #$00
-                        sta WorkCiaTimerA + 1
+//  JIF's only effect in the original is the CIA timer's reload value -- the length of
+//  a jiffy. That cannot exist here: a jiffy IS the scheduler tick, driven once by the
+//  kernel's IRQ for EVERY task, so no tune may own its length and there is no timer to
+//  reload. The work bytes it wrote are read by nothing regardless, so the decode below
+//  only consumes the option byte and returns.
+rc___111110_JIF:        pla                             //  This is the passed in option value
+//                      lsr                             //  A = 00000001 c=1
+//                      ror                             //  A = 10000000 C=1
+//                      ror                             //  A = 11000000  (Carry is now clear for addition below)
+//                      adc #$00                        // (no CIA timer base -- jiffy is the scheduler tick)
+//                      sta WorkCiaTimerA               //  Store it in our WorkCiaTimerA which will get loaded on the CIA A Timer
+//                      adc #$00
+//                      sta WorkCiaTimerA + 1
                         rts
 
 rc_____0110:            lsr
@@ -1415,8 +1433,13 @@ rc__1000110:            lsr
                         // Command: FLG Flag
                         // Pattern: 01000110
                         // Stack has the Flag Value
+//  FLG's value went to FLAG_STATUS for the original's own screen (FLG 1 in voice 1
+//  asked the player to print the next line of the tune's .wds words file). This port
+//  has no screen and no .wds support, and nothing reads FLAG_STATUS, so the store is
+//  commented out. The flag itself is still decoded and still consumed, and a reader
+//  that wants it reads the pair from the .mus image.
 rc_01000110_FLG:        pla
-                        sta FLAG_STATUS
+//                      sta FLAG_STATUS
                         rts
 
                         // Command: PVD Pulse Vibrato Depth
@@ -1474,8 +1497,8 @@ noCarry:                pha
                         adc DataTPSLookupB,y
                         sta WorkTPSB,x
                         sta WorkTPSHalfSteps,x
-                        lda #$5b
-                        sta WorkTPSC,x
+//                      lda #$5b                        // display state; the live field is WorkTPSHalfSteps
+//                      sta WorkTPSC,x
                         rts
 }
 

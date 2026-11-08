@@ -14,7 +14,7 @@ fixups**.
 | Call indices | 33–34 (jump entries patched via `libJumpLo/Hi` + `libInitLo/Hi`) |
 | Kernel entry points | `kSidPlay` (`$FF7E`), `kSidHush` (`$FF81`) |
 | Source | `src/libs/sid.asm` (player body: `src/libs/sidplay.inc`) |
-| Pool footprint | 14 pages (3,538 bytes of code, 537 fixups) |
+| Pool footprint | 14 pages (3,548 bytes of code, 536 fixups) |
 
 > The two entry points are **not** in the `$E000` jump table — that table is
 > full (its only free byte is `$E119`). They are ordinary 3-byte stubs in the
@@ -287,7 +287,7 @@ counts for the video standard.
   claim the player while the current one is still inside its loop. The owner is
   released by the player itself, or reclaimed by liveness (below).
 - ⚠️ `sidrst.com` deliberately keeps its own direct register pokes: loading a
-  13-page library to zero 25 registers would be absurd, and the "stop a running
+  14-page library to zero 25 registers would be absurd, and the "stop a running
   player" half is only wanted while a player is alive. `kill.com` pokes the very
   same 25 registers for the same reason — see "Cleaning up after a kill".
 
@@ -310,7 +310,7 @@ A killed player never runs its own hush, so `kill.com` clears the chip itself
 when the task it is killing — **or the task that spawned it** — declared
 `sid.lib`. It asks `dynTaskLibMaskLo` (bit 5) **before** the kill, because
 `sysKill` frees the victim's dyn entry, then zeroes `$D400-$D418` with the same
-write set as `sidrst` (no library call, so no 13 pages are loaded to do it).
+write set as `sidrst` (no library call, so no 14 pages are loaded to do it).
 
 Why the declaration and not the owner: `sidOwner` lives in this library's own
 data — relocated into pool pages — so no task can address it, and the library

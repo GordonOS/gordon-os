@@ -14,7 +14,7 @@
 | | |
 |---|---|
 | code | **17,913 bytes**, 1,817 fixups, **70 code pages** of a 256-byte granule |
-| pool | **104 pages of 109** (code 70, `sid.lib` 15, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
+| pool | **103 pages of 109** (code 70, `sid.lib` 14, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
 | zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`) |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
@@ -37,7 +37,7 @@ levers. They are listed in the order I would try them: cheapest and most certain
 | **`muMnTab` at four bytes a field** | **49 bytes** | the table is 49 × 5 (`"TEM  UTL  …"`), the trailing spaces being what lets a command line print exactly one field. Every mnemonic is three characters except **`CALL`**, which is four — so four bytes a field holds them all (196 bytes instead of 245) and the print blits one space after the four cells, giving the same 5-cell output. Not three bytes: `CALL` would not fit. The panel's one table read (`:6776`) changes its ×5 to ×4. |
 | **`muUndoBuf` out of the image** | **256 bytes** (exactly one page) | the undo stack's *window* page lives in the image (`:10517`); the records it windows already live in `musedit.und`. Moving the window to a page of that file costs one DMA per push/pop — undo is not a hot path — and takes the allocator's one in-image buffer away. |
 | **more shared tails** | measured: **3 bytes** for `muWinPtr` | extraction only pays for itself; it is not a strategy. Worth doing opportunistically, per item. |
-| **the player becomes its own task** | **15 pages of pool**, and the run the code loads into grows by the same 15 | the structural lever, and the only one that lifts the 70-page wall. `sid.lib` would be declared by a player task that exists only while playing; `musedit` drops the declaration and stops carrying 15 pages it uses for one feature. New task ~2 code pages + a 3-page window block, so the pool peak while playing is ~109 — margin 0. Needs the shell's `? sid.lib in use` arbitration (already there) and a player that pages the same `.wrk` file (already possible: `kSidPlay` mode 1). |
+| **the player becomes its own task** | **14 pages of pool**, and the run the code loads into grows by the same 14 | the structural lever, and the only one that lifts the 70-page wall. `sid.lib` would be declared by a player task that exists only while playing; `musedit` drops the declaration and stops carrying 14 pages it uses for one feature. New task ~2 code pages + a 3-page window block, so the pool peak while playing is ~108 — margin 1. Needs the shell's `? sid.lib in use` arbitration (already there) and a player that pages the same `.wrk` file (already possible: `kSidPlay` mode 1). |
 
 Plan-level budget, if the levers are taken in order: `muMnTab` + `muUndoBuf` ≈ **305 bytes** —
 more than items 1, 3 and 5 together. Items 4 and 6 and the inherited wishlist are where the wall
@@ -48,9 +48,15 @@ comes back, and that is when the player-task split earns its place.
 **What it is.** `aa 111110` + option. The command byte is `$3E`, `$7E`, `$BE` or `$FE` (bits 7-6
 are the value's top two bits); the value is `option * 4 + bits 7-6`, a **10-bit two's complement
 number**. `reference/sidplayer-mus-file-format.md` documents the range as **-200 to 757**, with
-`3E 40` = 256, `7E BD` = 757 and `3E CE` = -200. The ported player in GordonOS does not implement
-it, so a value written here has **no effect on playback** — this is a completeness item, and it is
-only worth doing if a tune ever needs it.
+`3E 40` = 256, `7E BD` = 757 and `3E CE` = -200.
+
+**Why the player can never honour it, and what that means for the editor.** `JIF`'s whole effect is
+the CIA timer's reload value — the *length of a jiffy*. In GordonOS a jiffy **is** the scheduler
+tick: the kernel's IRQ drives it once for every task, so no tune may own its length and there is no
+timer for the player to reload. That is a property of a multitasking OS, not a gap to be filled
+later, so a value written here has **no effect on playback, ever** — the player decodes the pair,
+consumes the option byte and returns. `docs/musedit.md` already states this in the guide's command
+table and in its "two commands that do nothing" note.
 
 **What is missing.** `muDecTab` is indexed by command byte / 8 and its JIF slots — indices 7, 15,
 23 and 31, i.e. `$38-$3F`, `$78-$7F`, `$B8-$BF`, `$F8-$FF` — are all `0`, so `muLnDec` answers
@@ -165,7 +171,7 @@ editor's playhead code unchanged, because the published jiffy count is what it a
 
 **What it needs in the ABI.** The mode-1 config block is 9 bytes (a 3-byte FS offset plus three
 window words); six more bytes (three start offsets) and two for the tick base fit in one page and
-are read by `sidInitSong`'s caller in `sid.asm`. That is a `sid.lib` change — 15 pages of library
+are read by `sidInitSong`'s caller in `sid.asm`. That is a `sid.lib` change — 14 pages of library
 whose own budget has to be checked — and a mode number for it (`kSidPlay` only streams on an
 exact `1`). Where the extra fields live matters: `kArg` is per-call scratch and full (delay,
 repeats, transpose), so they belong in the **config block**, not in `kArg`.
@@ -317,8 +323,9 @@ hears or types into; a py65 harness alone is not "verified".
 
 1. **Item 2** is closed at 999 — does the list want anything else under that heading, or should it
    come off the list?
-2. **`JIF`** is unplayed by the player, so authoring one has no audible effect. Keep it as
-   completeness, or drop it to "drawn only" (half the cost)?
+2. **`JIF`** can never play in GordonOS (the jiffy is the scheduler tick), so the item is
+   completeness only: draw it and author it so a foreign tune round-trips faithfully, or drop it
+   and leave the pair untouched (`docs/musedit.md` says it is kept in the file as-is)?
 3. **Description**: one scrolled line in row 0, or a full-screen text mode? Which keys?
 4. **Delete row**: the cheap version (delete an event of exactly N rows, refuse the voice that
    spans the row) or the full one (a jiffies-to-duration inverse plus a split)? Is a bar delete
@@ -329,4 +336,4 @@ hears or types into; a py65 harness alone is not "verified".
    `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
    default tempo, which is a different number and would have to say so)?
 8. **Funding**: take the two cheap levers only, or plan the player-as-a-task split now — which
-   would let the editor grow ~15 pages and make item 6 and the wishlist affordable?
+   would let the editor grow ~14 pages and make item 6 and the wishlist affordable?
