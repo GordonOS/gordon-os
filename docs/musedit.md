@@ -690,15 +690,21 @@ it.
 ### Signed operands, and how they are written
 
 Seven commands mean a *signed* number — a sweep that can go either way, a detune, a transpose — and
-the prompt writes the field the player reads rather than the number you have in mind. Four of them are
-a plain signed byte, so a minus is the value plus 256:
+the prompt writes the field the player reads rather than the number you have in mind. The four that
+are a plain byte work exactly as a signed byte does: **256 + the value**.
 
-| commands | what the prompt takes | how a negative is written |
+| commands | what the prompt takes | examples |
 |---|---|---|
-| `P-S`, `F-S`, `AUT` | 0-255 | a signed byte: 256 + the value. `P-S 128` is the full -128, `AUT 246` is a cutoff offset of -10, and 255 is -1 |
-| `SCA` | 0-7 up, 249-255 down | the same byte: `SCA 249` is -7 and `SCA 255` is -1 |
-| `DTN` | 0-4095 | the format's packed 12-bit detune field, where `0` is no detune. It is not a plain signed number: the high half comes from the command byte and the low byte is the option, and the format's own worked values do not follow a simple offset, so take the number from a line that already detunes the way you want |
-| `TPS`, `RTP` | 0-255 | the format's packed interval, and not a semitone count at all: `TPS 176` is +95 and `TPS 15` is -95, and `RTP 91` is "no change". Copy a line that already transposes that way for anything in between |
+| `P-S`, `F-S`, `AUT` | 0-255 | `F-S 3` opens the filter 3 a jiffy and `F-S 253` closes it at the same rate; `AUT 20` brightens the high notes and `AUT 236` darkens them; `P-S 2` widens the pulse and `P-S 254` narrows it |
+| `SCA` | 0-7 up, 249-255 down | `SCA 3` multiplies the modulation by 8, `SCA 253` divides it by 8 |
+| `DTN` | 0-4095, a 12-bit signed field | **4096 + the value** here: `DTN 256` is 256 sharp, `DTN 3840` is 256 flat, and `DTN 2048` is the -2048 floor |
+| `TPS`, `RTP` | 0-255 | not a sign at all but a packed interval: `TPS 176` is +95, `TPS 15` is -95, `RTP 91` is "no change" |
+
+The byte-wide ones in one line, for the values you are most likely to want:
+
+| value | -128 | -64 | -16 | -10 | -3 | -1 | 0 | +1 | +3 | +10 | +127 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| write | 128 | 192 | 240 | 246 | 253 | 255 | 0 | 1 | 3 | 10 | 127 |
 
 Everything else on the grid is a plain count, and the prompt clamps a too-large value to the
 command's own maximum rather than refusing it — so what the prompt shows is always what gets
@@ -870,8 +876,9 @@ the SID's own, and they are odd, metallic sounds rather than "two instruments at
 
 `P-W` only means something on a pulse waveform. It is the width of the pulse, so 2048 is an even
 square wave and the further you move from the middle the thinner and more nasal the tone. `P-S` is
-the classic moving-pulse effect: the width drifts by that much every jiffy, so a small value gives a
-slow, wide sweep and a large one a fast shimmer. `PVD`/`PVR` are the gentler version of the same
+the classic moving-pulse effect: the width walks by that much every jiffy, so `P-S 2` creeps upwards
+and `P-S 254` creeps back down (254 being -2), a small value gives a slow, wide sweep and 8 or more
+the fast shimmer of a dance lead. `PVD`/`PVR` are the gentler version of the same
 thing — depth and rate of a vibrato applied to the *width* rather than the pitch, which is what makes
 a held lead sound alive without going out of tune.
 
@@ -893,7 +900,7 @@ P-S 3
 | `VRT` | 0-127 | vibrato rate: how many jiffies each step of the swing takes |
 | `POR` | 0-16383 | portamento: the pitch slides into a new note instead of jumping to it. The operand is the step size — how far the frequency moves each jiffy |
 | `P&V` | 0 or 1 | keeps the vibrato running during a portamento slide |
-| `DTN` | 0-4095, the format's packed 12-bit field (0 is none) | detune: a fixed offset to the whole voice, in the player's frequency units, so a second voice on the same line drifts a little sharp or flat of the first |
+| `DTN` | 0-4095, as a 12-bit signed field | detune: a fixed offset to the whole voice, in the player's frequency units, so a second voice on the same line drifts a little sharp or flat of the first. `256` is 256 sharp, `3840` is 256 flat |
 | `TPS` | 0-255, the format's **packed** interval | transpose: every later note moves by a number of semitones, until the next `TPS` |
 | `RTP` | 0-255, the format's **packed** interval | transpose relative to the note before it |
 
@@ -909,7 +916,8 @@ going during the slide. Because it is a step per jiffy, a slide takes twice as l
 value.
 
 `DTN` shifts the whole voice, so two voices playing the same line with opposite small detunes give
-the classic chorus — the cheapest way to thicken a single-voice melody. `TPS` transposes everything
+the classic chorus: `DTN 256` on one and `DTN 3840` (which is -256) on the other thickens a single
+line into two. `TPS` transposes everything
 after it, which is how a tune changes key for a last chorus; `RTP` works from the note before it
 instead, so the same value follows the melody rather than the tune's own key.
 
@@ -931,7 +939,7 @@ POR 40
 | `F-M` | 0-7 | filter mode, a bitmask: 1 low-pass, 2 band-pass, 4 high-pass, added together for combinations, 0 for off |
 | `F-C` | 0-255 | cutoff frequency |
 | `F-S` | 0-255, as a signed byte | cutoff **sweep**: added to the cutoff every jiffy |
-| `AUT` | 0-255, as a signed byte | how much of the note's own pitch is added to the cutoff, so higher notes open the filter further |
+| `AUT` | 0-255, as a signed byte | key-follow: the cutoff is derived from the note's own pitch, and this offsets the result, so `20` is brighter and `236` (which is -20) darker |
 | `RES` | 0-15 | resonance: the peak at the cutoff |
 | `FLT` | 0 or 1 | routes **this voice** through the filter |
 | `F-X` | 0 or 1 | routes the external audio input through the filter |
@@ -941,9 +949,11 @@ decides which voices are fed into it. That is why a filtered bass and an unfilte
 the bass lane carries `FLT 1` and the lead lane `FLT 0` — but they share one cutoff.
 
 `F-S` is the classic filter sweep, drifting the cutoff by that much every jiffy until something
-changes it, and `AUT` is key-follow: a positive value brightens the high notes and darkens the low
-ones, which is what keeps a bass line from disappearing behind a lead. Resonance is the character of
-the sweep, and a lot of it is loud — drop `VOL` when you raise `RES`.
+changes it: `F-S 3` opens, `F-S 253` closes, and the bigger the number the faster it travels. `AUT`
+is key-follow: it sets the cutoff from the note's own pitch, so high notes come out brighter than low
+ones, and the operand offsets that whole curve — `AUT 20` a little brighter everywhere, `AUT 236`
+(which is -20) a little darker. It is what keeps a bass line from disappearing behind a lead. Resonance is the character of the sweep, and a lot of it is loud — drop
+`VOL` when you raise `RES`.
 
 ```
 F-M 1
@@ -979,9 +989,11 @@ The wiring is three separate decisions, which is why it takes several commands t
 3. **`DST` `SCA`** — where that voice *sends* it (off, frequency, pulse width or cutoff) and how much
    (each step of `SCA` doubles or halves it).
 
-A slow pulse-width wobble on a held string part is a typical use — `LFO 0` (triangle), a small `RUP`
-and `RDN`, a modest `MAX`, `SCA 2` and `DST 2` — and `DST 3` at a slow rate is a filter sweep you do
-not have to write any `F-S` lines for.
+`SCA` is the volume knob of all this: it shifts the modulation up or down in powers of two, so
+`SCA 3` is eight times the swing and `SCA 253` (which is -3) is an eighth of it. A slow pulse-width
+wobble on a held string part is a typical use — `LFO 0` (triangle), a small `RUP` and `RDN`, a modest
+`MAX`, `SCA 2` and `DST 2` — and `DST 3` at a slow rate is a filter sweep you do not have to write any
+`F-S` lines for.
 
 ```
 LFO 0
