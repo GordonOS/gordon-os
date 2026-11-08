@@ -1279,10 +1279,28 @@ pretend to:
 
 ### What `musedit` does not offer
 
-Deliberately, because the file is fully readable and editable without them: a raw event view, a
-sections or patterns view, block copy and paste, instrument macros, jam recording, mute and solo, and
-description editing. Each would be another screen to learn, and none of them can express anything the
-commands above cannot.
+A raw event view, a sections or patterns map, block copy and paste, instrument macros, jam
+recording, mute and solo, and editing the tune's description text. They are absent for three
+different reasons, and it is worth being straight about which is which:
+
+- **Room.** `musedit` is one of the largest tasks on the machine — about 18 KB of code — its own
+  code page is full to the last byte, and the pool it loads into has only a few pages to spare. A
+  raw event view, a sections map, a clipboard for blocks, a text editor for the description and a
+  jam recorder are all things the file would allow; each is another screen and several hundred
+  more bytes of the walker, and there is nowhere to put them without taking room from something
+  else.
+- **The format has nothing to hold them.** Instrument macros are the clear case: a `.mus` file is a
+  stream of command pairs, with no place to store a named instrument, so a macro could only be
+  expanded into commands as you insert it and could never travel with the tune.
+- **The player has nothing to offer.** Mute and solo need the player to silence a voice while the
+  music runs. It has no such control: the nearest things in the format are `3-O`, which is voice 3
+  only, and turning the volume down, which is not a mute.
+
+The description is the odd one out: the file **does** hold that text, so nothing but room keeps it
+out of the editor.
+
+None of this is a refusal on principle. The features that room and the player would allow may
+arrive later; the ones the format cannot express never will.
 
 ## Limits you might meet
 
