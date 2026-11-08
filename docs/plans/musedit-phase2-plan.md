@@ -15,19 +15,19 @@
 
 | | |
 |---|---|
-| code | **17,911 bytes**, 1,919 fixups, **70 code pages** (9 bytes under the next boundary) of a 256-byte granule (71 measured working) |
+| code | **17,919 bytes**, 1,921 fixups, **70 code pages** (1 byte under the next boundary) of a 256-byte granule (71 measured working) |
 | pool | **104 pages of 109** (code 70, `sid.lib` 15, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
 | zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`), every one of them declared |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
 Two numbers govern everything below, and neither is negotiable without a design change:
 
-- **The editor can carry 265 more bytes of code.** `musedit` is 17,911 bytes, 70 code pages, and
+- **The editor can carry 257 more bytes of code.** `musedit` is 17,919 bytes, 70 code pages, and
   **71 pages has been measured working**: with `sid.lib` trimmed to 14 pages, a 71-page build
   (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune and played it. So the
   usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on pool margin 4, which is
   the figure that refused to play before the trim, and is untested. The editor's own 70-page
-  boundary is only **9 bytes** away, so the next item crosses it and spends a pool page unless it
+  boundary is only **1 byte** away, so the next item crosses it and spends a pool page unless it
   brings a lever with it.
 - **The wall moves with the pool, not with the byte count.** The voice-terminator check was first
   written at 136 bytes, which put the code at 71 pages; the pool budget gate printed `margin 4` and
@@ -54,7 +54,7 @@ the image and no page-boundary arithmetic is needed. The file is also deleted at
 leaves nothing behind.
 
 Plan-level budget: `muMnTab`, `muMsgGo` and the consolidation sweep are spent, and item 4 has taken
-`sid.lib` over its 14th page, so the **265 bytes in hand** — 17,914 to the 71-page line at 18,176 —
+`sid.lib` over its 14th page, so the **257 bytes in hand** — 17,914 to the 71-page line at 18,176 —
 are the whole budget. The bar jump (§ 9) took **243** of the 259 the sweep freed, which is what put
 the editor back at 70 pages and the pool at margin 5: navigation is bought, and item 3's ~200 bytes
 would now cross into 71 pages.
@@ -277,7 +277,8 @@ screens, and the editor had no way to move the window by more than a line.
   with SHIFT picking the second pair) and every function key is the kernel's screen switch.
 
 **Paid for** by the `muMsgGo` lever (§ 2): 45 of the 50 bytes, so the editor stayed at 70 pages and
-the pool at margin 5 — the page keys cost the plan **5 bytes** of its 305-byte budget.
+the pool at margin 5 — the page keys cost the plan **5 bytes** of its 305-byte budget. The 240/243
+figures below are the whole feature; the two keys alone are the 50.
 
 **Built: the bar jump** (243 bytes) — `SHIFT`+`N` the bar after this one, `SHIFT`+`P` the one
 before, `SHIFT`+`B` to type a bar number, `STOP` to leave the view alone.
@@ -286,8 +287,8 @@ before, `SHIFT`+`B` to type a bar number, `STOP` to leave the view alone.
   own bar counter (`muBarNo`, which `muGrpBar` steps per row because a tempo change cuts a bar
   short) reaches the target. The target lives in `MU_OBJVAL`/`MU_OBJVALHI`, which is also the
   prompt's accumulator and which the walk never touches — so there is no new state byte anywhere,
-  and no second walk. It stops on the first row of the bar and takes the **last line of that row's
-  group**, which is the row's own line.
+  and no second walk. It stops on the first row of the bar and takes the line the group draws
+  **after** its command lines: the row's own line.
 - **The view** is `mlkJump`, the tail `SHIFT`+`D` already uses: the window's top row becomes the
   found row, the line offset goes to 0, the cursor goes to the found line and the grid is drawn
   again. Nothing new draws anything.
@@ -301,7 +302,13 @@ before, `SHIFT`+`B` to type a bar number, `STOP` to leave the view alone.
   playhead's follow.
 - **Cost 243 against the 259 the consolidation sweep freed** — the estimate was ~195, and the
   overrun is the two keys' own guards and the prompt's echo. The editor is back at 70 pages with
-  **19 bytes** to spare and the pool at margin 5.
+  **1 byte** to spare and the pool at margin 5.
+- **Two faults the final sweep found, both fixed.** The cursor landed one line too high — on the
+  row's last command line, or on the header row when the row has no commands — because the group's
+  own line is the one *after* its `muLogLns` command lines, not the last of them. And the three keys
+  leaked a stack frame per successful jump (`jsr` into a handler that ends in `jmp muKeyIdle`);
+  `SHIFT+D` had leaked the same way since before this work. Measured at `savedSP[slot]` (`$4008`):
+  243 → 229 → 227 → 226 over four presses before, 234–239 each way after (`docs/bugs.md` #206).
 
 **Not built: a measure jump.** The editor *draws* `MS#` but never stores its value, and `MS#` is per
 voice, so a measure jump needs a per-voice number carried in the line record (2 bytes over
@@ -367,7 +374,7 @@ hears or types into; a py65 harness alone is not "verified".
    `SHIFT`+`P` step a bar either way and `SHIFT`+`B` takes a typed bar number, all refused while
    playing. A measure jump — which needs per-voice `MS#` state as well — is recorded in § 9 as not
    built.
-8. **Funding**: the **265 bytes** in hand — `muMnTab`, `muMsgGo` and the consolidation sweep are all
+8. **Funding**: the **257 bytes** in hand — `muMnTab`, `muMsgGo` and the consolidation sweep are all
    spent — are the whole budget, and the bar jump has taken the page the sweep freed. Item 3 fits
    inside it; item 6 (blocks) needs a lever of its own or a cheaper design; which does the list
    prefer?

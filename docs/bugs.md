@@ -43,6 +43,37 @@ table) and B#7 (index 96, one past the twelve-per-octave rows). `tools/mus-sim.p
 rolls the same way, which its own docstring says it models -- and only `immig` stores such a
 spelling: four events, all voice 1, all `$57`.
 
+## Bug #206 — two key handlers left a stack frame behind on every successful jump, so the task's saved SP crawled down 🟠 ✅ FIXED (2026-11-08)
+
+**Symptoms.** None at first: the jumps worked, the cursor landed right, the grid and head followed.
+The fault is in the task's stack, and shows as `savedSP[slot]` (`$4008 + slot`) drifting down as the
+key is pressed. Measured on `musedit` in VICE, one `SHIFT+N` per sample: **243 -> 229 -> 227 -> 226**
+over four presses. The task stack is one page and shared with the C stack frames of every kernel
+call, so this ends in corruption, not in a message.
+
+**Root cause.** The key dispatch in `muKeyLoop` is a compare chain that `jmp`s into a handler, so a
+handler is entered with **no** frame, and the handlers that never return (the ones ending in
+`jmp muKeyIdle`) are written for exactly that. A handler entered with `jsr` instead must end in a
+chain that `rts`es — like `muObjKey`, whose every path ends in `muStatus`/`muStatArm`/the prompt loop.
+I wrote the bar keys as `jsr muBarNext` / `jmp muKeyIdle`, but `muBarNext`'s success path is
+`jmp mlkJump` -> `jmp muCurRedraw` -> `jmp muKeyIdle`: it never returns, so the `jsr`'s frame was
+never popped — two bytes per jump. `SHIFT+D` had the same fault from before this work
+(`jsr muLinkKey`), which is why the leak was easy to reproduce and easy to miss.
+
+**Fix.** Both keys follow the convention the rest of the chain uses: the dispatch `jmp`s into the
+handler, and the handler's own tail ends in `jmp muKeyIdle`. The paths that must print a message now
+`jsr muMsgGo` (whose chain `rts`es) and then `jmp muKeyIdle`, instead of `jmp muMsgGo`. Measured
+after the fix, five `SHIFT+N` and three `SHIFT+D` presses: SP **239, 234, 234, 235, 234, 239**, i.e.
+it returns to where it started, with only the sampling point inside the key loop varying.
+
+**Rule.** A handler's entry and its exit are one decision: if it ends by jumping back into the key
+loop it must be entered by `jmp`, and if anything in it can `rts` it must be entered by `jsr` — a
+handler with both kinds of exit has to make the message path `jsr` its printer so the frame it does
+not own is never popped. And a leak with no symptom is still worth measuring for: the saved-SP table
+at `$4008` shows it in four presses.
+
+---
+
 ## Bug #204 — entering a note in `musedit` hangs the machine on `immig`, and the band disappears below the row typed on 🔴 ✅ FIXED (2026-11-08)
 
 **Symptoms.** In `musedit`, type a note on a row of `immig` that falls *inside* a long event:

@@ -588,7 +588,9 @@ editor walks what it wrote. If that walk stops — a length the tempo cannot exp
 phrase with no `DEF`, a call stack one frame too deep, a `TAL` whose `HED` belongs to another
 phrase — the edit is undone on the spot, the redo withdrawn, and row 0 says which: `? illegal tempo`
 for a length, `? the tune cannot play that` otherwise. The grid comes back exactly as it was and
-there is nothing left to undo, so a value that cannot work never costs you a `Z`.
+there is nothing left to undo, so a value that cannot work never costs you a `Z`. A file that was
+**already** unwalkable when you opened it keeps that state: the refusal only fires for a pair the
+write itself broke, so such a file can still be edited.
 
 **Overwrite or insert** — the mode `M` shows decides what happens when that boundary already
 carries the same command: `OVR` replaces it where it stands, `INS` adds a second pair.

@@ -3242,10 +3242,8 @@ mbfTake:
     sta muFndRow
     lda muGrpRow+1
     sta muFndRow+1
-    lda muLogLns                // the group's last line is the row's own
-    sec
-    sbc #1
-    sta muFndLine
+    lda muLogLns                // the group's command lines come first, so the row's
+    sta muFndLine               //   own line is the one after all of them
     ldy #MU_VOICE               // the jump keeps the cursor's voice
     lda (dataPtr),y
     sta muFndVoice
@@ -3258,7 +3256,8 @@ muBarGo:
     bcc mbgGo
     jsr muBandRebuild           // the search walked the producer: put it back
     lda #M_NO_BAR
-    jmp muMsgGo
+    jsr muMsgGo                 // this path returns: the dispatch pushed no frame
+    jmp muKeyIdle
 mbgGo:
     jmp mlkJump
 
@@ -3334,9 +3333,10 @@ mbtTake:
     beq mbtRts                  // bar 0 does not exist
     jmp muBarGo
 mbtRts:
-    jmp muDrawHead              // the prompt only touched row 0: the head takes it back
+    jsr muDrawHead              // the prompt only touched row 0: the head takes it back
+    jmp muKeyIdle
 mbtOut:
-    rts
+    jmp muKeyIdle               // "? stop first" already owns row 0
 
 // ==========================================
 //  Phrase bodies
@@ -3728,7 +3728,8 @@ mlkSay:
     jsr muBandRebuild
 mlkMsg:
     pla
-    jmp muMsgGo
+    jsr muMsgGo                 // this path returns: the dispatch pushed no frame
+    jmp muKeyIdle
 mlkJump:
     lda muFndRow
     sta muTop
@@ -4826,8 +4827,8 @@ muKeyNotU2:
     cmp #$44                    // SHIFT+D: the call and its definition
     bne muKeyNotLink
     jsr muPlaying               // a jump would fight the playhead's follow
-    bcs muKnkIdle
-    jsr muLinkKey
+    bcs muKnkIdle               // out of branch range: the idle loop is far below
+    jmp muLinkKey               // muLinkKey ends in the idle loop, not in an rts
 muKnkIdle:
     jmp muKeyIdle
 muKeyNotLink:
@@ -5001,18 +5002,15 @@ muKeyPgDn:
 muKeyBar:
     cmp #$42                    // SHIFT+B -- type the bar to go to
     bne muKeyBarNext
-    jsr muBarPrompt
-    jmp muKeyIdle
+    jmp muBarPrompt
 muKeyBarNext:
     cmp #$4e                    // SHIFT+N -- the bar after this one
     bne muKeyBarPrev
-    jsr muBarNext
-    jmp muKeyIdle
+    jmp muBarNext
 muKeyBarPrev:
     cmp #$50                    // SHIFT+P -- the bar before this one
     bne muKeyIdle
-    jsr muBarPrev
-    jmp muKeyIdle
+    jmp muBarPrev
 muKeyIdle:
     jsr muPointerTick
     jsr muStatusTick
@@ -6742,6 +6740,8 @@ muValDiv10:
 
 // --- mqTake -- encode the pair and write it ---
 mqTake:
+    lda muErr                   // was the tune walkable before this write? MU_OBJFRESH
+    sta muObjFresh              //   holds the answer until mqDone reads it
     jsr muObjEnc
     lda muObjKind
     bne mqPut                   // the pair exists: replace it in place
@@ -6784,6 +6784,8 @@ mqDone:
     jsr muRedrawNoHead          // the repaint walks the tune, and that walk is the first
     lda muErr                   //   to see a pair the player cannot play
     beq mqFine
+    ldx muObjFresh              // a tune that was already unwalkable is not this pair's
+    bne mqFine                  //   doing: leave it alone, so its marks stay editable
     cmp #MU_ERR_LEN             // a length this tempo cannot express is its own answer:
     beq mqBadTempo              //   the tempo is what the user just changed
     lda #M_UNDONE
