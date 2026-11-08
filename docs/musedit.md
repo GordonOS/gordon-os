@@ -156,7 +156,7 @@ C-4 16 TIE
 
 which is one note, struck once and held for three events' worth of time.
 
-Only the row a note **starts** on is written. The rows the note covers stay blank ? the pitch and
+Only the row a note **starts** on is written. The rows the note covers stay blank — the pitch and
 the duration already say how long it lasts, and leaving them empty is what lets the window scroll
 a line at a time by drawing nothing but the row that appears. So a lane that looks empty under a
 note is that note still sounding; the dots on the keyboard are what show which pitch each voice is
