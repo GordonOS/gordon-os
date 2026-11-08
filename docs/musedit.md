@@ -690,15 +690,15 @@ it.
 ### Signed operands, and how they are written
 
 Seven commands mean a *signed* number — a sweep that can go either way, a detune, a transpose — and
-the prompt writes the field the player reads rather than the number you have in mind. So a minus is
-written by adding the field's own width:
+the prompt writes the field the player reads rather than the number you have in mind. Four of them are
+a plain signed byte, so a minus is the value plus 256:
 
 | commands | what the prompt takes | how a negative is written |
 |---|---|---|
-| `P-S`, `F-S`, `AUT`, `SCA` | 0-255 | as a signed byte — 256 + the value. `AUT 246` is a cutoff offset of -10, `SCA 249` is -7, `P-S 128` is the full -128 |
-| `DTN` | 0-4095 | as a 12-bit signed field — 4096 + the value. `DTN 3840` is -256, and 0 is no detune at all |
-| `TPS` | 0-255 | not a semitone count: the format packs the sign, the octaves and the semitones into the byte. 176 is +95 and 15 is -95 (see *Frequency*, below) |
-| `RTP` | 0-255 | the same packing, smaller range: 91 is "no change" |
+| `P-S`, `F-S`, `AUT` | 0-255 | a signed byte: 256 + the value. `P-S 128` is the full -128, `AUT 246` is a cutoff offset of -10, and 255 is -1 |
+| `SCA` | 0-7 up, 249-255 down | the same byte: `SCA 249` is -7 and `SCA 255` is -1 |
+| `DTN` | 0-4095 | the format's packed 12-bit detune field, where `0` is no detune. It is not a plain signed number: the high half comes from the command byte and the low byte is the option, and the format's own worked values do not follow a simple offset, so take the number from a line that already detunes the way you want |
+| `TPS`, `RTP` | 0-255 | the format's packed interval, and not a semitone count at all: `TPS 176` is +95 and `TPS 15` is -95, and `RTP 91` is "no change". Copy a line that already transposes that way for anything in between |
 
 Everything else on the grid is a plain count, and the prompt clamps a too-large value to the
 command's own maximum rather than refusing it — so what the prompt shows is always what gets
@@ -893,7 +893,7 @@ P-S 3
 | `VRT` | 0-127 | vibrato rate: how many jiffies each step of the swing takes |
 | `POR` | 0-16383 | portamento: the pitch slides into a new note instead of jumping to it. The operand is the step size — how far the frequency moves each jiffy |
 | `P&V` | 0 or 1 | keeps the vibrato running during a portamento slide |
-| `DTN` | 0-4095, as a 12-bit signed field | detune: a fixed offset to the whole voice, in the player's frequency units |
+| `DTN` | 0-4095, the format's packed 12-bit field (0 is none) | detune: a fixed offset to the whole voice, in the player's frequency units, so a second voice on the same line drifts a little sharp or flat of the first |
 | `TPS` | 0-255, the format's **packed** interval | transpose: every later note moves by a number of semitones, until the next `TPS` |
 | `RTP` | 0-255, the format's **packed** interval | transpose relative to the note before it |
 
