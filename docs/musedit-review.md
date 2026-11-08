@@ -535,8 +535,9 @@ Very little, given the size. In descending order of "would I cut this":
    agreement enforceable. Keep them; document them (**F7**).
 4. **The phase-1 plan** ran to 1,652 lines. That is a process choice, not a code one, and it is
    the record this project worked from — but at that length it was longer than some of the code it
-   described, and its verification notes duplicated what `bugs.md` and the gates already said. It
-   is retired to `Documents/GordonOSPlans/`; `docs/plans/` now carries only the phase-2 plan.
+   described, and its verification notes duplicated what `bugs.md` and the gates already said. Both
+   it and the phase-2 plan are retired to `Documents/GordonOSPlans/`; `docs/plans/` carries nothing
+   until the next piece of work needs a plan.
 
 What is *not* overengineering, in case it looks it: the three image windows (the tune is never in
 RAM, so edits are page-granular and the pool holds 70 code pages instead of a 65 KB tune), the
@@ -657,12 +658,12 @@ Almost. Measured against `reference/sidplayer-mus-file-format.md`:
 
 The first three are hours each; the fourth is the only real design change.
 
-**Where these went.** All six are carried into [musedit-phase2-plan.md](./plans/musedit-phase2-plan.md)
-with a byte budget, a funding line and a gate each — plus a seventh, navigation, which the review
-did not raise: jump to a bar or a measure instead of scrolling. And one of the six has already
-landed: `MS#` was delivered at the format's own ceiling of **999**, not 1023 (the fourth block's
-option range ends at `$E7`, so 1000-1023 are not in the encoding). That plan also carries the five
-features the phase-1 plan had parked.
+**Where these went.** All six were carried into the phase-2 plan with a byte budget, a funding
+line and a gate each — plus a seventh, navigation, which the review did not raise: jump to a bar
+instead of scrolling. That plan is **retired**: every item is either built (`MS#` at 999, play from
+the cursor, delete row/bar, the page keys and the bar jump), closed by decision (`JIF` is won't do),
+deferred (description editing, blocks) or carried forward as a wishlist. It lives in
+`Documents/GordonOSPlans/musedit-phase2-plan.md`, outside this repo.
 
 ---
 

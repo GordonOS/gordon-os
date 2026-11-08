@@ -322,7 +322,8 @@ Each of these is the one place a fact is written down; everything else reads it.
 
 **Plans are working documents, not documentation.** An active plan lives in
 `docs/plans/` and is retired to `Documents/GordonOSPlans/` once it is implemented, so the
-repo carries only plans that still describe work to be done.
+repo carries only plans that still describe work to be done. `docs/plans/` is empty at the
+moment: the musedit phase-2 plan was retired there on 2026-11-08.
 
 **Two build outputs are tracked on purpose, and both change on every build:**
 `build/gordon-os.prg` (the runnable kernel, so a visitor needs no toolchain) and
