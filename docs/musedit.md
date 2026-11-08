@@ -597,11 +597,9 @@ renumbering.
 `MS#` up to 999, `P-W` and `DTN` up to 4095, `POR` up to 16383. A value the command cannot hold is
 clamped to its maximum rather than refused, so what the prompt shows is always what gets written.
 
-The prompt takes **digits only** — there is no minus key — so the commands whose ranges in the
-tables below are signed (`P-S`, `F-S`, `AUT`, `SCA`, `TPS`, `RTP`, `DTN`) are written as the
-number the format stores, not as a negative one. Opening a line that already carries the value
-you want is the quick way to see its spelling: the prompt shows the number that line holds, and
-taking it writes the same pair back.
+The prompt takes **digits only** — there is no minus key — and it shows and stores the number the
+player itself reads. For the commands whose effect is a signed number that is not the number you
+have in mind; *Signed operands*, below, gives the conversion for each of them.
 
 **Writing `TEM` is the one that catches people out.** The first `RETURN` chooses the mnemonic and the
 second writes the value: the head shows you where you are, and once you have taken the mnemonic the
@@ -688,6 +686,25 @@ Two things are worth knowing before the details:
 
 Each group below says what every member does, what its operand means, and how you would actually use
 it.
+
+### Signed operands, and how they are written
+
+Seven commands mean a *signed* number — a sweep that can go either way, a detune, a transpose — and
+the prompt writes the field the player reads rather than the number you have in mind. So a minus is
+written by adding the field's own width:
+
+| commands | what the prompt takes | how a negative is written |
+|---|---|---|
+| `P-S`, `F-S`, `AUT`, `SCA` | 0-255 | as a signed byte — 256 + the value. `AUT 246` is a cutoff offset of -10, `SCA 249` is -7, `P-S 128` is the full -128 |
+| `DTN` | 0-4095 | as a 12-bit signed field — 4096 + the value. `DTN 3840` is -256, and 0 is no detune at all |
+| `TPS` | 0-255 | not a semitone count: the format packs the sign, the octaves and the semitones into the byte. 176 is +95 and 15 is -95 (see *Frequency*, below) |
+| `RTP` | 0-255 | the same packing, smaller range: 91 is "no change" |
+
+Everything else on the grid is a plain count, and the prompt clamps a too-large value to the
+command's own maximum rather than refusing it — so what the prompt shows is always what gets
+written. Two ways to get a value right without doing arithmetic: open a line that already carries
+the value you want (the prompt shows the number that line holds, and taking it writes the same pair
+back), or copy the line from a tune that already sounds the way you want.
 
 ### Tempo — `TEM`, `UTL`
 
@@ -841,7 +858,7 @@ PNT 12
 |---|---|---|
 | `WAV` | 0-7 | which of the SID's waveforms the voice uses: 0 noise, 1 triangle, 2 sawtooth, 3 triangle+sawtooth, 4 pulse, 5 pulse+triangle, 6 pulse+sawtooth, 7 all three |
 | `P-W` | 0-4095 | pulse width, a 12-bit value. 2048 is a square wave; towards 0 or 4095 the pulse thins out, and at the ends there is almost nothing to hear |
-| `P-S` | -128…127 | pulse-width **sweep**: added to the width every jiffy, positive widening and negative narrowing, and it keeps going until something changes it |
+| `P-S` | 0-255, as a signed byte | pulse-width **sweep**: added to the width every jiffy, positive widening and negative narrowing, and it keeps going until something changes it |
 | `PVD` | 0-127 | pulse-width vibrato depth |
 | `PVR` | 0-127 | pulse-width vibrato rate |
 | `SNC` | 0 or 1 | oscillator sync |
@@ -876,9 +893,9 @@ P-S 3
 | `VRT` | 0-127 | vibrato rate: how many jiffies each step of the swing takes |
 | `POR` | 0-16383 | portamento: the pitch slides into a new note instead of jumping to it. The operand is the step size — how far the frequency moves each jiffy |
 | `P&V` | 0 or 1 | keeps the vibrato running during a portamento slide |
-| `DTN` | -2048…2047 | detune: a fixed offset to the whole voice, in the player's frequency units |
-| `TPS` | -95…95 | transpose: every later note moves by this many semitones, until the next `TPS` |
-| `RTP` | -47…47 | transpose relative to the note before it |
+| `DTN` | 0-4095, as a 12-bit signed field | detune: a fixed offset to the whole voice, in the player's frequency units |
+| `TPS` | 0-255, the format's **packed** interval | transpose: every later note moves by a number of semitones, until the next `TPS` |
+| `RTP` | 0-255, the format's **packed** interval | transpose relative to the note before it |
 
 `VDP` and `VRT` are the ordinary pitch vibrato: depth is how wide the swing is and rate how fast it
 runs, and a little of both on a held lead is usually all a tune needs. Depth is in the player's
@@ -896,6 +913,11 @@ the classic chorus — the cheapest way to thicken a single-voice melody. `TPS` 
 after it, which is how a tune changes key for a last chorus; `RTP` works from the note before it
 instead, so the same value follows the melody rather than the tune's own key.
 
+Both transposes pack their interval into one byte (sign, octaves, semitones), so the operand is not
+a semitone count: `TPS 15` is -95 and `TPS 176` is +95, and `RTP`'s 91 is "no change at all".
+*Signed operands* above has the details, and the practical way to write an interval in between is to
+copy a line that already transposes the way you want.
+
 ```
 VDP 8
 VRT 4
@@ -908,8 +930,8 @@ POR 40
 |---|---|---|
 | `F-M` | 0-7 | filter mode, a bitmask: 1 low-pass, 2 band-pass, 4 high-pass, added together for combinations, 0 for off |
 | `F-C` | 0-255 | cutoff frequency |
-| `F-S` | -128…127 | cutoff **sweep**: added to the cutoff every jiffy |
-| `AUT` | -128…127 | how much of the note's own pitch is added to the cutoff, so higher notes open the filter further |
+| `F-S` | 0-255, as a signed byte | cutoff **sweep**: added to the cutoff every jiffy |
+| `AUT` | 0-255, as a signed byte | how much of the note's own pitch is added to the cutoff, so higher notes open the filter further |
 | `RES` | 0-15 | resonance: the peak at the cutoff |
 | `FLT` | 0 or 1 | routes **this voice** through the filter |
 | `F-X` | 0 or 1 | routes the external audio input through the filter |
@@ -941,7 +963,7 @@ FLT 1
 | `MAX` | 0-255 | the ceiling the climb stops at, where the ramp turns round |
 | `SRC` | 0-2 | what feeds a voice's modulation: 0 the software LFO, 1 oscillator 3's output, 2 envelope 3 |
 | `DST` | 0-3 | where a voice's modulation goes: 0 off, 1 frequency, 2 pulse width, 3 filter cutoff |
-| `SCA` | -7…7 | the scale applied to the modulation, as a shift: each step up doubles it, each step down halves it |
+| `SCA` | 0-7 up, 249-255 down (a signed byte) | the scale applied to the modulation, as a shift: each step up doubles it, each step down halves it |
 
 This is the format's one true modulator, and it is **software**: the player ramps a counter up by
 `RUP` each jiffy until it reaches `MAX`, then down by `RDN`, in a triangle (or a pulse), and adds
