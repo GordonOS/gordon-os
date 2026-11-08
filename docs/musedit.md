@@ -913,15 +913,54 @@ so keep it out of octaves 0 and 1. A width much below about 100 (or above about 
 on some chips, so stay nearer the middle. And a big `P-S` rate can carry the width past 4095, where it
 wraps — the wrap is an audible pop, so either slow the sweep or split the note.
 
-`SNC` and `RNG` are the SID's two cross-oscillator tricks and each is a plain 0/1 switch. They use
-another oscillator as the modulator, so they do nothing interesting unless the neighbouring voice is
-running, and they are worth trying on a lead or a bass rather than on everything at once.
-
 ```
 WAV 4
 P-W 2048
 P-S 3
 ```
+
+### Sync and ring modulation — `SNC`, `RNG`
+
+These two switches make a voice use **another voice's oscillator** as well as its own. The pairing is
+fixed by the chip and by nothing in the tune:
+
+| the switch is written in | uses the oscillator of |
+|---|---|
+| voice 1 | voice 3 |
+| voice 2 | voice 1 |
+| voice 3 | voice 2 |
+
+So either effect costs a **pair** of voices out of the three, and the pair has to be playing at the
+same time: one voice carries the sound you hear, the other is the modulator. That is why they turn up
+on a lead over a bass line, or in a two-voice tune, and rarely anywhere else.
+
+**`SNC 1` — oscillator sync.** Every time the other oscillator finishes a cycle, the sounding
+voice's oscillator is forced back to the start of its own. The ear hears the sounding voice locked to
+the modulator's rate, which turns a smooth waveform into a hard, reedy, metallic tone; the classic
+sync lead is made by *sweeping the modulator's pitch* under a held note, which drags the timbre with
+it. Raising the sounding voice's own pitch as well moves it up in steps rather than smoothly.
+
+**`RNG 1` — ring modulation.** The two oscillators are multiplied together instead, which replaces
+the tone with the sum and difference of their frequencies: inharmonic, bell-like, clangorous. It is
+the sound of a Dalek or a struck bell rather than of a note, and moving the modulator's pitch moves
+the whole timbre rather than tuning it.
+
+**The modulator must run, but it must not be heard** — otherwise it doubles the melody in its own
+voice. The format has a command for exactly that: `3-O 1` mutes voice 3's output *without stopping
+its oscillator*, so voice 3 can do the modulating in silence.
+
+The two demonstration tunes in the CGSC archive's `Misc/Demonstration` folder are the pattern to
+copy, and they are worth opening in `musedit` with the cursor walking down them:
+
+- **`Ring_Modulation_Demonstration`** puts the melody in voice 1 with `WAV 1` and `RNG 1`, and the
+  same melody in voice 3 behind `3-O 1`, transposing voice 3 with `TPS` before each repeat — so
+  every pass is the same notes with a different clang. At the end `3-O 0` lets voice 3 be heard, and
+  the ring-modulated voice carries on underneath.
+- **`Sync_Mode_Demonstration`** calls the same phrase in voices 1 and 2, sets `SNC 1` in voice 2,
+  and changes voice 2's `TPS` and `WAV` section by section: one melody, a row of different tones.
+
+Both effects are plain 0/1 switches, so a tune can turn them on for a section and off again with a
+single pair.
 
 ### Frequency — `VDP`, `VRT`, `POR`, `P&V`, `DTN`, `TPS`, `RTP`
 
@@ -948,9 +987,9 @@ value.
 
 `DTN` shifts the whole voice, so two voices playing the same line with opposite small detunes give
 the classic chorus: `DTN 256` on one and `DTN 3840` (which is -256) on the other thickens a single
-line into two. `TPS` transposes everything
-after it, which is how a tune changes key for a last chorus; `RTP` works from the note before it
-instead, so the same value follows the melody rather than the tune's own key.
+line into two. `TPS` transposes everything after it, which is how a tune changes key for a last
+chorus; `RTP` works from the note before it instead, so the same value follows the melody rather
+than the tune's own key.
 
 A transpose cannot extend the SID's range: past B7 the notes clamp to octave 7, so a `TPS` that
 overshoots plays the same pitch an octave lower than you asked for. Negative transposes can reach
@@ -1015,7 +1054,7 @@ aimed at all three voices independently — which is why it takes several comman
 | `LFO` | 0 or 1 | which shape the oscillator runs: 0 a **ramp** that climbs and falls, 1 a **pulse** that switches between two levels |
 | `RUP` | 0-31 | with `LFO 0`: how much the value climbs each jiffy. With `LFO 1`: how many jiffies it stays high |
 | `RDN` | 0-31 | with `LFO 0`: how much it falls each jiffy. With `LFO 1`: how many jiffies it stays low (0 means 32 in pulse mode) |
-| `MAX` | 0-255 | the top of the range: the ceiling the climb turns round at, and the level a pulse sits at when it is high |
+| `MAX` | 0-255 | the top of the range: the ceiling the climb turns round at, and the level a pulse sits at when it is high. **0 switches the effect off** |
 | `SRC` | 0-2 | what a voice reads: 0 the software oscillator above, 1 the chip's own oscillator 3 output, 2 its envelope 3 output |
 | `SCA` | 0-7 up, 249-255 down | how much of that reading the voice takes, as a shift: each step up doubles it, each step down halves it, 3 is eight times and 253 an eighth |
 | `DST` | 0-3 | where the voice adds it: 0 nowhere, 1 to its frequency, 2 to its pulse width, 3 to the filter cutoff |
@@ -1046,6 +1085,14 @@ follows that instead of a clock, and with voice 3 in noise mode the register rea
 number, which gives a random wobble. 2 is voice 3's envelope output, a shape that follows a
 note's attack and decay rather than a steady cycle. Whichever you choose, the reading is scaled
 by `SCA` and added to `DST` the same way, one way only.
+
+**How tunes actually use it.** `Layla` and `Dream_on` in the CGSC collection both aim a *pulse* at the
+frequency and then let `MAX` do the work, changing it before almost every note: `Layla`'s bass sets
+`LFO 1`, `RUP 3`, `RDN 3`, `SRC 0`, `DST 1`, `SCA 3`, `MAX 207` and then varies `MAX` (136, 242,
+148) and `SCA` note by note, so each note carries its own accent; `Dream_on` alternates `MAX 136`
+and `MAX 0` on one voice, which turns the effect on for one note and off for the next. Setting
+`MAX` per note is the idiom: it is much cheaper than re-wiring the oscillator for every row.
+
 Two worked settings:
 
 ```
