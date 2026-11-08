@@ -671,7 +671,7 @@ features the phase-1 plan had parked.
 
 | tenant | pages | notes |
 |---|---|---|
-| `musedit` code | 70 | 17,881 bytes, 1,863 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
+| `musedit` code | 70 | 17,827 bytes, 1,863 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
 | `sid.lib` | 14 | declared lazy, reserved at spawn, loaded on the first PLAY |
 | `filesys.lib` | 10 | needed for `<base>.wrk` and `musedit.und`; touched at startup |
 | mouse | 2 | |
@@ -776,7 +776,7 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 | `python tools/check-musedit-walk.py` | `immig` and `katmand` both match the editor over 19 lines each — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,881 bytes / 70 pages / 1,863 fixups, `shell` 32 pages (margin 77); `msgs` 34 slots (2,176 bytes); pool 103 of 109, margin 6 (`basic` fits exactly — pre-existing) |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,827 bytes / 70 pages / 1,863 fixups, `shell` 32 pages (margin 77); `msgs` 34 slots (2,176 bytes); pool 103 of 109, margin 6 (`basic` fits exactly — pre-existing) |
 | `python tools/check-mus-pitch.py` | 224 note options through the assembled `muPitchSplit`, **0 disagreements** with `mus-sim.py`; clamping the model's octave roll to 6 makes it report the two B-sharp-at-the-top options and exit 1 |
 | `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 2,176 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |

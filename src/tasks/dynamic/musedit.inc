@@ -6890,18 +6890,17 @@ mqfNo:
     sec
     rts
 
-// --- muMnPrint -- print the five-character mnemonic of command id A ---
-//  The field is space-padded, so the print stops at the first space and the padding
-//  is never drawn. MU_REVTEXT is left at 0. Clobbers A, X and Y (muPutC).
+// --- muMnPrint -- print the mnemonic of command id A ---
+//  A field is four bytes: three characters and a space, except CALL, which fills it
+//  -- so the print stops at that space or at the fourth cell, and the padding is
+//  never drawn. The space between the mnemonic and its operand is the caller's.
+//  MU_REVTEXT is left at 0. Clobbers A, X and Y (muPutC).
 muMnPrint:
     sec
     sbc #1
-    sta muTmpL
     asl
     asl
-    clc
-    adc muTmpL
-    sta muTmpL                  // (id - 1) * 5
+    sta muTmpL                  // (id - 1) * 4
     lda #0
     sta muTmpH
 mqMnLp:
@@ -6915,7 +6914,7 @@ mqMnLp:
     jsr muPutC
     inc muTmpH
     lda muTmpH
-    cmp #5
+    cmp #4
     bcc mqMnLp
 mqMnEnd:
     lda #0
@@ -10449,17 +10448,17 @@ muDotX:     .byte 0
 muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
 muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a utility, then whole..32nd
 muGlyBuf:   .fill 8, 0          // one keyboard cell, expanded to the 8 bytes a blit reads
-//  One five-character field per mnemonic id, so the id indexes the table with a
-//  multiply by five and a command line prints exactly one field. The order is
-//  MU_MN_TEM..MU_MN_AUX; ids 1..9 are the structural nine.
-muMnTab:    .text "TEM  UTL  UTV  HED  DEF  CALL TAL  HLT  END  "
-            .text "F-C  PNT  RTP  HLD  P-S  F-S  SCA  VDP  VRT  AUT  "
-            .text "TPS  PVD  PVR  MAX  P-W  DTN  POR  "
-            .text "ATK  DCY  SUS  REL  VOL  RES  WAV  F-M  BMP  FLT  "
-            .text "RNG  SNC  F-X  3-O  LFO  P&V  RUP  RDN  SRC  DST  "
-            .text "MS#  FLG  AUX  "
+//  One four-byte field per mnemonic id, so the id indexes the table with a shift by
+//  two and a command line prints exactly one field: three characters and a space,
+//  except CALL, which fills the field. The order is MU_MN_TEM..MU_MN_AUX; ids 1..9
+//  are the structural nine.
+muMnTab:    .text "TEM UTL UTV HED DEF CALLTAL HLT END F-C "
+            .text "PNT RTP HLD P-S F-S SCA VDP VRT AUT TPS "
+            .text "PVD PVR MAX P-W DTN POR ATK DCY SUS REL "
+            .text "VOL RES WAV F-M BMP FLT RNG SNC F-X 3-O "
+            .text "LFO P&V RUP RDN SRC DST MS# FLG AUX "
 muMnEnd:
-.assert "the mnemonic table is five bytes per id", (muMnEnd - muMnTab) == 49*5 ? 1 : 0, 1
+.assert "the mnemonic table is four bytes per id", (muMnEnd - muMnTab) == 49*4 ? 1 : 0, 1
 //  The commands with a fixed command byte, indexed by command byte / 8. A zero is
 //  a value of that eight that names no command, or one the grid does not draw. MS#
 //  takes four indices, one per value of its high byte; JIF takes none, because its

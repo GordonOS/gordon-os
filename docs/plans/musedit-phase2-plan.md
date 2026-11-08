@@ -14,14 +14,14 @@
 
 | | |
 |---|---|
-| code | **17,881 bytes**, 1,863 fixups, **70 code pages** of a 256-byte granule (71 measured working) |
+| code | **17,827 bytes**, 1,863 fixups, **70 code pages** of a 256-byte granule (71 measured working) |
 | pool | **103 pages of 109** (code 70, `sid.lib` 14, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
 | zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`), every one of them declared |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
 Two numbers govern everything below, and neither is negotiable without a design change:
 
-- **The editor can carry 295 more bytes of code.** `musedit` is 17,881 bytes, 70 code pages, and
+- **The editor can carry 349 more bytes of code.** `musedit` is 17,827 bytes, 70 code pages, and
   **71 pages has been measured working**: with `sid.lib` trimmed to 14 pages, a 71-page build
   (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune and played it. So the
   usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on pool margin 4, which is
@@ -40,7 +40,7 @@ levers. They are listed in the order I would try them: cheapest and most certain
 
 | lever | yield | cost |
 |---|---|---|
-| **`muMnTab` at four bytes a field** | **49 bytes** | the table is 49 × 5 (`"TEM  UTL  …"`), the trailing spaces being what lets a command line print exactly one field. Every mnemonic is three characters except **`CALL`**, which is four — so four bytes a field holds them all (196 bytes instead of 245) and the print blits one space after the four cells, giving the same 5-cell output. Not three bytes: `CALL` would not fit. The panel's one table read (`:6776`) changes its ×5 to ×4. |
+| **`muMnTab` at four bytes a field** — **done**, **54 bytes** | the table was 49 × 5 (`"TEM  UTL  …"`, 245 bytes) and is now 49 × 4 (196): every mnemonic is three characters and a padding space, except **`CALL`**, which fills the field. Four bytes is the only width that holds them all (three would not fit `CALL`). `muMnPrint` needs no padding byte: it stops at that space or at the fourth cell, so it emits the same cells as before for all 49 ids. The stride multiply became two `asl`s, which is the other **5** bytes. The space between a mnemonic and its operand was always the caller's, not the table's. Not free: the gate that parses this table (`tools/check-mus-commands.py`) slices it by field width, so its stride changed in the same commit. |
 | **more shared tails** | measured: **3 bytes** for `muWinPtr` | extraction only pays for itself; it is not a strategy. Worth doing opportunistically, per item. |
 
 **Done already — the undo history is out of the image.** There is no resident window page: every
@@ -48,8 +48,8 @@ stack byte is one `kReuReadAt`/`kReuWriteAt` of length 1 at the cursor, so nothi
 the image and no page-boundary arithmetic is needed. The file is also deleted at exit, so a session
 leaves nothing behind.
 
-Plan-level budget: `muMnTab` is worth ≈ 49 bytes on top of the **295 bytes already in hand**
-(17,881 to the 71-page line, 18,176). Items 3 and 7 fit in that; item 6 (blocks, 350-450
+Plan-level budget: the `muMnTab` lever is spent, so the **349 bytes in hand** — 17,827 to the
+71-page line at 18,176 — are the whole budget. Items 3 and 7 fit in that; item 6 (blocks, 350-450
 bytes) is the one that needs a lever of its own.
 
 **Where the player lives, and where it stays.** The music runs in a **thread child of the editor**:
@@ -197,7 +197,7 @@ appends (`muRecCont = 1`, which `muPushEdit` clears again, so the flag is closed
 operation and the next edit starts its own action). A row with nothing on it at all answers
 `? no event here`.
 
-Cost: **259 bytes** (17,622 → 17,881, code 69 → 70 pages, pool 102 → 103 of 109, margin 6), of which
+Cost: **259 bytes** — code 69 → 70 pages, pool 102 → 103 of 109, margin 6 — of which
 the `muDelPair` extraction paid back 26. The inverse-duration and split cases (item 3 in the list
 below) are **not** built: they need the jiffies-to-duration inverse, which does not exist in the
 editor.
@@ -304,7 +304,7 @@ A suggested order — smallest risk first, and each one independently shippable:
 
 | step | items | why here |
 |---|---|---|
-| 2.1 | `muMnTab` at 4 bytes | buys ~49 bytes; byte-neutral to the user (the undo history is already out of the image) |
+| 2.1 | ~~**`muMnTab` at 4 bytes**~~ — **done**, 54 bytes | byte-neutral to the user: the same characters in the same cells |
 | 2.2 | ~~**item 5 (delete row / bar)**~~ — **done**, `R` and `SHIFT+R` | it was the inverse the editor was most obviously missing |
 | 2.3 | **item 3 (description)** | UI-only, ~200 bytes, needs the keys decision |
 | 2.4 | **item 4 (play from cursor)** | first `sid.lib` change; (a) then (b) |
@@ -336,6 +336,6 @@ hears or types into; a py65 harness alone is not "verified".
 7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
    `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
    default tempo, which is a different number and would have to say so)?
-8. **Funding**: `muMnTab` (§ 2, ≈ 49 bytes) plus the 295 bytes in hand is the whole budget —
+8. **Funding**: the **349 bytes** in hand — the `muMnTab` lever is spent — are the whole budget,
    enough for items 3 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
    which does the list prefer?

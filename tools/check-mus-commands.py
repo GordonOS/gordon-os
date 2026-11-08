@@ -127,7 +127,7 @@ def read_const(lines, name, default):
 
 
 def read_mnemonics(lines):
-    """muMnTab -- five characters per mnemonic id, in id order (1-based)."""
+    """muMnTab -- four characters per mnemonic id, in id order (1-based)."""
     for i, line in enumerate(lines):
         if strip(line).startswith("muMnTab:"):
             text = []
@@ -140,7 +140,7 @@ def read_mnemonics(lines):
                 text.extend(found)
                 j += 1
             joined = "".join(text)
-            table = [joined[k:k + 5].strip() for k in range(0, len(joined), 5)]
+            table = [joined[k:k + 4].strip() for k in range(0, len(joined), 4)]
             return {n + 1: t for n, t in enumerate(table)}
     raise SystemExit("check-mus-commands: no muMnTab in %s" % EDITOR)
 
@@ -324,8 +324,15 @@ def main():
                     return 1
             checked += 1
 
+    if checked == 0:
+        #  A table this gate cannot read must not report success: it would pass a
+        #  build having verified nothing at all.
+        raise SystemExit("check-mus-commands: no pair was checked -- the mnemonic "
+                         "table parsed as %d name(s), %d of them unrecognised"
+                         % (len(set(names.get(r + 1, "?") for r in range(len(cmd_b)))),
+                            len(uncovered)))
     print("commands: %d pairs checked against gen-mus.py, %d mnemonics covered"
-          % (checked, len(set(names[r + 1] for r in range(len(cmd_b)))) - len(pending)))
+          % (checked, len(set(names.get(r + 1, "?") for r in range(len(cmd_b)))) - len(pending)))
     if pending:
         print("commands: %d command(s) still have no encoder: %s"
               % (len(pending), " ".join(pending)))
