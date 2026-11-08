@@ -657,10 +657,11 @@ Almost. Measured against `reference/sidplayer-mus-file-format.md`:
 The first three are hours each; the fourth is the only real design change.
 
 **Where these went.** All six are carried into [musedit-phase2-plan.md](./plans/musedit-phase2-plan.md)
-with a byte budget, a funding line and a gate each — and one of them has already landed: `MS#` was
-delivered at the format's own ceiling of **999**, not 1023 (the fourth block's option range ends at
-`$E7`, so 1000-1023 are not in the encoding). That plan also carries the five features the phase-1
-plan had parked.
+with a byte budget, a funding line and a gate each — plus a seventh, navigation, which the review
+did not raise: jump to a bar or a measure instead of scrolling. And one of the six has already
+landed: `MS#` was delivered at the format's own ceiling of **999**, not 1023 (the fourth block's
+option range ends at `$E7`, so 1000-1023 are not in the encoding). That plan also carries the five
+features the phase-1 plan had parked.
 
 ---
 

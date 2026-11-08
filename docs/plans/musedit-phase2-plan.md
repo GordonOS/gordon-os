@@ -3,7 +3,7 @@
 > **Status: a draft to be revised.** The six items below are the gaps found while reviewing the
 > editor against the `.mus` format (`docs/musedit-review.md`, § 6); the five carried over from the
 > phase-1 plan's § 12 are the wishlist that plan recorded before it was retired. Nothing here is
-> built. The order, the sizes and some of the designs are open questions — § 11 lists them.
+> built. The order, the sizes and some of the designs are open questions — § 12 lists them.
 >
 > **The phase-1 plan is closed.** It lives at `Documents/GordonOSPlans/musedit-plan.md`, outside
 > this repo, and describes how the editor that exists today was built. This file is the only plan
@@ -120,7 +120,7 @@ Each character is a 1-byte gap at the cursor offset, and the undo stack records 
 `muPushEdit` like every other splice, so a description edit is undoable for free — a record is a
 short header plus the old and new bytes, and a character's are one byte each.
 
-Three questions to settle (§ 11): **how much text is visible** (row 0 is 40 cells and the head's
+Three questions to settle (§ 12): **how much text is visible** (row 0 is 40 cells and the head's
 `BAR`/readout live at its right edge — a scrolled 1-line window, or the head hidden while editing),
 **which keys** (the editor's own key map is nearly full), and **how the panel shows the mode**
 (`INS`/`OVR` is already the mode button, so the readout needs a third state that does not confuse
@@ -236,9 +236,51 @@ the funding from § 2 or the player-task split. Gate: a round trip — copy a bl
 later, delete the pasted rows, and the file must be byte-identical to before (the same `muHist`
 comparison the undo tests use).
 
-## 9. Inherited from the retired phase-1 plan
+## 9. Item 7 — Jump to a bar or a measure
 
-These were recorded in that plan's § 12 and are still not built. They are **not** in the six-item
+Not a format gap — a navigation gap. Scrolling to bar 96 means holding a cursor key through ~90
+screens, and nothing in the editor can name a position and go there.
+
+**What exists to build on.** The walk already computes an **absolute bar number for every line** it
+produces (`muLnBarLo/Hi`, "the bar each line's row falls in, from the walk" — a tempo change cuts a
+bar short, so the bar is not a division of the row), `muCurBar` returns the rows a bar has at the
+cursor, and `muBarOf` reads the cursor's bar out of the line table. The producer can be rewound
+(`muSimInit`, tick 0) and stepped one event at a time (`muStep`), which is exactly what scrolling
+already does — so a jump is **a scan with the producer it already has**, not a second walk.
+
+**What is missing.** Two things, and they are not the same size:
+
+- **Bars** need no new state at all: scan until `muLnBarLo/Hi` reaches the number asked for.
+- **Measures** need a number the editor does not keep. It *draws* `MS#` (the decode table maps it
+  to `MU_MN_MS`) but never stores its value, so the walk has to carry one measure number per voice
+  as it produces lines — `MS#` is a **per-voice** command (`aa 011110` + option, voice column V),
+  so the three voices may disagree about which measure a row is in. The jump's target is the
+  cursor voice's number, and a tune that never writes `MS#` has no measures at all: it must say so
+  rather than guess.
+
+**Where the state goes.** Not zero page: it is 229 of the 234 bytes already (`MU_ZP_END` is one
+byte under `$F0`). A per-voice measure number belongs in the line record beside `muLnBarLo/Hi`
+(2 bytes over `MU_GRID_ROWS`), which also makes the scan a comparison against a line rather than
+against a running variable.
+
+**The prompt.** The control bar cannot take a new cell: `muBarMap` is 40 columns with the assert
+`M_BAR_LEN == 40`, and the dispatch and hover range is `MU_BAR_Q..MU_BAR_INS` — so this is a
+**key** plus a numeric prompt, reusing the command panel's value-entry path (`MU_OBJVAL` +
+`muNum16`). "There is no such bar or measure" and "this tune has no `MS#`" are one new message
+slot each, so the `msgs` binary and the REU image are regenerated with them.
+
+**Cost** ≈ 140-180 bytes (scan loop, prompt, two refusals, and the head's readout if it shows the
+measure). Gate: a py65 case that jumps to a bar and to a measure and checks the cursor's row
+against `mus-sim.py --walk`'s bar and measure for that row — the same model the walk fixture
+already uses.
+
+**Independent of the player.** Nothing here reads the player's state: `MS#` is parsed from the
+image by the editor's own walk, so the player's `MS#` handling can be anything at all — it keeps
+two stores into work bytes nothing reads — without touching this feature.
+
+## 10. Inherited from the retired phase-1 plan
+
+These were recorded in that plan's § 12 and are still not built. They are **not** in the item
 list above, and nothing here is scheduled — they are carried forward so the wishlist does not
 leave the repo with the plan.
 
@@ -250,7 +292,7 @@ leave the repo with the plan.
 | instruments | named command stacks in a sidecar REU file (`musedit.ins`), applied on note entry | no per-frame tables |
 | jam/record | `3-O` the target voice, write `$D400-$D406` for audition, splice on stop | needs the mute/volume path item 4(b) also needs |
 
-## 10. Order, and what "done" means
+## 11. Order, and what "done" means
 
 A suggested order — smallest risk first, and each one independently shippable:
 
@@ -261,8 +303,9 @@ A suggested order — smallest risk first, and each one independently shippable:
 | 2.3 | **item 5 (delete row / bar)** | no new UI, reuses `muDelGap`/`muInsGap`, and it is the inverse the editor is most obviously missing |
 | 2.4 | **item 3 (description)** | UI-only, ~200 bytes, needs the keys decision |
 | 2.5 | **item 4 (play from cursor)** | first `sid.lib` change; (a) then (b) |
-| 2.6 | **item 6 (blocks)** | the largest; needs the funding decision at that point |
-| 2.7 | § 9 wishlist | re-ranked after 2.1-2.6 |
+| 2.6 | **item 7 (jump to a bar or measure)** | small, no format work, and it pays for itself the first time a tune runs past a screenful |
+| 2.7 | **item 6 (blocks)** | the largest; needs the funding decision at that point |
+| 2.8 | § 10 wishlist | re-ranked after 2.1-2.7 |
 
 Each step is done when: the code builds with **no new code page** (or the page is paid for and the
 pool gate still prints `margin >= 5`), every existing gate passes, the item's own gate passes and
@@ -270,7 +313,7 @@ has been shown to bite, the guide (`docs/musedit.md`) states the new behaviour, 
 gained an entry for anything that surprised us. Sitting in VICE is required for anything the user
 hears or types into; a py65 harness alone is not "verified".
 
-## 11. Open questions for the revision
+## 12. Open questions for the revision
 
 1. **Item 2** is closed at 999 — does the list want anything else under that heading, or should it
    come off the list?
@@ -282,5 +325,8 @@ hears or types into; a py65 harness alone is not "verified".
    wanted at all, given `muCurBar` makes it nearly free once rows work?
 5. **Play from cursor**: offsets-only (cheap, wrong sound state) or a pre-roll too?
 6. **Blocks**: is a block rows × voices, and does paste re-time the following events?
-7. **Funding**: take the two cheap levers only, or plan the player-as-a-task split now — which
-   would let the editor grow ~15 pages and make items 6 and the wishlist affordable?
+7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
+   `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
+   default tempo, which is a different number and would have to say so)?
+8. **Funding**: take the two cheap levers only, or plan the player-as-a-task split now — which
+   would let the editor grow ~15 pages and make item 6 and the wishlist affordable?
