@@ -42,12 +42,17 @@ levers. They are listed in the order I would try them: cheapest and most certain
 | **`muMnTab` at four bytes a field** | **49 bytes** | the table is 49 × 5 (`"TEM  UTL  …"`), the trailing spaces being what lets a command line print exactly one field. Every mnemonic is three characters except **`CALL`**, which is four — so four bytes a field holds them all (196 bytes instead of 245) and the print blits one space after the four cells, giving the same 5-cell output. Not three bytes: `CALL` would not fit. The panel's one table read (`:6776`) changes its ×5 to ×4. |
 | **`muUndoBuf` out of the image** | **256 bytes** (exactly one page) | the undo stack's *window* page lives in the image (`:10517`); the records it windows already live in `musedit.und`. Moving the window to a page of that file costs one DMA per push/pop — undo is not a hot path — and takes the allocator's one in-image buffer away. |
 | **more shared tails** | measured: **3 bytes** for `muWinPtr` | extraction only pays for itself; it is not a strategy. Worth doing opportunistically, per item. |
-| **the player becomes its own task** | **14 pages of pool**, and the run the code loads into grows by the same 14 | the structural lever, and the only one that lifts the 70-page wall. `sid.lib` would be declared by a player task that exists only while playing; `musedit` drops the declaration and stops carrying 14 pages it uses for one feature. New task ~2 code pages + a 3-page window block, so the pool peak while playing is ~108 — margin 1. Needs the shell's `? sid.lib in use` arbitration (already there) and a player that pages the same `.wrk` file (already possible: `kSidPlay` mode 1). |
 
 Plan-level budget, if the levers are taken in order: `muMnTab` + `muUndoBuf` ≈ **305 bytes** — more
 than items 1, 3 and 5 together. With the 263 bytes already available (17,913 to the 71-page line),
-items 1, 5 and 7 fit without a lever; items 3, 4 and 6 are where the funding comes in, and a
-further 256-byte page is where the player-task split earns its place.
+items 1, 5 and 7 fit without a lever; items 3, 4 and 6 are where the funding comes in.
+
+**Where the player lives, and where it stays.** The music runs in a **thread child of the editor**:
+it shares the editor's code pages and the editor declares `sid.lib` for the session, paging
+`<base>.wrk` through three windows of the same six-page block. That is the architecture — one task,
+one set of code pages, no spawn or reap per tune, and the tune it plays is the file the editor is
+editing, so an edit is heard on the next pass with no copy. A separate player task is not a
+candidate for making room; the budget below is the whole of it.
 
 ## 3. Item 1 — `JIF`, the one command with no line
 
@@ -244,7 +249,7 @@ spans of a few hundred bytes plus a row count.
 
 **Cost** ≈ 350-450 bytes (mark/extend, draw the marked rows reversed, copy out, paste in with
 per-voice splices, the panel's readout). **The largest single item**, and the one that most needs
-the funding from § 2 or the player-task split. Gate: a round trip — copy a block, paste it one bar
+the funding from § 2. Gate: a round trip — copy a block, paste it one bar
 later, delete the pasted rows, and the file must be byte-identical to before (the same `muHist`
 comparison the undo tests use).
 
@@ -341,5 +346,6 @@ hears or types into; a py65 harness alone is not "verified".
 7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
    `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
    default tempo, which is a different number and would have to say so)?
-8. **Funding**: take the two cheap levers only, or plan the player-as-a-task split now — which
-   would let the editor grow ~14 pages and make item 6 and the wishlist affordable?
+8. **Funding**: are the two levers (§ 2: `muMnTab` ≈ 49 bytes, the undo window ≈ 256) the whole
+   budget, or should item 6 find its own? Worth knowing before item 6 is scheduled, because that is
+   the only item that needs more than the 263 bytes in hand.

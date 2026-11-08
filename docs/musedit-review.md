@@ -691,10 +691,12 @@ jumps.
 - **The largest structural cost is `sid.lib`'s 14 pages held for the whole session** (**F12**) — 13%
   of the pool for a feature used only while PLAY is on. It cannot be released: `kLibHold` is
   one-way, and a released lazy library reloads through its cold stub uncredited, leaking its pages
-  until reboot. The clean alternative is a spawn-on-demand player task that owns `sid.lib` (the
-  shell's new `? sid.lib in use` arbitration already provides the lock), letting the editor drop
-  the declaration entirely and freeing 14 pages for an editor that is idle. That is a real change
-  to both tasks; not worth it today, but it is the one place a big win is available.
+  until reboot. The cost is accepted: the player runs as a **thread child of the editor**, sharing
+  its code pages and declaring nothing of its own, which is why one task covers editing, the
+  windows and playback. A separate player task would move those 14 pages between two tenants that
+  are never both idle, at the price of a spawn and reap per tune and a second copy of the window
+  plumbing — not a trade this editor takes. The pool numbers in § 7 are what the architecture
+  costs, and the pages it needs are found by shrinking code, not by moving the player out.
 - **The 6-page malloc block is minimal:** the editor cannot share its windows with the child
   because it draws while the child streams, and both read the same file.
 - **The instance buffer is 245 of 255 bytes** — the two 96-byte log arrays plus the scalars. Fine,
