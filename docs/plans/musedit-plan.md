@@ -1620,7 +1620,7 @@ declares in its own spawn arguments, and an assert holds the window below the ke
 The block must sit at the **top** of `musedit.inc`: KickAssembler chooses `zp` over `abs` from the
 symbol's value at parse time, so a label defined at the bottom would silently assemble absolute.
 
-The image is now **17,851 bytes** in **70 code pages**, pool **104 of 109** (margin 5), with
+The image is now **17,870 bytes** in **70 code pages**, pool **104 of 109** (margin 5), with
 1,811 fixups -- most references are no longer relocatable addresses.
 
 **The instance buffer took the two biggest arrays that fit.** `MU_DATA_SIZE` is one byte, so the

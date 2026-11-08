@@ -416,7 +416,14 @@ def report(path, result, trace, trace_cmd):
 
 
 def pitch_name(opt):
-    """The three characters musedit puts at a note's onset."""
+    """The three characters musedit puts at a note's onset.
+
+    The pitch read is the one the option SOUNDS, so an accidental that takes it past
+    the octave rolls the way the player's note path does: a sharp on B is the next
+    octave's C and a flat on C the octave below's B. At either end of the three-bit
+    octave field there is no octave to move into, so only the semitone rolls -- which
+    is what the player itself does with such an option.
+    """
     letter = opt & 0x07
     if letter == 0:
         return None                 # a rest
@@ -427,7 +434,13 @@ def pitch_name(opt):
     elif accidental == 0xC0:
         semitone -= 1
     octave = 7 - ((opt >> 3) & 0x07)     # the field is stored inverted
-    return "%s%d" % (NOTE_NAMES[semitone % 12], octave)
+    if semitone < 0:
+        semitone += 12
+        octave = max(octave - 1, 0)
+    elif semitone > 11:
+        semitone -= 12
+        octave = min(octave + 1, 7)
+    return "%s%d" % (NOTE_NAMES[semitone], octave)
 
 
 def grid(result, rows):

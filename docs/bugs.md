@@ -21,6 +21,28 @@
 
 ---
 
+## Bug #205 — `musedit` printed two stray glyphs for a pitch stored as B sharp 🟡 ✅ FIXED (2026-11-08)
+
+**Symptoms.** On `immig`, bar 5 row 1 (and bars 7, 27 and 29), voice 1's pitch cells showed a
+horizontal bar, an inverse `H` and `5` where `C-6` belonged.
+
+**Root cause.** That event is stored as option `$57`: letter 7 (B), type `01` (sharp), octave field
+2 (octave 5) -- **B#5**. The player's note path rolls such a spelling into the pitch it sounds
+(`DataHalfStepsFromC[7] + 1` = 12, `cmp #12` / `sbc #12` = semitone 0, `dec $08` = one octave up),
+so the tune plays **C-6**. `muGdPitch` did not roll: it took the semitone to 12, doubled it to 24
+and read `muNoteNames+24`/`+25`, two bytes past the end of the 24-byte name table -- which are
+`muBoundLo`'s `<320` and `<200`, screen codes `$40` and `$C8`. `$40` is the font's horizontal bar
+and `$C8` the inverse of glyph `$48`, an `H`. The octave cell printed the raw field, `2 eor 7` = 5.
+
+**Fix.** `muPitchSplit` turns an option byte into the pitch it *sounds* -- semitone 0-11 in A,
+octave 0-7 in X, C = 1 when the accidental rolled the pitch into the neighbouring octave --
+mirroring the player's own two-sided roll, with the field's ends clamped because a roll there has
+no octave to move into. `muGdPitch` prints from it, so B#5 reads as `C-6`, and `muDots` places the
+voice dot from it, which also fixes a flat C (semitone `-1`, which indexed 255 keys past the dot
+table) and B#7 (index 96, one past the twelve-per-octave rows). `tools/mus-sim.py`'s `pitch_name`
+rolls the same way, which its own docstring says it models -- and only `immig` stores such a
+spelling: four events, all voice 1, all `$57`.
+
 ## Bug #204 — entering a note in `musedit` hangs the machine on `immig`, and the band disappears below the row typed on 🔴 ✅ FIXED (2026-11-08)
 
 **Symptoms.** In `musedit`, type a note on a row of `immig` that falls *inside* a long event:

@@ -374,6 +374,10 @@ A note key enters the pitch with a **sharp** accidental where one is needed (`C#
 format can also store the same pitch as a flat (`Db4`); the command panel's note fields let
 you inspect the accidental, but the first release always enters sharps.
 
+A spelling that runs past the end of its octave is shown as the note it sounds, because that
+is what the player makes of it: a note stored as a B sharp reads as the next octave's C, and
+one stored as a flat C reads as the B of the octave below.
+
 ## Editing the timeline
 
 The grid is time, and a note's length is the distance to the next note or rest in its voice.

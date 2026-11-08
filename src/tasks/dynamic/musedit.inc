@@ -3973,28 +3973,72 @@ muGdAtCell:
     sta (dataPtr),y
     rts
 
-// --- muGdPitch -- three cells: the note's name and its octave ---
-//  In: A = the option byte. It stores the octave inverted (field = 7 - octave),
-//  because the player's table starts at octave 7 and halves per field.
-muGdPitch:
-    sta muTmpH
-    and #$07
+// --- muPitchSplit -- an option byte -> the pitch it sounds ---
+//  In:  A = the option byte (a note, never a rest)
+//  Out: A = the semitone (0-11), X = the octave (0-7), C = 1 when the accidental
+//       rolled the pitch into the neighbouring octave
+//  A sharp on B is the next octave's C and a flat on C the octave below's B, and
+//  the player's note path rolls the semitone into 0-11 and steps the octave for
+//  both, so B#5 is what a C-6 is and has to read as one. The octave field is
+//  stored inverted (field = 7 - octave) because the player's table starts at
+//  octave 7 and halves per field. At either end of that field a roll has no
+//  octave to move into, so only the semitone rolls -- which is what the player
+//  itself does with such an option.
+//  Clobbers A, X, Y, muTmpH, muSem.
+muPitchSplit:
+    sta muTmpH                  // the option, read again for its octave
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr
+    lsr                         // the type bits (6-7) now sit in 0-3
     tay
-    lda muLetterSem,y
+    lda muAccMod,y              // +1 sharp, 0 plain, -1 flat
     sta muSem
     lda muTmpH
-    and #$c0
-    cmp #$40                    // 01 is a sharp, 11 a flat, 10 plain
-    bne muGdPNotSharp
-    inc muSem
-    jmp muGdPSem
-muGdPNotSharp:
-    cmp #$c0
-    bne muGdPSem
-    dec muSem
-muGdPSem:
+    and #$07
+    tay
+    lda muLetterSem,y           // the letter's own semitone, C = 0 .. B = 11
+    clc
+    adc muSem                   // ...with the accidental on top of it
+    sta muSem
+    lda muTmpH
+    lsr
+    lsr
+    lsr
+    and #$07
+    eor #7
+    tax                         // X = the octave
     lda muSem
-    asl
+    bmi muPsBelow
+    cmp #12
+    bcc muPsDone                // inside the octave: nothing rolled, C = 0
+    sbc #12                     // a sharp on B: the next octave's C
+    inx
+    cpx #8                      // ...if the field has a next octave at all
+    bcc muPsRoll
+    ldx #7
+muPsRoll:
+    sec
+    rts
+muPsBelow:
+    clc
+    adc #12                     // a flat on C: the octave below's B
+    dex
+    bpl muPsRoll                // ...if there is an octave below to move to
+    inx
+    jmp muPsRoll
+muPsDone:
+    rts
+
+// --- muGdPitch -- three cells: the note's name and its octave ---
+//  In: A = the option byte. It prints the pitch the option sounds, so a rolled
+//  accidental shows as the note and octave the player turns it into.
+muGdPitch:
+    jsr muPitchSplit
+    stx muTmpH                  // the octave waits: the name is two cells first
+    asl                         // two characters per semitone name
     sta muTmp
     ldx muTmp
     lda muNoteNames,x
@@ -4003,11 +4047,6 @@ muGdPSem:
     lda muNoteNames+1,x
     jsr muPutC
     lda muTmpH
-    lsr
-    lsr
-    lsr
-    and #$07
-    eor #7                      // the field is stored inverted: field = 7 - octave
     clc
     adc #'0'
     jmp muPutC
@@ -7868,30 +7907,19 @@ muDvFound:
     lda muDotOpt
     and #$07
     beq muDvNext                // a rest: no dot
-    tay
-    lda muLetterSem,y
-    sta muDotSem
-    lda muDotOpt                // 01 sharp, 11 flat, 10 plain
-    and #$c0
-    cmp #$40
-    bne muDvNotSharp
-    inc muDotSem
-    jmp muDvOct
-muDvNotSharp:
-    cmp #$c0
-    beq muDvFlat
-    lda #1                      // no accidental: a white key
-    sta muDotNat
-    jmp muDvOct
-muDvFlat:
-    dec muDotSem
-muDvOct:
     lda muDotOpt
-    lsr
-    lsr
-    lsr
-    and #$07
-    eor #7                      // the field is stored inverted: field = 7 - octave
+    jsr muPitchSplit            // A = the semitone, X = the octave, C = 1 if rolled
+    sta muDotSem
+    bcs muDvNatKey              // a rolled pitch is the neighbouring octave's natural
+    lda muDotOpt
+    and #$c0
+    cmp #$80                    // 10 is plain: a white key as well
+    bne muDvOct
+muDvNatKey:
+    lda #1
+    sta muDotNat
+muDvOct:
+    txa
     sta muDotTmp
     asl
     clc
@@ -10097,6 +10125,9 @@ muSFallback: .text "? no msgs"
             .byte 0
 // One letter per note index 1..7 (C D E F G A B), in semitones from C.
 muLetterSem: .byte 0, 0, 2, 4, 5, 7, 9, 11
+// The accidental, indexed by the option's type bits 6-7 once they are shifted down
+// to 0-3: 1 = sharp, 2 = plain, 3 = flat. Entry 0 is the type the format never stores.
+muAccMod:   .byte 0, 1, 0, -1
     // The piano's geometry: an octave is 40 pixels, and each semitone's key is
     // where the piano drawing puts it (the black keys are offset on purpose).
     muDotBit:   .byte 32, 64, 128 // the dot slots in the $D015 mask
