@@ -504,9 +504,9 @@ A duration the current tempo cannot express is refused with `? illegal duration`
 written. The classic case is a 32nd or 64th at a moderate tempo, or a triplet at a tempo that has no
 triplet table. Choose a longer value, or change the tempo first.
 
-One corner a foreign file can carry: a note pair whose duration byte is exactly `$00`. The format
-does not say what such a pair means — the reference notes that only the player decides — and the
-player plays it as a 64th note, so the grid draws it as one and writes it back unchanged.
+One corner a foreign file can carry: a note pair whose duration byte is exactly `$00`. What such a
+pair means is not settled — only the player decides — and this player reads it as a 64th note, so the
+grid draws it as one and writes it back unchanged.
 
 ## Playing
 
@@ -597,6 +597,12 @@ renumbering.
 `MS#` up to 999, `P-W` and `DTN` up to 4095, `POR` up to 16383. A value the command cannot hold is
 clamped to its maximum rather than refused, so what the prompt shows is always what gets written.
 
+The prompt takes **digits only** — there is no minus key — so the commands whose ranges in the
+tables below are signed (`P-S`, `F-S`, `AUT`, `SCA`, `TPS`, `RTP`, `DTN`) are written as the
+number the format stores, not as a negative one. Opening a line that already carries the value
+you want is the quick way to see its spelling: the prompt shows the number that line holds, and
+taking it writes the same pair back.
+
 **Writing `TEM` is the one that catches people out.** The first `RETURN` chooses the mnemonic and the
 second writes the value: the head shows you where you are, and once you have taken the mnemonic the
 digits you type build the number that will be written. If the number you write makes the tune
@@ -661,65 +667,347 @@ next row the tempo is the **last** of them (voice 3's, since the player processe
 order). Rows that become illegal because of a tempo change are flagged on the grid rather than
 silently kept.
 
-### The groups
+### Reading a command
+
+A command line is a mnemonic and a number, both in decimal: `TEM 160`, `P-W 2048`, `F-C 40`. The
+mnemonic is what the line *is* — the `C` prompt lists all 49 of them in the order below — and the
+number is its operand. The picker runs through the ten groups in the player's own order:
 
 `TEMPO` `VOLUME` `REPEAT` `PHRASE` `ENVELOPE` `WAVE` `FREQ` `FILTER` `MOD` `MISC`
 
-### Command reference
+Two things are worth knowing before the details:
 
-| group | name | value | what it does |
-|---|---|---|---|
-| TEMPO | `UTL` | 0-255 | length, in jiffies, of a note with the UTL duration |
-| | `TEM` | tempo value | sets the tempo (the classic table: `$90` ≈ 100, `$A0` ≈ 90, `$F0` ≈ 60) |
-| VOLUME | `VOL` | 0-15 | master volume |
-| | `BMP` | up / down | volume ±1, or down a whole group |
-| REPEAT | `HED` | 0-255 | start of a repeat section; the operand is how many times the section plays **in total**, and 0 means forever |
-| | `TAL` | — | end of the section: jump back, or fall through when the count runs out |
-| PHRASE | `CALL` | 0-23 | play a phrase definition |
-| | `DEF` | 0-23 | define a phrase; the body follows and plays inline |
-| | `END` | — | end of a phrase body |
-| ENVELOPE | `ATK` `DCY` `SUS` `REL` | 0-15 | the ADSR nibbles |
-| | `PNT` | 0-255 | release point: when in the note the release phase starts |
-| | `HLD` | 0-255 | hold time before the release point is honoured |
-| WAVE | `WAV` | 0-7 | waveform: 0 noise, 1 triangle, 2 sawtooth, 3 tri+saw, 4 pulse, 5 tri+pulse, 6 saw+pulse, 7 all three |
-| | `P-W` | 0-4095 | pulse width |
-| | `P-S` | -128…127 | pulse-width sweep, added every jiffy |
-| | `PVD` | 0-127 | pulse-width vibrato depth |
-| | `PVR` | 0-127 | pulse-width vibrato rate |
-| | `SNC` | on / off | oscillator sync |
-| | `RNG` | on / off | ring modulation |
-| FREQ | `VDP` | 0-127 | vibrato depth |
-| | `VRT` | 0-127 | vibrato rate |
-| | `POR` | 0-16383 | portamento: slide into the next note |
-| | `P&V` | on / off | portamento and vibrato together |
-| | `DTN` | -2048…2047 | detune, in the player's frequency units |
-| | `TPS` | -95…95 | transpose every later note, in semitones |
-| | `RTP` | -47…47 | transpose relative to the previous note |
-| FILTER | `F-M` | 0-7 | filter mode: 1 low-pass, 2 band-pass, 4 high-pass, combinable |
-| | `F-C` | 0-255 | filter cutoff |
-| | `F-S` | -128…127 | cutoff sweep, added every jiffy |
-| | `AUT` | -128…127 | cutoff follows the note's pitch |
-| | `RES` | 0-15 | resonance |
-| | `FLT` | on / off | route this voice through the filter |
-| | `F-X` | on / off | route the external input through the filter |
-| MOD | `LFO` | tri / pulse | software LFO shape |
-| | `RUP` `RDN` | 0-31 | LFO rate up / down |
-| | `SRC` | 0-2 | modulation source: software LFO, oscillator 3, envelope 3 |
-| | `DST` | 0-3 | destination: off, frequency, pulse width, cutoff |
-| | `SCA` | -7…7 | modulation scale |
-| | `MAX` | 0-255 | modulation maximum |
-| MISC | `MS#` | 0-999 | measure number, written by the player and shown on its own line |
-| | `UTV` | 0-255 | this voice's utility length (see *Utility lengths*) |
-| | `FLG` | 0-255 | sets the player's flag byte — **no effect in GordonOS** |
-| | `AUX` | 0-255 | reserved — **no effect** (the player's hook cannot be reached) |
-| | `3-O` | on / off | switch voice 3 off (it is then free for sound effects) |
-| | `HLT` | — | stop this voice |
+- **A command stays in force.** There is no "off": a value set on one row governs every row after it
+  until another command of the same kind changes it. That is why a tune's opening lines matter so
+  much — they are the instrument setup for the whole tune.
+- **Commands are per voice, even when the chip is not.** `VOL`, the filter and the tempo are one set
+  of registers for all three voices, but the file stores a `VOL`, an `F-C` or a `TEM` in each voice's
+  own stream. A tune normally repeats those in every lane; change one lane's copy and the others
+  still stand. An envelope or a waveform, by contrast, really is per voice, so each lane's `ATK` or
+  `WAV` is its own.
 
-`JIF` is the one command in the format that the picker does not offer and the grid never draws. It
-would rescale the jiffy, and the player's jiffy is the scheduler tick, which a task cannot reload; it
-is decoded, its operand is consumed, and nothing follows from it. A `JIF` already in a tune is kept
-in the file untouched. `AUX` and `FLG` are offered, written and kept for the same reason — see
+Each group below says what every member does, what its operand means, and how you would actually use
+it.
+
+### Tempo — `TEM`, `UTL`
+
+| name | operand | what it does |
+|---|---|---|
+| `TEM` | 1-255, where 0 means 256 | sets the tempo. The operand is divided into **14,400** and the quotient is quarter notes per minute, so a *bigger* number is *slower*: `TEM 144` is 100, `TEM 160` is 90, `TEM 240` is 60 |
+| `UTL` | 0-255 | the **utility length**: how many jiffies a note written with the `UTL` length (key `8`) lasts, in all three voices |
+
+`TEM` is the one command whose arithmetic surprises people. It is a *divisor*, not a rate — the
+classic tempo table in the original editor steps in eighths — `F0` is 60 a minute, `E0` is 64, `10` is
+900 and `08` is 1800 — because each step of 8 in the operand is one step in the table. The player turns
+the value into jiffies per row from its own tempo table, which is why the grid's rows re-scale when a
+tempo changes and why some values cannot express a short note at all: at a coarse tempo a 16th has no
+whole number of jiffies, and that is exactly what `? illegal duration` and `? illegal tempo` are
+about.
+
+Two details: `TEM 0` does **not** mean "stop" — zero is read as 256, which is 56 quarter notes a
+minute, the slowest the table goes. And because the operand is a plain byte, a tune cannot be
+"in 6/8" or "swing": what you get is a steady row clock, and the feel comes from where you put the
+notes.
+
+`UTL` is the global utility length; its per-voice twin `UTV` lives at the end of the picker (it is
+in the *Misc* group, below). Both are for notes whose length comes from elsewhere, and that is
+what makes a delayed or gated voice possible: enter notes with key `8` or `9`, and move one `UTL`
+to change the length of all of them.
+
+```
+TEM 160
+UTL 12
+```
+
+### Volume — `VOL`, `BMP`
+
+| name | operand | what it does |
+|---|---|---|
+| `VOL` | 0-15 | the chip's master volume. It touches only the volume bits of the SID's volume/filter register, so the filter settings are left alone |
+| `BMP` | 0 or 1 | 0 steps the volume **up** one, 1 steps it **down** one; at 15 or 0 it does nothing |
+
+Volume is one value for the whole SID, not one per voice, so a `VOL` in any lane sets the same
+register — writing it in voice 1 is enough. Per-voice loudness is the envelope's job (`SUS` and the
+attack/decay shape), which is why a tune that "has no volume left" for a solo usually needs a smaller
+`SUS` rather than a bigger `VOL`.
+
+`BMP` is a nudge rather than a set, so a fade is a run of them:
+
+```
+VOL 15
+...
+BMP 1
+BMP 1
+```
+
+The format's own table describes the down value as "volume − group", i.e. dropping several steps at
+once; in this player both values move exactly one step.
+
+### Repeat — `HED`, `TAL`
+
+| name | operand | what it does |
+|---|---|---|
+| `HED` | 0-255 | opens a repeat section. The operand is how many times the section plays **in total** — `HED 3` means three plays, not an intro plus three repeats — and 0 means forever |
+| `TAL` | — | closes the section: the player goes back to just past the `HED` and counts one off, and when the count is used up it falls through and the tune carries on |
+
+A section is the pair, and each pair loops **its own voice's stream**. The three lanes are
+independent, so they do not have to carry the same pairs: the bundled tunes mostly have a
+different number of sections in each lane, because each lane's phrases repeat at their own
+length. What keeps them together is that a lane's whole section lasts the same number of rows as
+the others — a lane whose section is shorter comes round early. And a `HED` with no `TAL` after
+it never loops at all: on its own it is only a marker.
+
+Two things to know before you type one:
+
+- **`HED 0` never ends.** The pass plays forever; you stop it with `SPACE` and you cannot reach
+  anything after the `TAL`, because the music never gets there.
+- **The count is total plays, including the first.** To write "play this section twice", the operand
+  is 2. A `TAL` has to close a `HED` in the same body: put the two in different phrases and the
+  section is not a section at any call site, which is why the editor refuses it with
+  `? the tune cannot play that`.
+
+```
+HED 3
+...
+TAL
+END
+```
+
+### Phrases — `DEF`, `END`, `CALL`
+
+| name | operand | what it does |
+|---|---|---|
+| `DEF` | 0-23 | starts a phrase definition. The body follows and **plays inline, in place**, every time the player walks past it |
+| `END` | — | ends the body |
+| `CALL` | 0-23 | plays that phrase here |
+
+A phrase is the format's only compression, and it is a good one: the body is written once and a
+`CALL` costs 2 bytes, so a four-bar riff that comes round six times is written once. Twenty-four
+phrases fit in the command byte, and any voice may call any of them — a body is global, not per
+voice.
+
+The subtlety is that **the definition is also a play site**. `DEF` does not mean "store this for
+later"; the player walks into the body, plays it, and comes out at the `END`. So a tune's first
+"verse" is usually the body at its `DEF`, and the later verses are `CALL`s to it. That is also why
+the editor says `phrase 3 x5` while the cursor is inside a body: the rows you are looking at are the
+rows five call sites play, and any edit there is an edit to all five.
+
+`SHIFT`+`D` moves between the two halves — from a `CALL` to its `DEF` and from a `DEF` to the next
+`CALL` — so finding the partner of either is one keystroke. Nesting is allowed (a body may call
+another phrase) but the per-voice call stack is a fixed size, and a call one frame too deep is
+refused rather than allowed to run off the end.
+
+```
+DEF 3
+...
+END
+...
+CALL 3
+```
+
+### Envelope — `ATK`, `DCY`, `SUS`, `REL`, `PNT`, `HLD`
+
+| name | operand | what it does |
+|---|---|---|
+| `ATK` | 0-15 | attack: how quickly the note reaches full volume |
+| `DCY` | 0-15 | decay: how quickly it falls from full volume to the sustain level |
+| `SUS` | 0-15 | sustain: the level it holds at while the note lasts |
+| `REL` | 0-15 | release: how long it takes to fade after the gate drops |
+| `PNT` | 0-255 | **release point**: the voice's gate is dropped when the note has this many jiffies left, so the release happens inside the note's own time. The player's default is 4 |
+| `HLD` | 0-255 | **hold time**: the first `HLD` jiffies of a note ignore the release point, so a short note still speaks fully before it begins to fade. Default 0 |
+
+These are the four SID envelope nibbles — bigger is longer for `ATK`, `DCY` and `REL`, and bigger is
+louder for `SUS` — and they are the whole of a voice's "instrument", along with the waveform. A
+plucked sound has a fast attack, a decay to a low sustain and a short release; a pad inverts all
+four, with a slow attack, a high sustain and a long release.
+
+`PNT` and `HLD` are what make that envelope sit on the grid. The player drops the gate `PNT` jiffies
+before the note ends, so the release fades *out of* the note instead of spilling into the next one:
+raise `PNT` towards the note's length for a softer, more legato line, and lower it for a tight one.
+`HLD` is the opposite guard, for staccato: it holds the note at full gate for its first `HLD` jiffies,
+so a very short note is not released before it has been heard.
+
+```
+ATK 0
+DCY 9
+SUS 4
+REL 8
+PNT 12
+```
+
+### Waveform — `WAV`, `P-W`, `P-S`, `PVD`, `PVR`, `SNC`, `RNG`
+
+| name | operand | what it does |
+|---|---|---|
+| `WAV` | 0-7 | which of the SID's waveforms the voice uses: 0 noise, 1 triangle, 2 sawtooth, 3 triangle+sawtooth, 4 pulse, 5 pulse+triangle, 6 pulse+sawtooth, 7 all three |
+| `P-W` | 0-4095 | pulse width, a 12-bit value. 2048 is a square wave; towards 0 or 4095 the pulse thins out, and at the ends there is almost nothing to hear |
+| `P-S` | -128…127 | pulse-width **sweep**: added to the width every jiffy, positive widening and negative narrowing, and it keeps going until something changes it |
+| `PVD` | 0-127 | pulse-width vibrato depth |
+| `PVR` | 0-127 | pulse-width vibrato rate |
+| `SNC` | 0 or 1 | oscillator sync |
+| `RNG` | 0 or 1 | ring modulation |
+
+`WAV` is where a voice's character starts: triangle for a flute or bass, sawtooth for strings and
+brass, pulse for anything hollow or reedy, noise for drums and wind. The combinations (3, 5, 6, 7) are
+the SID's own, and they are odd, metallic sounds rather than "two instruments at once".
+
+`P-W` only means something on a pulse waveform. It is the width of the pulse, so 2048 is an even
+square wave and the further you move from the middle the thinner and more nasal the tone. `P-S` is
+the classic moving-pulse effect: the width drifts by that much every jiffy, so a small value gives a
+slow, wide sweep and a large one a fast shimmer. `PVD`/`PVR` are the gentler version of the same
+thing — depth and rate of a vibrato applied to the *width* rather than the pitch, which is what makes
+a held lead sound alive without going out of tune.
+
+`SNC` and `RNG` are the SID's two cross-oscillator tricks and each is a plain 0/1 switch. They use
+another oscillator as the modulator, so they do nothing interesting unless the neighbouring voice is
+running, and they are worth trying on a lead or a bass rather than on everything at once.
+
+```
+WAV 4
+P-W 2048
+P-S 3
+```
+
+### Frequency — `VDP`, `VRT`, `POR`, `P&V`, `DTN`, `TPS`, `RTP`
+
+| name | operand | what it does |
+|---|---|---|
+| `VDP` | 0-127 | vibrato depth: how far the pitch swings either side of the note |
+| `VRT` | 0-127 | vibrato rate: how many jiffies each step of the swing takes |
+| `POR` | 0-16383 | portamento: the pitch slides into a new note instead of jumping to it. The operand is the step size — how far the frequency moves each jiffy |
+| `P&V` | 0 or 1 | keeps the vibrato running during a portamento slide |
+| `DTN` | -2048…2047 | detune: a fixed offset to the whole voice, in the player's frequency units |
+| `TPS` | -95…95 | transpose: every later note moves by this many semitones, until the next `TPS` |
+| `RTP` | -47…47 | transpose relative to the note before it |
+
+`VDP` and `VRT` are the ordinary pitch vibrato: depth is how wide the swing is and rate how fast it
+runs, and a little of both on a held lead is usually all a tune needs. Depth is in the player's
+frequency units rather than in semitones, so the same depth is a wider interval low down than high
+up — turn it down when you move the tune up an octave.
+
+`POR` is how a slide is written: with it in force, a new note does not jump to its pitch, and the
+voice moves from the note it was playing towards the new one by `POR` frequency units every jiffy
+until it arrives. A small operand is a slow bend, a large one a swoop, and `P&V 1` keeps the vibrato
+going during the slide. Because it is a step per jiffy, a slide takes twice as long at half the
+value.
+
+`DTN` shifts the whole voice, so two voices playing the same line with opposite small detunes give
+the classic chorus — the cheapest way to thicken a single-voice melody. `TPS` transposes everything
+after it, which is how a tune changes key for a last chorus; `RTP` works from the note before it
+instead, so the same value follows the melody rather than the tune's own key.
+
+```
+VDP 8
+VRT 4
+POR 40
+```
+
+### Filter — `F-M`, `F-C`, `F-S`, `AUT`, `RES`, `FLT`, `F-X`
+
+| name | operand | what it does |
+|---|---|---|
+| `F-M` | 0-7 | filter mode, a bitmask: 1 low-pass, 2 band-pass, 4 high-pass, added together for combinations, 0 for off |
+| `F-C` | 0-255 | cutoff frequency |
+| `F-S` | -128…127 | cutoff **sweep**: added to the cutoff every jiffy |
+| `AUT` | -128…127 | how much of the note's own pitch is added to the cutoff, so higher notes open the filter further |
+| `RES` | 0-15 | resonance: the peak at the cutoff |
+| `FLT` | 0 or 1 | routes **this voice** through the filter |
+| `F-X` | 0 or 1 | routes the external audio input through the filter |
+
+The filter is one block for the whole chip: `F-M`, `F-C`, `RES` and `F-X` are chip-wide, while `FLT`
+decides which voices are fed into it. That is why a filtered bass and an unfiltered lead can coexist —
+the bass lane carries `FLT 1` and the lead lane `FLT 0` — but they share one cutoff.
+
+`F-S` is the classic filter sweep, drifting the cutoff by that much every jiffy until something
+changes it, and `AUT` is key-follow: a positive value brightens the high notes and darkens the low
+ones, which is what keeps a bass line from disappearing behind a lead. Resonance is the character of
+the sweep, and a lot of it is loud — drop `VOL` when you raise `RES`.
+
+```
+F-M 1
+RES 6
+F-C 40
+F-S 3
+FLT 1
+```
+
+### Modulation — `LFO`, `RUP`, `RDN`, `SRC`, `DST`, `SCA`, `MAX`
+
+| name | operand | what it does |
+|---|---|---|
+| `LFO` | 0 or 1 | the shape of the player's own low-frequency oscillator: 0 triangle, 1 pulse |
+| `RUP` | 0-31 | how much the LFO's value climbs each jiffy |
+| `RDN` | 0-31 | how much it falls back each jiffy |
+| `MAX` | 0-255 | the ceiling the climb stops at, where the ramp turns round |
+| `SRC` | 0-2 | what feeds a voice's modulation: 0 the software LFO, 1 oscillator 3's output, 2 envelope 3 |
+| `DST` | 0-3 | where a voice's modulation goes: 0 off, 1 frequency, 2 pulse width, 3 filter cutoff |
+| `SCA` | -7…7 | the scale applied to the modulation, as a shift: each step up doubles it, each step down halves it |
+
+This is the format's one true modulator, and it is **software**: the player ramps a counter up by
+`RUP` each jiffy until it reaches `MAX`, then down by `RDN`, in a triangle (or a pulse), and adds
+whatever `SCA` leaves of it to the destination `DST` names. Nothing here is a SID feature, so it
+costs the chip nothing and can be aimed at any of the three voices independently.
+
+The wiring is three separate decisions, which is why it takes several commands to set up:
+
+1. **`LFO` `RUP` `RDN` `MAX`** — what the modulation *is*: a triangle or a pulse, how fast it climbs,
+   how fast it falls, and how high it goes.
+2. **`SRC`** — what a voice *reads*: the software LFO, or one of the SID's own generators to use as a
+   modulator instead.
+3. **`DST` `SCA`** — where that voice *sends* it (off, frequency, pulse width or cutoff) and how much
+   (each step of `SCA` doubles or halves it).
+
+A slow pulse-width wobble on a held string part is a typical use — `LFO 0` (triangle), a small `RUP`
+and `RDN`, a modest `MAX`, `SCA 2` and `DST 2` — and `DST 3` at a slow rate is a filter sweep you do
+not have to write any `F-S` lines for.
+
+```
+LFO 0
+RUP 1
+RDN 1
+MAX 40
+SCA 3
+DST 2
+```
+
+### Misc — `MS#`, `UTV`, `FLG`, `AUX`, `3-O`, `HLT`
+
+| name | operand | what it does |
+|---|---|---|
+| `MS#` | 0-999 | a measure marker: the tune's own numbering of its sections. This player has no display for it, so it is written and kept but has no effect on the sound |
+| `UTV` | 0-255 | **this voice's** utility length, the per-voice twin of `UTL` (see *Tempo*, above) |
+| `FLG` | 0-255 | sets the player's flag byte — **no effect in GordonOS** |
+| `AUX` | 0-255 | reserved — **no effect** |
+| `3-O` | 0 or 1 | switches voice 3 off, freeing it for sound effects |
+| `HLT` | — | stops this voice. Every voice must end on it |
+
+`UTV` sits at the end of the picker rather than beside `UTL`, which surprises people looking for it:
+the two do the same thing, one for all voices and one for the lane it is written in.
+
+`MS#` is a label rather than a control. The original player printed the measure number on its own
+screen; this one has no such display, and nothing reads the value, so a `MS#` is preserved, drawn on
+its own line and otherwise ignored. It is still worth keeping: it is how a tune marks its own
+sections, and the editor's line for it costs no time.
+
+`3-O 1` is the one MISC command that changes what the other lanes sound like: it stops voice 3's own
+notes so a sound effect can have the voice. Every voice ends on its `HLT`, and the editor keeps it —
+it cannot be deleted, only pushed down, because removing it would leave that voice's stream running
+into the next one's bytes.
+
+`FLG` and `AUX` are offered, written and kept although this player does nothing with them; see
 [Commands that are kept but do nothing here](#commands-that-are-kept-but-do-nothing-here).
+
+### The one command with no line: `JIF`
+
+`JIF` is the only command in the format that the picker does not offer and the grid never draws. It
+would rescale the jiffy, and the player's jiffy is the scheduler tick, which a task cannot reload: the
+pair is decoded, its operand is consumed, and nothing follows from it.
+
+It is left out of the picker rather than offered as a dead entry because its operand is not a plain
+number: the value is the operand times four plus the top two bits of the command byte, a 10-bit
+signed range from -200 to 757. Drawing that truthfully would mean a signed field four times the
+size of every other operand on the grid, for a command that changes nothing. A `JIF` already in a
+tune is kept and written back untouched.
 
 ## Undo and redo
 
@@ -850,7 +1138,8 @@ If you know what you want musically, this is the map:
 
 ### Commands that are kept but do nothing here
 
-Three commands are present, writable and preserved, and have no effect in the GordonOS player:
+Four commands have no effect in the GordonOS player. All four are decoded and preserved in the
+file, and three of them are offered by the picker like any other:
 
 - **`JIF`** — "jiffy clock adjust". The player's jiffy is the **scheduler tick**; a task cannot
   reload it, so the pair is decoded, its operand consumed, and nothing follows. It is also the one
@@ -865,6 +1154,9 @@ Three commands are present, writable and preserved, and have no effect in the Go
   screen to print the next line of a `.wds` words file; this player has no screen and no `.wds`
   support, and nothing reads the flag, so the value is decoded and dropped. It is written like any
   other command, so a tune that carries one keeps it.
+- **`MS#`** — the tune's own measure number, which the original player printed while the music
+  ran. Nothing in this player reads it, so it is a label: written, kept, and drawn on its own line
+  in the grid, with no effect on the sound.
 
 ### What the format has no room for
 
