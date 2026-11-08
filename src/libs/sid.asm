@@ -205,6 +205,12 @@ sidDelayOk:
     sta sidplay.DataPitchOct     //   whose +1 in this field is one octave down
     lda kArg+3
     sta sidplay.DataPitchSemi
+    lda kArg+4                   // the jiffies to play silently before the music is
+    sta sidFoldLo                //   heard: a caller's start row, in the tune's own
+    lda kArg+5                   //   clock. Latched HERE, before any DMA can walk
+    sta sidFoldHi                //   over the kArg block's tail
+    lda #$ff
+    sta sidplay.VolMask          // every play starts audible
     jsr sidplay.sidDetectVideo  // which video standard's clock this machine has -- the
                                 //   archive's table is the NTSC one, so a PAL machine needs
                                 //   the PAL copy (measured once, so this is free after it)
@@ -215,6 +221,34 @@ sidDelayOk:
     //  and a player called with repeats 1 stops immediately, silently. The
     //  restart path has its own INIT_SONG call, so this one is easy to lose when
     //  the body moves -- it must stay here, on the first-play path.
+    //  --- fast-forward: play the pass silently up to the caller's start jiffy ---
+    //  A caller that wants the music to begin at a row the tune reaches only after
+    //  K jiffies has no seek available -- the format has none -- so the pass is
+    //  played from the first row with the volume masked, one jiffy after another,
+    //  as fast as the CPU allows. Every command takes effect, so the sound state at
+    //  the end is the tune's own, and the published jiffy count is already K, which
+    //  is what the caller's playhead reads. Only the SID's own envelope generators
+    //  run at the compressed speed, so a note already sounding when the mask lifts
+    //  is caught earlier in its envelope than a timed pass would leave it.
+sidFold:
+    lda sidFoldLo
+    ora sidFoldHi
+    beq sidLoop
+    lda #$f0
+    sta sidplay.VolMask
+sidFoldJif:
+    jsr sidplay.sidTick          // one jiffy, silently
+    lda sidFoldLo
+    bne sidFoldDec
+    lda sidFoldHi
+    beq sidFoldDone
+    dec sidFoldHi
+sidFoldDec:
+    dec sidFoldLo
+    jmp sidFoldJif
+sidFoldDone:
+    lda #$ff
+    sta sidplay.VolMask
 sidLoop:
     lda sidStop
     bne sidStopNow               // hush asked us to stop: do not touch the SID
@@ -330,6 +364,8 @@ sidTuneLo:   .byte 0             // the tune image (the caller's buffer)
 sidTuneHi:   .byte 0
 sidDelay:    .byte 1             // ticks slept per jiffy
 sidRepeats:  .byte 1             // 0 = forever, else plays remaining
+sidFoldLo:   .byte 0             // jiffies to play silently before the music starts
+sidFoldHi:   .byte 0             //   (the caller's start row, in the tune's clock)
 
 // The player publishes each voice's next-command pointer here for a playhead:
 // WorkNxtCmdLo[3] at SID_POS_BLOCK, WorkNxtCmdHi[3] at SID_POS_BLOCK+3. A reader

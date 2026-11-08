@@ -400,16 +400,22 @@ back:
 
 | Configuration | Builds first | Use when |
 |---|---|---|
-| **Build & Launch with REU** | the kernel only, plus a refresh of `reu/REU-C64U.bin` | kernel work; the existing `reu/REU.bin` is current |
+| **Build & Launch with REU** | the kernel only; **no image is rebuilt** | kernel work; the existing `reu/REU.bin` is current, or you want to keep what a session saved |
 | **Build & Launch with fresh REU** | kernel → tasks → REU (both images) | **you changed a task** — this is the one you want |
-| **Build & Launch with REU (1351 mouse)** | the kernel only, plus a refresh of `reu/REU-C64U.bin` | like *Build & Launch with REU*, for `grpaint`: adds `-controlport2device 1351 -mouse` |
+| **Build & Launch with REU (1351 mouse)** | the kernel only; **no image is rebuilt** | like *Build & Launch with REU*, for `grpaint`: adds `-controlport2device 1351 -mouse` |
 | **Build & Launch with fresh REU (1351 mouse)** | kernel → tasks → REU (both images) | like *Build & Launch with fresh REU*, with the 1351 and the pointer grab |
 | **Publish binaries** | the kernel only | publishing (section 9) |
 
-`reu/REU-C64U.bin` is refreshed by **every** VICE flow: VICE opens only
-`reu/REU.bin`, so writing the C64 Ultimate image costs neither the session's saved files
-nor the live filesystem — and it is the one build output a session cannot regenerate for
-itself.
+**Only the "fresh REU" flows start a new filesystem.** They are the way to pick up
+changed task binaries, and they are the only flows that discard what a session saved
+onto the image — which is also why the plain flows leave both images alone: a saved
+filesystem is the one thing no build step can reproduce. A plain flow whose
+`reu/REU-C64U.bin` predates the last task build says so instead of rewriting it, because
+a C64 Ultimate boots *that* image and its saves live there too.
+
+`build-reu.ps1` itself always writes a fresh filesystem (a zeroed 16 MB buffer, formatted,
+then seeded), so it is byte-identical between runs apart from the `buildid` stamp it
+writes with the build time.
 
 `launch.json` also carries VS64's built-in 6502 debugger configuration. The VICE flows
 and `tools/launch-vice.ps1` all pass the same base command line — the two *(1351 mouse)*

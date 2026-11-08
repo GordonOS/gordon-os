@@ -1,12 +1,13 @@
 # launch-vice.ps1 - launch VICE with the GordonOS REU image.
 #
 # Driven by the F5 dropdown (tasks.json input "reuMode"):
-#   "Use existing REU"      -> keep reu/REU.bin (saved files survive);
-#                              built fresh if missing. reu/REU-C64U.bin is
-#                              refreshed either way: VICE opens only the first,
-#                              so rebuilding the second cannot cost a session.
+#   "Use existing REU"      -> keep reu/REU.bin AND reu/REU-C64U.bin exactly as they
+#                              are; nothing is rebuilt. Built fresh only if reu/REU.bin
+#                              is missing. This is the only flow that preserves what a
+#                              session saved, so it is the one to use for that.
 #   "Scratch + rebuild REU" -> rebuild both images via tools/build-reu.ps1
-#                              (fresh filesystem with all task binaries).
+#                              (fresh filesystem with all task binaries). The only
+#                              flow allowed to discard a saved filesystem.
 #                              Refuses to launch if the image could not be
 #                              replaced -- a running VICE maps it.
 #
@@ -66,14 +67,17 @@ if ($Mode -like "*Scratch*") {
     Write-Host "Scratch: rebuilt a fresh filesystem."
 } else {
     if (Test-Path $reuImage) {
-        Write-Host "Using existing REU image."
-        #  The C64 Ultimate image is an artefact of the build, not of this
-        #  session: VICE opens only $reuImage, so nothing running here can have
-        #  changed it, and writing it costs neither saved files nor the live
-        #  filesystem. Every flow keeps it current, so no launch can leave it
-        #  behind.
-        & "$PSScriptRoot/build-reu.ps1" -Speed 100 -Out "reu/REU-C64U.bin"
-        if ($LASTEXITCODE -ne 0) { Write-Warning "reu/REU-C64U.bin was not refreshed - run the Build REU task" }
+        Write-Host "Using existing REU image (anything a session saved is still on it)."
+        #  NOTHING is rebuilt here. A fresh filesystem is what "VICE with fresh REU"
+        #  is for, and that flow is the only one allowed to discard what a session
+        #  saved. The C64 Ultimate image is that flow's and "Build REU"'s business;
+        #  say when it looks behind rather than replacing it behind the user's back,
+        #  because a C64 Ultimate boots THAT image and its saves live there too.
+        $c64uImage = Join-Path (Split-Path -Parent $PSScriptRoot) "reu/REU-C64U.bin"
+        if ((Test-Path $c64uImage) -and (Test-Path "tasks-out/build.stamp") -and
+            ((Get-Item $c64uImage).LastWriteTime -lt (Get-Item "tasks-out/build.stamp").LastWriteTime)) {
+            Write-Warning "reu/REU-C64U.bin predates the last task build. Use 'VICE with fresh REU' or 'Build REU' to refresh it - both start a fresh filesystem."
+        }
     } else {
         & "$PSScriptRoot/build-reu.ps1"
         Write-Host "No REU image found - built a fresh filesystem."

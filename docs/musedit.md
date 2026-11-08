@@ -646,17 +646,30 @@ re-saved without losing them.
 
 ## Playing
 
-`SPACE` (or `PLAY` on the control bar) starts the tune from the beginning and again stops it.
-The tune plays through `sid.lib`, the same player `sidplay` uses, so what you hear is what will
-ship.
+`SPACE` (or `PLAY` on the control bar) starts the tune **from the row the cursor is on** and again
+stops it. The tune plays through `sid.lib`, the same player `sidplay` uses, so what you hear is
+what will ship.
 
 The **cursor** is the playhead: while the music plays it moves down the grid with it, the window
 scrolls a line at a time to keep it on the middle row, and the head spells out that row's bar and
 row. It follows repeats (`HED`/`TAL`) back to the start of the section, and it shows the **call
 site** when a phrase (`CALL`) is playing rather than the phrase body. When you stop, the cursor
-stays where the music stopped — that is where editing resumes. Starting again always plays from
-the tune's first row, so the score goes home with it: the window, the cursor and the head all
-return to the top, and what you see is what you hear from the first note.
+stays where the music stopped — that is where editing resumes, and the next `SPACE` carries on
+from there rather than starting over.
+
+**Starting part-way through is silent, and it takes a moment.** The format has no seek: a voice is a
+stream of events, so the player reaches a row only by playing everything before it. `SPACE` therefore
+runs the pass from the first row with the volume masked, at full speed and without sound, until the
+music reaches the cursor's row — every command takes effect on the way, so the waveform, pulse,
+ADSR, filter, tempo and the transposes are the tune's own at that point, which is what makes a
+start mid-tune sound like the tune. The score holds the cursor's row while this happens (so it does
+not scroll away and back), and the length of the wait is the music's own elapsed time at that row:
+about a second for the first screenful, a few seconds for a row an ordinary tune reaches in the
+middle, and the tune's whole length for its last row. `SPACE` at row 1 costs nothing at all.
+
+What it cannot reproduce is the SID's own envelope: a note already sounding when the sound comes up
+is caught earlier in its envelope than a pass played in real time would leave it, so it may sound a
+little different for a moment. Everything the tune itself sets is exact.
 
 The player publishes the number of jiffies it has played in this pass, and a grid row is a fixed
 number of jiffies at the tempo in force, so the cursor's row is that count divided by the row's
@@ -668,10 +681,6 @@ because the line above the window has not been walked yet. Either way the window
 of a row's lines it is standing on, not just the row: a repaint for an edit, an undo or a change
 of row unit puts the score back exactly as it was, and the cursor's row is read from the same
 map the screen was drawn from.
-
-The first release always plays from the start: the format has no seek command, and a voice's
-stream can only be entered at its beginning or at a `HED`. Use sections to structure a long
-tune.
 
 The tune **loops only if it says so**: a section is a `HED` and the `TAL` that closes back to it, and
 the player honours that inside a pass, so a tune written to repeat repeats by itself and one with no
@@ -753,7 +762,6 @@ The first release does **not** do these, by design:
 - **No per-frame instrument tables.** The SID-Wizard-style waveform/pulse/filter programs,
   hard restart, per-track tempo and multispeed have no counterpart in this format. The nearest
   things are the sweeps and LFO commands listed above.
-- **No play-from-cursor.** See *Playing*.
 - **No description editing, no raw event view, no sections view, no block copy/paste, no
   instrument macros, no jam recording, no mute/solo.** The file is fully readable and
   editable without them.

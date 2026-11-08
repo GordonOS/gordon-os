@@ -9057,14 +9057,11 @@ muPtStart:
     beq muPtNoChild             // the player is gone (see muPlayTick): nothing can play
     lda #0
     sta muPlayHush              // arm a fresh stop
-    sta muPhCurLo               // the tune plays from its first row
-    sta muPhCurLo+1
-    lda #1                      // the published count is the last pass's until the
-    sta muPhWait                //   player restarts it, so the playhead holds row 0
-    lda MU_POS_BLOCK+6          // ...and this is the count it must differ from
-    sta muPhOld
-    jsr muPlayHome              // the view goes home BEFORE the music starts: a
-                                //   redraw must not run while the tune does
+    jsr muPlayBase              // the tick the cursor's row starts at
+    lda MU_POS_BLOCK+6          // the published count is the last pass's until the
+    sta muPhOld                 //   player restarts it, so the playhead holds the
+    lda #1                      //   cursor's row until the music reaches it
+    sta muPhWait
     lda #MU_BAR_PLAY
     jsr muBarActive             // the bar shows PLAY
     lda #1
@@ -9074,6 +9071,35 @@ muPtNoChild:
     lda #M_NO_PLAYER
     jsr muMsgSet
     jmp muStatus
+
+// --- muPlayBase -- the tick the cursor's row starts at, into MU_PHBASE ---
+//  The walk records every drawn line's tick, so the row under the cursor is the
+//  number of jiffies the player must play, silently, before the music is heard. The
+//  playhead's row is preset to the cursor's own, so the head reads the row that will
+//  sound from the moment PLAY is pressed, and the view does not move at all.
+//  A line past the tune's end holds no row: the pass starts at the beginning instead.
+//  Clobbers A, X, Y.
+muPlayBase:
+    lda #0
+    sta muPhBaseLo
+    sta muPhBaseHi
+    ldy #MU_ROW
+    lda (dataPtr),y
+    sec
+    sbc #MU_GRID_TOP
+    tax
+    lda muLnTbHi,x
+    cmp #$ff
+    beq muPbCur
+    lda muLnTick,x
+    sta muPhBaseLo
+    lda muLnTickHi,x
+    sta muPhBaseHi
+muPbCur:
+    jsr muCursorAbs
+    sta muPhCurLo
+    stx muPhCurLo+1
+    rts
 
 // --- muSidHushSafe -- hush only when sid.lib is loaded and the child is there ---
 //  A lazy library that fails to load does not return: the kernel prints
@@ -9105,38 +9131,13 @@ muPlayStop:
 
 // --- muPlayRewind -- a pass is over: the playhead restarts at the beginning ---
 //  Reached when the child reports a natural end (muPlayTick). The player is spawned
-//  for a single pass and always plays from the tune's first row, and it clears its
-//  own jiffy count as it starts (sidInitSong), so the view restarts with it.
+//  for a single pass, and it clears its own jiffy count as it starts (sidInitSong),
+//  so the view restarts with it.
 muPlayRewind:
     jsr muBarPlayOff            // the pass is over: PLAY goes plain in this redraw
     lda #0
     sta muPhCurLo
     sta muPhCurLo+1
-    jmp muRewindView
-
-// --- muPlayHome -- take the view home for a pass, unless it is already there ---
-//  A window at row 0 showing that row from its first line, with the cursor on the
-//  first row, is already showing the row 0 score -- a fresh editor, or a pass that
-//  has just ended -- so PLAY only has to start the music. Anything else (a stop
-//  mid-tune, a scrolled window) has to be repainted, which is what makes the notes
-//  on screen the notes being played.
-muPlayHome:
-    lda muTop
-    ora muTop+1
-    bne muPHomeRedraw           // the window is below the first row: it has to move
-    lda muToff
-    bne muPHomeRedraw           // ...or scrolled into it: it has to move
-    ldy #MU_ROW
-    lda (dataPtr),y
-    cmp #MU_GRID_TOP
-    beq muPHomeRts              // the cursor is home too: nothing to draw at all
-    jsr muCursorHide            // only the marker: the window already holds row 0
-    muSet(MU_ROW, MU_GRID_TOP)
-    jsr muCursorShow
-    jmp muDrawHead              // its BAR and R follow the cursor
-muPHomeRts:
-    rts
-muPHomeRedraw:
     jmp muRewindView
 
 // --- muRewindView -- the score and the cursor go back to the first row ---
@@ -9254,7 +9255,15 @@ muPsPub:
     lda MU_POS_BLOCK+6          //   a different value the view must not chase it. The
     cmp muPhOld                 //   published byte, against the one recorded at the
     beq muPsRts                 //   start -- the adjusted low byte below is a different
-    lda #0                      //   number and would never match
+    lda kArg+1                  //   number and would never match. Then the player is
+    cmp muPhBaseHi              //   still fast-forwarding to the row PLAY started from,
+    bcc muPsRts                 //   which the count reaches before any sound is heard
+    bne muPsGo
+    lda kArg
+    cmp muPhBaseLo
+    bcc muPsRts
+muPsGo:
+    lda #0
     sta muPhWait
 muPsLook:
     ldx #MU_GRID_ROWS-1
@@ -10193,6 +10202,10 @@ muMusicThread:
     lda #0
     sta kArg+2                  // no transpose of our own: kSidPlay adds the
     sta kArg+3                  //   machine's pitch shift to this itself
+    lda muPhBaseLo              // the jiffies to play silently first: the row the
+    sta kArg+4                  //   parent's playhead is starting on
+    lda muPhBaseHi
+    sta kArg+5
     lda #1                      // a play attempt is made: kSidHush from the parent
     sta muSidOk                 //   is only safe once sid.lib has loaded
     lda #1                      // mode 1: <base>.wrk paged through windows 3-5. A
@@ -10612,6 +10625,8 @@ muSidCfgB:  .fill 9, 0          // kSidPlay mode 1: the file's FS offset, then w
 // --- the playhead: the player publishes its own count, the walk rings the dots ---
 muPhFrame:  .byte 0             // frameCount at the last playhead update
 muPhOld:    .byte 0             // ...the count the pass started with, to tell them apart
+muPhBaseLo: .byte 0             // the tick the pass starts at: the row PLAY was
+muPhBaseHi: .byte 0             //   pressed on, which the player fast-forwards to
 muHistN:    .fill 3, 0          // next slot per voice
 //  The row an event sounds on and its pitch, per voice, as the renderer walks:
 //  the keyboard dots ask this table instead of re-walking the tune. MU_HIST slots

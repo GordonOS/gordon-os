@@ -14,14 +14,14 @@
 
 | | |
 |---|---|
-| code | **17,827 bytes**, 1,863 fixups, **70 code pages** of a 256-byte granule (71 measured working) |
-| pool | **103 pages of 109** (code 70, `sid.lib` 14, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
+| code | **17,859 bytes**, 1,869 fixups, **70 code pages** (61 bytes under the next boundary) of a 256-byte granule (71 measured working) |
+| pool | **104 pages of 109** (code 70, `sid.lib` 15, `filesys.lib` 10, mouse 2, sprite 1, `kMalloc` 6) |
 | zero page | 229 bytes of the 234 available (`MU_ZP_END` = `MU_ZP_BASE+229`, one byte under `$F0`), every one of them declared |
 | gates | 83 asserts; `check-mus-commands` (30,695 pairs), `check-mus-timing`, `check-mus-pitch` (224 options), `check-musedit-walk` (two captured grids), `check-zp-map`, `check-zp-indirect`, `check-pool-budget`, `check-ascii`, `check-links` |
 
 Two numbers govern everything below, and neither is negotiable without a design change:
 
-- **The editor can carry 349 more bytes of code.** `musedit` is 17,827 bytes, 70 code pages, and
+- **The editor can carry 317 more bytes of code.** `musedit` is 17,859 bytes, 70 code pages, and
   **71 pages has been measured working**: with `sid.lib` trimmed to 14 pages, a 71-page build
   (17,929 bytes, pool 104 of 109, margin 5) was run in VICE, loaded the tune and played it. So the
   usable ceiling is the **71-page** line, 18,176 bytes; a 72nd page lands on pool margin 4, which is
@@ -48,9 +48,11 @@ stack byte is one `kReuReadAt`/`kReuWriteAt` of length 1 at the cursor, so nothi
 the image and no page-boundary arithmetic is needed. The file is also deleted at exit, so a session
 leaves nothing behind.
 
-Plan-level budget: the `muMnTab` lever is spent, so the **349 bytes in hand** — 17,827 to the
-71-page line at 18,176 — are the whole budget. Items 3 and 7 fit in that; item 6 (blocks, 350-450
-bytes) is the one that needs a lever of its own.
+Plan-level budget: the `muMnTab` lever is spent and item 4 has taken `sid.lib` over its 14th page,
+so the **317 bytes in hand** — 17,859 to the 71-page line at 18,176 — are the whole budget. `musedit`
+is also only 61 bytes short of its own page boundary, and the pool sits at margin 5, so a change past
+that boundary costs a page as well. Item 3 fits by taking that page; item 6 (blocks, 350-450 bytes)
+needs a lever of its own.
 
 **Where the player lives, and where it stays.** The music runs in a **thread child of the editor**:
 it shares the editor's code pages and the editor declares `sid.lib` for the session, paging
@@ -139,48 +141,52 @@ not move**: the text is in the scratch file, not in the image.
 Gate: a `py65` case that inserts, deletes and re-reads a description across a page boundary (the
 interesting failure is a cursor pointing into a page that the insertion moved).
 
-## 6. Item 4 — Play from the cursor
+## 6. Item 4 — Play from the cursor — **done**
 
-**Why it is not a one-liner.** The format has no seek: a voice is a stream of pairs and the player
-arrives at a row by playing every pair before it. Two designs, and they differ in what the ear
-hears, not just in code:
+`SPACE` now starts the pass **at the cursor's row**: the editor hands the player the tick that row
+starts at (the walk already records it per line, in `muLnTick`/`muLnTickHi`), and the player
+**fast-forwards** — it plays the pass from the first row with the volume nibble masked, one jiffy
+after another as fast as the CPU allows, then lifts the mask at that tick. Every command takes
+effect on the way, so the waveform, pulse, ADSR, filter, tempo and transposes are the tune's own;
+the published jiffy count is already the start tick, so the playhead picks up exactly there.
 
-**(a) Offsets and a tick base — the cheap one.** `WorkNxtCmdLo/Hi` per voice already holds the next
-command as a **file offset**, and the paged path seats a window on that offset's page, so the
-player can be started at any offset. For a target row the editor's own walk already knows each
-voice's next-command offset at that row (that is what the playhead's ring records) and the jiffy
-count at the row start. Start there, and add the start tick to `WorkSongTicks` instead of zeroing
-it (`sidplay.inc`'s `sidInitSong` clears it, so this becomes "clear it to the caller's base").
-The score then starts where the cursor is and the playhead agrees from the first frame — which
-also fixes the "the score rewinds on stop" annoyance.
-*What it does not carry:* the sound state. Waveform, pulse, ADSR, filter, tempo and `TPS` are all
-built by commands earlier in the stream, so a start at row 200 plays with the defaults until the
-tune re-states them. **Honest, cheap, and wrong for most real tunes.**
+**What was rejected, and why the shape changed.** The plan's (a) — start the three streams at
+captured offsets — is cheap but carries *no* sound state, so a mid-tune start plays with the
+defaults. Its (b) — the same idea in real time — was measured to cost the tune's own elapsed time
+(13-29 s for a row an ordinary tune reaches in the middle, up to 145 s at its end). The measured
+per-jiffy cost of the player made a third shape obvious: **~1,318 cycles a jiffy** (7.9 % of a
+16,667-cycle jiffy) and **~400-460 cycles per command**, so a silent fast-forward is ~13× quicker
+than real time and needs *no* seek data at all — the streams arrive where they belong.
 
-**(b) A silent warm-up — the faithful one.** Start at the beginning and run the player for N
-jiffies with the SID muted, then unmute at row N. Every command takes effect, so the state is
-exactly what the tune built. The cost is wall-clock (row 400 at one jiffy a row is ~7 s) and it
-needs an unmute the tune cannot undo: a muted flag in the player that suppresses the volume
-writes' *low nibble*, or — the cheapest shape — the caller runs it muted and `kSidHush`es at the
-target tick, then restarts with the offsets from (a) plus the state… which is (a) again.
+| target (katmand) | real-time warm-up | **fast-forward, built** |
+|---|---|---|
+| row 100 | 5 s | 0.4 s |
+| row 400 | 20 s | 1.6 s |
+| row 800 | 41 s | 3.2 s |
+| last row | 145 s | 11 s |
 
-**Recommendation.** (a) first, then (b) only as a "pre-roll" option on top of it: `PLAY FROM HERE`
-uses (a); a checkbox or key "pre-roll" runs (b) for tunes whose sound state matters. Both keep the
-editor's playhead code unchanged, because the published jiffy count is what it already reads.
+**What it needs.** `kArg+4`/`kArg+5` = the jiffies to play silently first (latched at the call),
+`VolMask` in `sidplay.inc` (`$FF`, `$F0` while folding) and the `and` on the one volume store,
+the fold loop in `sid.asm`, and in `musedit` `muPlayBase` (the cursor line's tick, plus presetting
+the playhead's row) and the hold in `muPhSync` that keeps the score still until the music arrives.
+`muPlayHome` — the "take the view home for a pass" repaint — is gone, because the view no longer
+moves.
 
-**What it needs in the ABI.** The mode-1 config block is 9 bytes (a 3-byte FS offset plus three
-window words); six more bytes (three start offsets) and two for the tick base fit in one page and
-are read by `sidInitSong`'s caller in `sid.asm`. That is a `sid.lib` change — 14 pages of library
-whose own budget has to be checked — and a mode number for it (`kSidPlay` only streams on an
-exact `1`). Where the extra fields live matters: `kArg` is per-call scratch and full (delay,
-repeats, transpose), so they belong in the **config block**, not in `kArg`.
+**What the ear loses**: only the SID's own envelope generators, which run at the compressed speed, so
+a note already sounding when the mask lifts is caught earlier in its envelope. Everything the tune
+sets is exact.
 
-**Cost** ≈ 100 bytes in `musedit` (find the three offsets and the tick for the cursor's row — the
-walk already computes them — plus the config) and ≈ 60 bytes in `sid.asm` (`sidInitSong`'s
-alternate entry, the three offsets, the tick base). Gate: a SID-register comparison is not
-practical, so the gate is a **walk-model** one — `tools/mus-sim.py` already models the walk and
-each voice's position, and a `--state N` report (what the streams have set by tick N) is the piece
-to add on the host side; the player must agree with it on the first row it plays after a seek.
+**Cost**: `sid.lib` **+63 bytes** (3,548 → 3,611), which took it from 14 to **15 pages** — it had 36
+bytes of room in its 14th page and the fold needs more; `musedit` **+32 bytes** (17,827 → 17,859,
+still 70 pages). Pool 103 → **104 of 109, margin 5**, the configuration this plan measured working.
+Every task that declares `sid.lib` pays the page with it (`gortris` 51 → 52, `sidplay` 30 → 31,
+`godzi` 33 → 34, `grknoid` 47 → 48).
+
+**Verified in VICE**: `SPACE` at row 1 starts instantly; a stop at row 594 holds R594 for the whole
+fold and the music starts there **3.2 s** later, then continues from that row; and the per-voice
+next-command offsets after a folded pass are **byte-identical to a natural pass at the same ticks**
+(22 of 25 sampled ticks exactly, the other three being one-command sampling races at event
+boundaries) — which is the evidence that every command before the start row was applied.
 
 ## 7. Item 5 — Delete row, delete bar — **done**
 
@@ -307,7 +313,7 @@ A suggested order — smallest risk first, and each one independently shippable:
 | 2.1 | ~~**`muMnTab` at 4 bytes**~~ — **done**, 54 bytes | byte-neutral to the user: the same characters in the same cells |
 | 2.2 | ~~**item 5 (delete row / bar)**~~ — **done**, `R` and `SHIFT+R` | it was the inverse the editor was most obviously missing |
 | 2.3 | **item 3 (description)** | UI-only, ~200 bytes, needs the keys decision |
-| 2.4 | **item 4 (play from cursor)** | first `sid.lib` change; (a) then (b) |
+| 2.4 | ~~**item 4 (play from cursor)**~~ — **done**, the silent fast-forward | it cost `sid.lib` a page, which is why it wanted to be after the byte work |
 | 2.5 | **item 7 (jump to a bar or measure)** | small, no format work, and it pays for itself the first time a tune runs past a screenful |
 | 2.6 | **item 6 (blocks)** | the largest; needs the funding decision at that point |
 | 2.7 | § 10 wishlist | re-ranked after 2.1-2.6 |
@@ -336,6 +342,6 @@ hears or types into; a py65 harness alone is not "verified".
 7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
    `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
    default tempo, which is a different number and would have to say so)?
-8. **Funding**: the **349 bytes** in hand — the `muMnTab` lever is spent — are the whole budget,
+8. **Funding**: the **317 bytes** in hand — the `muMnTab` lever is spent — are the whole budget,
    enough for items 3 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
    which does the list prefer?

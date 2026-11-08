@@ -46,7 +46,7 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 | F9 | Low | `musedit.inc:679` (`muWinSeat`) | The "a command pair never straddles a window" proof needs every voice length to be even; nothing checked it. Census of 18,613 `.mus` files found 1 odd-length file and 3 even-length damaged ones — **fixed: each voice must end on its `01 4F` pair**, verified against the real files |
 | F10 | Low | `musedit.inc:723`, `:782` | The window fill/flush ignored the REU transfer's C flag, so a failed transfer drew garbage or silently dropped a scratch write — **fixed: both end in `muWinOut`, which reports it; the report was paid for by extracting `muWinPtr` (17,913 bytes, still 70 code pages)** |
 | F11 | Note | `musedit.inc:384`, `musedit.md` | `<base>.wrk` is a fixed 65,280 bytes per session and the guide never states the tune-size cap that implies |
-| F12 | Note | `check-pool-budget` | `sid.lib`'s 14 pages are reserved for the whole session — 13% of the pool — for a feature used only on PLAY |
+| F12 | Note | `check-pool-budget` | `sid.lib`'s pages (14, now 15) are reserved for the whole session — 13% of the pool — for a feature used only on PLAY |
 | F13 | Note | `musedit.inc:7021` | The undo stack's "no room" policy forgets the entire history; sound, but only because a record is bounded at 516 bytes |
 | F14 | Medium | `musedit.inc:6541` | `MU_OBJMAXHI` was only written by the 14-bit command encoders, so after any `P-W`/`DTN`/`POR`/`MS#` the prompt stopped clamping byte-wide operands — it showed `300` and wrote `44` — **fixed: cleared on every redraw** |
 | F15 | Medium | `musedit.inc:221` | `muInsFrom` (2 bytes, `+224`) **overlapped** `muObjValHi`/`muObjMaxHi`; latent, and invisible to the window asserts — **fixed: moved to `+227`, `MU_ZP_END` to `+229`, and a new gate checks the map** |
@@ -642,12 +642,11 @@ Almost. Measured against `reference/sidplayer-mus-file-format.md`:
    (`muInsGap`/`muDelGap`), so this is UI only: a text cursor over the NUL-terminated tail, drawn
    in row 0 (which the head already uses as a status line) while a description edit is open, and
    `INS`/`DEL` mapped to characters rather than events. ~200 bytes of code and no new data.
-4. **Play from the cursor** — the format has no seek, so this needs either a player that can be
-   started mid-tune or a dry-run. The cheapest shape: the editor already walks the tune with a
-   simulator that tracks each voice's stream pointer and tick; for a target row it can hand the
-   player a start tick plus the three offsets where each voice stands, which is one new `kSidPlay`
-   mode (a 9-byte config it already builds) plus a start-tick field the player adds to
-   `WorkSongTicks` instead of zeroing it. That also solves the "score rewinds on stop" annoyance.
+4. **Play from the cursor** — **done.** The format has no seek, so `kSidPlay` takes `kArg+4`/`kArg+5`
+   = the jiffies to play silently first: the pass runs from the first row with the volume nibble
+   masked, at full speed, and lifts the mask at that tick, so every command before it has taken
+   effect and the published count is already the start row. The editor supplies the tick from the
+   line the cursor is on (`muLnTick`), which is also why the score no longer rewinds on stop.
 5. **Delete row / delete bar** — the exact inverse of `muInsertTime`: `muDelGap` per voice with the
    same phrase-body guard `muPhBlock` already applies. Small, and the only reason it is absent is
    that it was never asked for.
@@ -671,13 +670,13 @@ features the phase-1 plan had parked.
 
 | tenant | pages | notes |
 |---|---|---|
-| `musedit` code | 70 | 17,827 bytes, 1,863 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
-| `sid.lib` | 14 | declared lazy, reserved at spawn, loaded on the first PLAY |
+| `musedit` code | 70 | 17,859 bytes, 1,869 fixups — the undo history lives entirely in `musedit.und`, so no part of it is resident |
+| `sid.lib` | 15 | declared lazy, reserved at spawn, loaded on the first PLAY; the 15th page is the silent fast-forward |
 | `filesys.lib` | 10 | needed for `<base>.wrk` and `musedit.und`; touched at startup |
 | mouse | 2 | |
 | sprite | 1 | the pointer and the three dots |
 | `kMalloc` block | 6 | 1,536 B: three 256 B image windows for the editor, three for the player child |
-| **total** | **103 of 109** | margin 6, and `basic` fits the pool **exactly** — the gate warns on every build |
+| **total** | **104 of 109** | margin 5, and `basic` fits the pool **exactly** — the gate warns on every build |
 
 Kernel side: 116 bytes free across 21 pockets, and this branch spent carefully — `tickCount` went
 into a 1-byte pocket that `verify-map.ps1` now pins, and the core grew only through re-pointed
@@ -688,12 +687,12 @@ jumps.
 - **Code density is good.** 69 pages for a full tracker editor with mouse, piano, undo, command
   authoring, playback and a phrase-aware walk is tight. The ZP map (229 bytes of the 234 available)
   is why: the hot state is `zp,X` and one byte per reference.
-- **The largest structural cost is `sid.lib`'s 14 pages held for the whole session** (**F12**) — 13%
+- **The largest structural cost is `sid.lib`'s pages (14, now 15) held for the whole session** (**F12**) — 13%
   of the pool for a feature used only while PLAY is on. It cannot be released: `kLibHold` is
   one-way, and a released lazy library reloads through its cold stub uncredited, leaking its pages
   until reboot. The cost is accepted: the player runs as a **thread child of the editor**, sharing
   its code pages and declaring nothing of its own, which is why one task covers editing, the
-  windows and playback. A separate player task would move those 14 pages between two tenants that
+  windows and playback. A separate player task would move those pages between two tenants that
   are never both idle, at the price of a spawn and reap per tune and a second copy of the window
   plumbing — not a trade this editor takes. The pool numbers in § 7 are what the architecture
   costs, and the pages it needs are found by shrinking code, not by moving the player out.
@@ -704,7 +703,7 @@ jumps.
 - **`<base>.wrk` costs 65 KB of *REU filesystem*, not pool** (**F11**), and the space comes back on
   `compact`. Worth stating in the guide; not worth changing.
 
-No waste worth chasing at margin 7, other than the 14 pages above.
+No waste worth chasing at margin 5, other than the `sid.lib` pages above.
 
 ---
 
@@ -776,7 +775,7 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 | `python tools/check-musedit-walk.py` | `immig` and `katmand` both match the editor over 19 lines each — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,827 bytes / 70 pages / 1,863 fixups, `shell` 32 pages (margin 77); `msgs` 34 slots (2,176 bytes); pool 103 of 109, margin 6 (`basic` fits exactly — pre-existing) |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,859 bytes / 70 pages / 1,869 fixups, `shell` 32 pages (margin 77); `msgs` 34 slots (2,176 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
 | `python tools/check-mus-pitch.py` | 224 note options through the assembled `muPitchSplit`, **0 disagreements** with `mus-sim.py`; clamping the model's octave roll to 6 makes it report the two B-sharp-at-the-top options and exit 1 |
 | `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 2,176 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |

@@ -14,7 +14,7 @@ fixups**.
 | Call indices | 33–34 (jump entries patched via `libJumpLo/Hi` + `libInitLo/Hi`) |
 | Kernel entry points | `kSidPlay` (`$FF7E`), `kSidHush` (`$FF81`) |
 | Source | `src/libs/sid.asm` (player body: `src/libs/sidplay.inc`) |
-| Pool footprint | 14 pages (3,548 bytes of code, 536 fixups) |
+| Pool footprint | 15 pages (3,611 bytes of code, 550 fixups) |
 
 > The two entry points are **not** in the `$E000` jump table — that table is
 > full (its only free byte is `$E119`). They are ordinary 3-byte stubs in the
@@ -92,11 +92,24 @@ from a garbage filesystem offset into them.
   wrong pitch.
   **Set both on every call** — they are read at the call, and an unset
   byte is whatever the last task left in the `kArg` block.
+  `kArg+4`/`kArg+5` = **the jiffies to play silently first**, little-endian,
+  `0` = start at the tune's first row. This is how a caller starts part-way through
+  the tune: the format has no seek, so the pass runs from the first row with the
+  volume nibble masked, one jiffy after another as fast as the CPU allows, until it
+  has played that many — every command takes effect, so the sound state is the tune's
+  own and the published jiffy count (`SID_POS_TICK`) is already at the start row. Only
+  the SID's own envelope generators run at the compressed speed, so a note already
+  sounding when the mask lifts is caught earlier in its envelope than a real-time pass
+  would leave it. **Latched at the call**, before any DMA can walk over the block's
+  tail, but still caller-owned: set them on every call.
 - **Output:** `C=0` — the tune played and the SID was hushed. `C=1` — refused,
   another task is already playing.
 - **Clobbers:** A, X, Y, `kArg`+0/+1 (the sleep uses `kArg+1`).
 - **Blocks** (politely): the task sleeps `delay` ticks per jiffy, so it yields
-  the CPU and the 60 Hz scheduler tick is the player's jiffy clock. The call
+  the CPU and the 60 Hz scheduler tick is the player's jiffy clock. A **fast-forward**
+  (`kArg+4`/`kArg+5` non-zero) is the exception: it ticks without sleeping, silently,
+  and is preempted like any other work, so it costs the pass's own cycle count rather
+  than its playing time. The call
   returns when the repeats are done — or earlier if `kSidHush` asks it to stop.
 - **Returns with the SID silent** and the owner released.
 
@@ -310,7 +323,7 @@ A killed player never runs its own hush, so `kill.com` clears the chip itself
 when the task it is killing — **or the task that spawned it** — declared
 `sid.lib`. It asks `dynTaskLibMaskLo` (bit 5) **before** the kill, because
 `sysKill` frees the victim's dyn entry, then zeroes `$D400-$D418` with the same
-write set as `sidrst` (no library call, so no 14 pages are loaded to do it).
+write set as `sidrst` (no library call, so none of the library's pages are loaded to do it).
 
 Why the declaration and not the owner: `sidOwner` lives in this library's own
 data — relocated into pool pages — so no task can address it, and the library

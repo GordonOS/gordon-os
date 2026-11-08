@@ -250,6 +250,10 @@ StreamWin:              .fill 6, 0                       // one 256-byte, page-a
 StreamPage:             .byte 0,0,0                      // the file page each window holds
 StreamValid:            .byte 0,0,0                      // 1 = that window has been filled
 StreamVoice:            .byte 0                          // scratch: the voice during a fetch
+//  The volume nibble mask: $FF normally, $F0 while a caller's start jiffy is being
+//  fast-forwarded, so the pass runs silently. It belongs HERE, outside the work
+//  window sidInitSong clears, and every play resets it.
+VolMask:                .byte $ff
 .assert "sidlib: sidInitSong's two clear loops stop short of the video flag",
          (((SID_STATUS + $bc) < DataVideoStd) && ((WorkPhraseCallStack + 2 + $72) < DataVideoStd)) ? 1 : 0, 1
 
@@ -589,6 +593,7 @@ sidJifPub:              lda WorkSongTicks
                         lda WorkFilterControl
                         sta SID.filterResonanceControl
                         lda WorkVolAndFilter
+                        and VolMask                     // $F0 while a pass is fast-forwarded
                         sta SID.filterVolumeAndFilter   // Volume and Filter Select Register
                         lda #$d4
                         sta $07
