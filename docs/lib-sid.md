@@ -14,7 +14,7 @@ fixups**.
 | Call indices | 33–34 (jump entries patched via `libJumpLo/Hi` + `libInitLo/Hi`) |
 | Kernel entry points | `kSidPlay` (`$FF7E`), `kSidHush` (`$FF81`) |
 | Source | `src/libs/sid.asm` (player body: `src/libs/sidplay.inc`) |
-| Pool footprint | 15 pages (3,611 bytes of code, 550 fixups) |
+| Pool footprint | 15 pages (3,623 bytes of code, 552 fixups) |
 
 > The two entry points are **not** in the `$E000` jump table — that table is
 > full (its only free byte is `$E119`). They are ordinary 3-byte stubs in the
