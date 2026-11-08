@@ -44,7 +44,7 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 | F7 | Low | `docs/development.md:637` | The generated-file table listed one of the three `gen-musedit-*` generators — **fixed: all three have a row, with their sources of truth** |
 | F8 | Low | `tools/check-musedit-walk.py` | The walk gate compared 19 lines of one tune with one command a line — **fixed: a second capture adds three-command lines, and the gate says what no capture can see** |
 | F9 | Low | `musedit.inc:679` (`muWinSeat`) | The "a command pair never straddles a window" proof needs every voice length to be even; nothing checked it. Census of 18,613 `.mus` files found 1 odd-length file and 3 even-length damaged ones — **fixed: each voice must end on its `01 4F` pair**, verified against the real files |
-| F10 | Low | `musedit.inc:723`, `:782` | The window fill/flush ignore the REU transfer's C flag, so a failed transfer draws garbage or silently drops a scratch write |
+| F10 | Low | `musedit.inc:723`, `:782` | The window fill/flush ignored the REU transfer's C flag, so a failed transfer drew garbage or silently dropped a scratch write — **fixed: both end in `muWinOut`, which reports it; the report was paid for by extracting `muWinPtr` (17,913 bytes, still 104 pages)** |
 | F11 | Note | `musedit.inc:384`, `musedit.md` | `<base>.wrk` is a fixed 65,280 bytes per session and the guide never states the tune-size cap that implies |
 | F12 | Note | `check-pool-budget` | `sid.lib`'s 15 pages are reserved for the whole session — 14% of the pool — for a feature used only on PLAY |
 | F13 | Note | `musedit.inc:7021` | The undo stack's "no room" policy forgets the entire history; sound, but only because a record is bounded at 516 bytes |
@@ -444,6 +444,28 @@ The page-move routines do check (`muGapPage`: `bcs` on the load, `muGapPage` aga
 so this is an inconsistency rather than a blind spot. `? write failed` exists (`M_NO_WRITE`, used
 at the save path) — route these two here as well.
 
+**Fixed.** Both routines now end in `muWinOut`, which tests the carry, sets `M_NO_WRITE` when it is
+set, and puts the voice back in X either way. It cost nothing: the five instructions that turn a
+voice into a window address were written out at three sites (the seat, the fill and the flush), so
+they are now one helper, `muWinPtr`, and the bytes that saved paid for the report. `musedit` went
+17,916 → **17,913** bytes — three smaller — and stays at 104 pool pages of 109 (margin 5).
+
+Verified on the assembled code under py65, with the two transfer entries stubbed to answer a chosen
+carry (`clc`/`sec` + `rts`, so both paths run) and `muMsgSet` watched rather than executed:
+
+| what | result |
+|---|---|
+| the entries, read out of the image | `muWinPtr $52CC`, `muWinOut $52DA`, `muWinSeat $52A4`; `muWinFill $52F5` calls `kReuReadAt $E0FF` and `muWinFlush $5335` calls `kReuWriteAt $E102`, and both end in `jmp muWinOut` |
+| seat, the window already holds the page | C=0, X=voice, `kPtr` = `windowHi : offsetLow` (`$A145` for voice 1 at offset `$0345`) — the address arithmetic is unchanged |
+| seat, page refilled, READ succeeds | no report, and the window now tags page 3 |
+| seat, READ refused | `M_NO_WRITE` (21) reaches `muMsgSet`, and the seat still answers C=0 with the same `kPtr` |
+| flush, WRITE succeeds | no report, X=voice, `kPtr` = its window, `kArg` = record, `0`, page `5`, `0`, `0`, len `1` |
+| flush, WRITE refused | `M_NO_WRITE` (21) reaches `muMsgSet`, X=voice |
+
+A refused **read** is reported with the same message, which is a little loose ("write failed" for a
+read), but both mean the same thing to the reader: the working copy refused a page. The comment on
+the routine says so.
+
 ### F11 — The tune-size cap is unstated (Note)
 
 `MU_SCR_PAGES = 255` (`:384`): `<base>.wrk` is 65,280 bytes for every session, whatever the tune's
@@ -641,7 +663,7 @@ The first three are hours each; the fourth is the only real design change.
 
 | tenant | pages | notes |
 |---|---|---|
-| `musedit` code | 70 | 17,916 bytes, 1,814 fixups; ~256 B of it is the resident undo window (`muUndoBuf`) — a buffer living in the image |
+| `musedit` code | 70 | 17,913 bytes, 1,817 fixups; ~256 B of it is the resident undo window (`muUndoBuf`) — a buffer living in the image |
 | `sid.lib` | 15 | declared lazy, reserved at spawn, loaded on the first PLAY |
 | `filesys.lib` | 10 | needed for `<base>.wrk` and `musedit.und`; touched at startup |
 | mouse | 2 | |
@@ -744,12 +766,13 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 | `python tools/check-musedit-walk.py` | `immig` and `katmand` both match the editor over 19 lines each — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,916 bytes / 70 pages / 1,814 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,913 bytes / 70 pages / 1,817 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
 | `python tools/check-mus-pitch.py` | 224 note options through the assembled `muPitchSplit`, **0 disagreements** with `mus-sim.py`; clamping the model's octave roll to 6 makes it report the two B-sharp-at-the-top options and exit 1 |
 | `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 1,984 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK, 139 entries |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |
 | py65, `mqClamp` on the built image | 300 against max 255 → **255** with the high half cleared, 300 with a stale `$0F` (the reproduced bug); `P-W`/`DTN` 4095, `POR` 16383, `MS#` 999 (768 → 768, 1000 → 999, 1023 → 999) all correct |
 | py65, `muLnDec` on the built image | every `MS#` pair from 0 to 1023 decodes to id 47 with its value intact — so 768-999 in a foreign file still draws as itself |
+| py65, the window service on the built image | `muWinPtr`/`muWinOut`/`muWinSeat` located by signature (`$52CC`/`$52DA`/`$52A4`), both transfers stubbed to answer a chosen carry: 5 of 5 cases as expected — the seat's address and tag arithmetic unchanged, C=1 on a read or a write reaching `muMsgSet` with `M_NO_WRITE`, X back as the voice every time |
 | `powershell tools/check-reu-current.ps1` | no `.asm`/`.inc` changed since the last task build; all 49 binaries byte-identical in the image |
 | `python tools/check-links.py` | 49 files, 0 unresolved — OK |
 | `python tools/check-ascii.py` | OK |

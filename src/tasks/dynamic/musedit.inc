@@ -691,14 +691,42 @@ muWsFill:
     sta muWinOk,x
     jsr muWinFill
 muWsHave:
+    jsr muWinPtr                // kPtr = that offset inside window X
+    lda muWinOfs                // page-aligned, so the offset's LOW byte IS the
+    sta kPtr                    //   address's
+    clc
+    rts
+
+// --- muWinPtr -- kPtr = window X's base ---
+//  X is the voice on the way in and on the way out; Y and A are scratch. The three
+//  sites that need a window's address come through here rather than repeat the
+//  five instructions that turn a voice into a window high byte.
+muWinPtr:
     txa
     asl
     tay
-    lda muWinOfs                // page-aligned, so the offset's LOW byte IS the
-    sta kPtr                    //   address's
+    lda muWin,y
+    sta kPtr
     lda muWin+1,y
     sta kPtr+1
-    clc
+    rts
+
+// --- muWinOut -- the voice back in X, and a refused transfer is reported ---
+//  kReuReadAt and kReuWriteAt answer C=1 when the range is outside the file. A
+//  refused READ leaves the previous page in the window and the band draws another
+//  page's bytes; a refused WRITE loses the edit in the scratch copy, which is
+//  contained (the .mus is not touched until a save) but means the save would later
+//  report success for a file that does not hold the edit. Neither should happen --
+//  the image never grows past MU_SCR_PAGES and every page written is one that was
+//  read -- so the answer is the diagnosis, not a repair. Reporting it costs kArg
+//  and kPtr (muMsgSet moves a slot), which is harmless here: the transfer it
+//  describes is over.
+muWinOut:
+    bcc mwOutX
+    lda #M_NO_WRITE             // the scratch copy refused the page
+    jsr muMsgSet
+mwOutX:
+    ldx muScrV
     rts
 
 // --- muPgArg -- the kArg block for a 256-byte REU transfer of page A ---
@@ -725,17 +753,9 @@ muWinFill:
     jsr muSFrecArg
     lda muWinPage
     jsr muPgArg
-    ldx muScrV
-    txa
-    asl
-    tay
-    lda muWin,y
-    sta kPtr
-    lda muWin+1,y
-    sta kPtr+1
+    jsr muWinPtr
     jsr kReuReadAt
-    ldx muScrV                  // the seat still needs the voice
-    rts
+    jmp muWinOut
 
 // --- muWinInit -- take the three windows, once, at startup ---
 //  Out: C=0 ready; C=1 no room (the caller refuses like any other shortage).
@@ -784,16 +804,9 @@ muWinFlush:
     jsr muSFrecArg
     lda muWinPg,x
     jsr muPgArg
-    txa
-    asl
-    tay
-    lda muWin,y
-    sta kPtr
-    lda muWin+1,y
-    sta kPtr+1
+    jsr muWinPtr
     jsr kReuWriteAt
-    ldx muScrV
-    rts
+    jmp muWinOut
 
 // ==========================================
 //  The scratch file

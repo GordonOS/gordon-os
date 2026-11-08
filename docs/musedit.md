@@ -729,7 +729,7 @@ then on, so `dir` shows it and it costs the same space however much you edit.
 | `? no fs` | the REU image has no filesystem signature — the image that ships with the release always has one, so this one is from another build or has been wiped: put the shipped image back (`format` makes an empty filesystem, but the bundled tunes come back only with a fresh image) |
 | `? no scratch` | the scratch copy `<name>.wrk` could not be opened or made — it is 255 pages, 65280 bytes, so the REU filesystem needs that much free — or the tune is larger than it can hold |
 | `? dir full` | the REU filesystem's directory has no free record for a new file — delete a file you no longer need, then save again |
-| `? write failed` | a write into the REU filesystem failed part way; the working file still holds the image, so save again |
+| `? write failed` | the REU filesystem refused a transfer: a save failed part way (the working file still holds the image, so save again), or a page of the working copy could not be moved, which means the edit on screen may not be in the file — save soon and check the result |
 | `? not a valid .mus file` | the file is either too short to hold a tune header, or one of its voices does not end on its `01 4F` terminator — a stream of two-byte commands that ends anywhere else has lost or gained a byte, so every pair after that point would read as a command the tune never wrote |
 | `? saved` | the tune was written — a report, not a refusal |
 | `? unsaved - q again` | `Q` with edits that are not saved: `S` saves them, or `Q` again quits and discards them |
