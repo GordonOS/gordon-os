@@ -21,11 +21,42 @@
 
 ---
 
-## Bug #204 — entering a note in `musedit` hangs the machine on `immig`, and the band disappears below the row typed on 🔴 ❌ OPEN
+## Bug #204 — entering a note in `musedit` hangs the machine on `immig`, and the band disappears below the row typed on 🔴 ✅ FIXED (2026-11-08)
 
-**Symptoms.** In `musedit`, type a note on any row of `immig`: everything from that row down
-vanishes from the band and the machine stops dead (screen frozen, interrupts gone -- a reboot is
-needed). `commodo` is unaffected, and the same note write is fine there.
+**Symptoms.** In `musedit`, type a note on a row of `immig` that falls *inside* a long event:
+everything from that row down vanishes from the band and the machine stops dead (screen frozen,
+interrupts gone -- a reboot is needed). `commodo` was unaffected only because its rows took the
+in-place replace path instead of a split.
+
+**Root cause.** `muNcSplit` sets the band repaint's end from **tune** rows without clamping it to
+the band: `muGdTo = the cursor's screen row + MU_SEKEND - MU_TGT`, and the split's new note runs to
+the end of the event it replaced. A note typed on the onset of a 32-row rest therefore asked
+`muRedrawRows` to clear **63 screen rows**, and the clear loop wrote far past the band -- over the
+stack page, the zero page and the glyph data (`muClearRow` derives its address from a row table
+that has only the band's rows). The rest of the editor then ran on wrecked memory, which is why the
+crash looked unrelated to the edit. The two sibling tails (`muFillNote`, `muInsertTime`) already
+clamp with `ldx #MU_GRID_BOT+1`; this one did not.
+
+**Fix.** `muNcSplit` now clamps the value it hands `muRedrawRows` to `MU_GRID_BOT+1`, keeping the
+"repaint only what changed" optimisation when the note fits the band.
+
+**How it was found.** The working image survived each hang (`-reuimagerw` maps it read-write), so
+`tools/check-reu-fs.ps1 -Extract immig.wrk` showed the note taking the insert path, not the
+replace path. A temporary breadcrumb ring in the task image (tag/value pairs, one per step) then
+named the failing call from the *wedged* machine without any register reads: `muSplitPlan`'s numbers
+were self-consistent (a 128-jiffy rest, cursor 2 jiffies in, so a 2-jiffy head and a 126-jiffy
+note), the emitted pairs matched that decomposition exactly, `muPushEdit` completed its undo
+record, and the log stopped at `muRedrawRows` before the first walk mark. The instrumentation was
+removed once the fix was verified.
+
+**Verified.** `run musedit immig`, row 1, five notes in a row (the split path, then successive
+splits, plus one on voice 2): the machine stays alive, the cursor advances R1 -> R6, and the band
+shows each note.
+
+**Open question, found while verifying.** The split gives the new note the event's *remainder*, not
+the armed DUR, so notes typed successively inside one long rest come out as 2nd, 4th, 8th, 16th,
+32nd, 64th with TIE runs. That is what the code has always done (`muSplitPlan` never consults
+`muDurJif`); whether it is what the editor should do is a separate decision, not part of this hang.
 
 **Not the new cursor advance.** Reproduced with the advance reverted, and again on a build taken
 from before the per-row-tick change (#203): `frameCount` goes frozen either way. The pair the
@@ -61,13 +92,8 @@ the value to trace is that one byte (`$84`) between the key and the emit.
   characters of lines that were already drawn are missing -- `immig` renders as `imm g`, `SUS 12`
   as ` US 12`. Glyph data was overwritten too, not just the band.
 
-**Still to find.** Why the emitter was handed 124 jiffies when the armed length at that row is a
-few jiffies -- `muDurJif` (`$84`) is written only by `muNoteClick`, so either it holds the wrong
-value by then or a different `muLenOne` call set `muLenJ`. And what clears `dataPtr` and the zero
-page; the two are probably one event, since a null `dataPtr` makes every `(dataPtr),y` access a
-zero-page access. A checkpoint that stops the CPU on a fetch from `$0000-$00FF` will name the
-instruction with the stack intact; polling registers cannot, because the crash lands inside the
-key press and the register reply's own layout is easy to misread.
+**Superseded.** The paragraphs below record the investigation before the root cause was found; the
+finding that stands is the fix above.
 
 **Correction to confirm.** Both inserted pairs sit inside voice 1's stream (offsets 26..55 of a
 stream that runs 8..370), although the second note was typed after CRSR-RIGHT. If that is real it

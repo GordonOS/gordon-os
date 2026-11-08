@@ -5446,6 +5446,10 @@ muNsWrite:
     sta muGdFrom                // the band starts on the cursor's row
     clc
     adc muN1
+    cmp #MU_GRID_BOT+1          // the note may run past the band's last row: the
+    bcc muNsBand                //   repaint is bounded by the band, never by the
+    lda #MU_GRID_BOT+1          //   tune's row count
+muNsBand:
     sta muGdTo                  // ...and ends where the old event did
     tax                         // X = one past the last row
     lda muGdFrom                // A = the first
