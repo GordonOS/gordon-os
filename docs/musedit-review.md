@@ -634,9 +634,9 @@ Almost. Measured against `reference/sidplayer-mus-file-format.md`:
    `$38-$3F` currently maps to `0`), decoding `(opt << 2) | (cmd >> 6)` with a 10-bit sign
    extension, printed through `muDec16`. To author it: one new `mqShape` value whose encoder splits
    the value the other way (`opt = value >> 2`, cmd bits 7-6 = `value & 3`), roughly the shape of
-   the existing 5-7 encoders. ~40 bytes of code, one table entry, one doc row. **Worth doing only
-   if a tune ever needs it** — the player ignores the command in GordonOS, so a value written here
-   has no effect on playback.
+   the existing 5-7 encoders. ~40 bytes of code, one table entry, one doc row. **Won't do**: the
+   player ignores the command in GordonOS, so a value written here has no effect on playback, and
+   the phase-2 plan records the decision (§ 3).
 2. **`MS#` to 1023** (**F1**) — one byte of table plus a doc fix.
 3. **Description editing** — the image already supports inserting and deleting bytes anywhere
    (`muInsGap`/`muDelGap`), so this is UI only: a text cursor over the NUL-terminated tail, drawn

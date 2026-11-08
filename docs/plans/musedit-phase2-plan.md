@@ -2,8 +2,9 @@
 
 > **Status: a draft to be revised.** The six items below are the gaps found while reviewing the
 > editor against the `.mus` format (`docs/musedit-review.md`, § 6); the five carried over from the
-> phase-1 plan's § 12 are the wishlist that plan recorded before it was retired. Nothing here is
-> built. The order, the sizes and some of the designs are open questions — § 12 lists them.
+> phase-1 plan's § 12 are the wishlist that plan recorded before it was retired. Two of the six are
+> settled — `JIF` is won't-do (§ 3) and `MS#` stops at 999 (§ 4) — and one is built (§ 7). The
+> order, the sizes and the remaining designs are open questions; § 12 lists them.
 >
 > **The phase-1 plan is closed.** It lives at `Documents/GordonOSPlans/musedit-plan.md`, outside
 > this repo, and describes how the editor that exists today was built. This file is the only plan
@@ -42,14 +43,13 @@ levers. They are listed in the order I would try them: cheapest and most certain
 | **`muMnTab` at four bytes a field** | **49 bytes** | the table is 49 × 5 (`"TEM  UTL  …"`), the trailing spaces being what lets a command line print exactly one field. Every mnemonic is three characters except **`CALL`**, which is four — so four bytes a field holds them all (196 bytes instead of 245) and the print blits one space after the four cells, giving the same 5-cell output. Not three bytes: `CALL` would not fit. The panel's one table read (`:6776`) changes its ×5 to ×4. |
 | **more shared tails** | measured: **3 bytes** for `muWinPtr` | extraction only pays for itself; it is not a strategy. Worth doing opportunistically, per item. |
 
-**Done already — the undo history is out of the image.** `muUndoBuf`, the 256-byte window page, is
-gone: every stack byte is now one `kReuReadAt`/`kReuWriteAt` of length 1 at the cursor, so nothing of
-the stack is resident and no page-boundary arithmetic is needed. That took `musedit` from 17,913 to
-**17,622 bytes and 70 code pages to 69**, and the pool from 103 to **102 of 109 (margin 7)**. The
-file is also deleted at exit now, so a session leaves nothing behind.
+**Done already — the undo history is out of the image.** There is no resident window page: every
+stack byte is one `kReuReadAt`/`kReuWriteAt` of length 1 at the cursor, so nothing of the stack is in
+the image and no page-boundary arithmetic is needed. The file is also deleted at exit, so a session
+leaves nothing behind.
 
 Plan-level budget: `muMnTab` is worth ≈ 49 bytes on top of the **295 bytes already in hand**
-(17,881 to the 71-page line, 18,176). Items 1, 3 and 7 fit in that; item 6 (blocks, 350-450
+(17,881 to the 71-page line, 18,176). Items 3 and 7 fit in that; item 6 (blocks, 350-450
 bytes) is the one that needs a lever of its own.
 
 **Where the player lives, and where it stays.** The music runs in a **thread child of the editor**:
@@ -59,48 +59,31 @@ one set of code pages, no spawn or reap per tune, and the tune it plays is the f
 editing, so an edit is heard on the next pass with no copy. A separate player task is not a
 candidate for making room; the budget below is the whole of it.
 
-## 3. Item 1 — `JIF`, the one command with no line
+## 3. Item 1 — `JIF`: **won't do**
 
-**What it is.** `aa 111110` + option. The command byte is `$3E`, `$7E`, `$BE` or `$FE` (bits 7-6
-are the value's top two bits); the value is `option * 4 + bits 7-6`, a **10-bit two's complement
-number**. `reference/sidplayer-mus-file-format.md` documents the range as **-200 to 757**, with
-`3E 40` = 256, `7E BD` = 757 and `3E CE` = -200.
+**Decision.** The editor will neither draw nor author `JIF`. Its only effect is the length of a
+jiffy, and in GordonOS a jiffy **is** the scheduler tick — the kernel's IRQ drives it once for every
+task, so no tune may own its length and there is no timer for the player to reload. That is a
+property of a multitasking OS, not a gap to be filled later. The player decodes the pair, consumes
+the option byte and returns, so a value written here can never change what is heard: the work would
+cost ~70 bytes of pool pages and 15 bytes of tables for no benefit to the tune being edited. The
+pair is left in the file untouched, so a foreign tune still round-trips byte for byte, and the grid
+shows nothing where it sits — which is what `docs/musedit.md` states.
 
-**Why the player can never honour it, and what that means for the editor.** `JIF`'s whole effect is
-the CIA timer's reload value — the *length of a jiffy*. In GordonOS a jiffy **is** the scheduler
-tick: the kernel's IRQ drives it once for every task, so no tune may own its length and there is no
-timer for the player to reload. That is a property of a multitasking OS, not a gap to be filled
-later, so a value written here has **no effect on playback, ever** — the player decodes the pair,
-consumes the option byte and returns. `docs/musedit.md` already states this in the guide's command
-table and in its "two commands that do nothing" note.
+**The format, for anyone revisiting this.** `aa 111110` + option. The command byte is `$3E`, `$7E`,
+`$BE` or `$FE` (bits 7-6 are the value's top two bits), so the value is `option * 4 + bits 7-6`, a
+**10-bit two's complement number**; `reference/sidplayer-mus-file-format.md` gives the range as
+**-200 to 757** (`3E 40` = 256, `7E BD` = 757, `3E CE` = -200). The grid draws nothing for it
+because `muDecTab`'s slots for `$38-$3F`, `$78-$7F`, `$B8-$BF` and `$F8-$FF` are all `0`, and
+`muMnTab` has no id for it.
 
-**What is missing.** `muDecTab` is indexed by command byte / 8 and its JIF slots — indices 7, 15,
-23 and 31, i.e. `$38-$3F`, `$78-$7F`, `$B8-$BF`, `$F8-$FF` — are all `0`, so `muLnDec` answers
-"nothing the grid shows" and the pair is drawn as nothing at all. `muMnTab` has no id for it (the
-table's own assert pins 49 fields), and no shape encodes a 10-bit value split as `val & 3` into
-the command and `val >> 2` into the option.
-
-**To draw it.**
-1. `MU_MN_JIF = 50`, and `"JIF  "` appended to `muMnTab`; the assert becomes 50 fields.
-2. Four `muDecTab` entries, all `MU_MN_JIF`.
-3. A JIF arm in `muLnDec`: the `muDecExact` family already covers a command byte whose low three
-   bits are 6, so JIF is reached there; instead of the MS# high-byte rule it needs
-   `value = (option << 2) | (cmd >> 6)`, and because the format's own examples include negatives,
-   the printed form needs a minus sign — `muDec16` prints an unsigned 16-bit value, so a negative
-   is `1024 + value` printed with a leading `-` (a sign flag and one conditional blit).
-
-**To author it.**
-4. A new shape (`8`) in `mqShape` with its own encoder branch before `mqEncWide`: the existing
-   wide shapes shift a *masked high byte* into the command, which cannot express JIF's split, so
-   this is `val & 3` into the command byte's bits 7-6 and `val >> 2` into the option.
-5. Bounds: the value is **signed**, and `mqClamp` is a *minimum* clamp, so JIF needs its own
-   two-sided test against -200 and 757 (refusing outside, like `muObjEnc` refuses a value the
-   command cannot hold).
-
-**Cost** ≈ 25 bytes drawing (decode + sign) + 30 bytes authoring (shape + bounds) + 15 bytes of
-table (4 `muDecTab` slots, 5 `muMnTab` bytes, 1 `mqShape`). **~70 bytes**, and no new data
-structures. Gate: a `check-mus-jif.py` in the shape of `check-mus-pitch.py` — encode all 958
-values in range, decode them back, compare with `mus-sim.py`.
+**What drawing and authoring would have taken**, recorded so the decision is cheap to revisit:
+a 50th mnemonic id (`MU_MN_JIF = 50`, `"JIF  "` appended to `muMnTab`, its assert raised to 50
+fields); four `muDecTab` entries; a JIF arm in `muLnDec` decoding `(option << 2) | (cmd >> 6)` and
+printing a negative as `1024 + value` behind a minus sign, because `muDec16` prints unsigned; a new
+`mqShape` whose encoder splits the value the other way (`val & 3` into the command, `val >> 2` into
+the option — the existing wide shapes shift a masked high byte and cannot express it); and a
+two-sided bounds test against -200 and 757, since `mqClamp` is a minimum clamp only.
 
 ## 4. Item 2 — `MS#` to 1023: **closed, at 999**
 
@@ -310,7 +293,7 @@ leave the repo with the plan.
 | feature | shape | note |
 |---|---|---|
 | full-screen grid | a control-bar toggle hides the piano and grows the grid from 18 to 22 rows | one routine, redraws on return |
-| stream view | three columns of hex pairs, cursor + byte editing | the honest fallback for constructs the grid cannot show; also the way to *see* a `JIF` once item 1 exists |
+| stream view | three columns of hex pairs, cursor + byte editing | the honest fallback for constructs the grid cannot show, `JIF` included |
 | sections view | `HED`/`TAL` blocks with repeat counts and `CALL`/`DEF` sites, edited as structure | overlaps item 5's phrase guard |
 | instruments | named command stacks in a sidecar REU file (`musedit.ins`), applied on note entry | no per-frame tables |
 | jam/record | `3-O` the target voice, write `$D400-$D406` for audition, splice on stop | needs the mute/volume path item 4(b) also needs |
@@ -322,13 +305,15 @@ A suggested order — smallest risk first, and each one independently shippable:
 | step | items | why here |
 |---|---|---|
 | 2.1 | `muMnTab` at 4 bytes | buys ~49 bytes; byte-neutral to the user (the undo history is already out of the image) |
-| 2.2 | **item 1 (`JIF`)** | self-contained, ~70 bytes, one new gate, and it takes the drawn set from 49 to the format's full 50 |
-| 2.3 | ~~**item 5 (delete row / bar)**~~ — **done**, `R` and `SHIFT+R` | it was the inverse the editor was most obviously missing |
-| 2.4 | **item 3 (description)** | UI-only, ~200 bytes, needs the keys decision |
-| 2.5 | **item 4 (play from cursor)** | first `sid.lib` change; (a) then (b) |
-| 2.6 | **item 7 (jump to a bar or measure)** | small, no format work, and it pays for itself the first time a tune runs past a screenful |
-| 2.7 | **item 6 (blocks)** | the largest; needs the funding decision at that point |
-| 2.8 | § 10 wishlist | re-ranked after 2.1-2.7 |
+| 2.2 | ~~**item 5 (delete row / bar)**~~ — **done**, `R` and `SHIFT+R` | it was the inverse the editor was most obviously missing |
+| 2.3 | **item 3 (description)** | UI-only, ~200 bytes, needs the keys decision |
+| 2.4 | **item 4 (play from cursor)** | first `sid.lib` change; (a) then (b) |
+| 2.5 | **item 7 (jump to a bar or measure)** | small, no format work, and it pays for itself the first time a tune runs past a screenful |
+| 2.6 | **item 6 (blocks)** | the largest; needs the funding decision at that point |
+| 2.7 | § 10 wishlist | re-ranked after 2.1-2.6 |
+
+Items 1 and 2 are **closed** and are not steps: `JIF` is won't-do (§ 3), and `MS#` stops at 999,
+which is the format's own maximum (§ 4).
 
 Each step is done when: the code builds with **no new code page** (or the page is paid for and the
 pool gate still prints `margin >= 5`), every existing gate passes, the item's own gate passes and
@@ -340,9 +325,9 @@ hears or types into; a py65 harness alone is not "verified".
 
 1. **Item 2** is closed at 999 — does the list want anything else under that heading, or should it
    come off the list?
-2. **`JIF`** can never play in GordonOS (the jiffy is the scheduler tick), so the item is
-   completeness only: draw it and author it so a foreign tune round-trips faithfully, or drop it
-   and leave the pair untouched (`docs/musedit.md` says it is kept in the file as-is)?
+2. **`JIF`** (item 1) is **closed as won't do** (§ 3): the player can never honour it, so drawing
+   or authoring it would spend pool pages on a value nothing can hear. The pair stays in the file
+   untouched and the grid shows nothing there.
 3. **Description**: one scrolled line in row 0, or a full-screen text mode? Which keys?
 4. **Delete row** (item 5) is closed at the cheap version: it refuses a note that spans the row.
    Does anything need the long form (a jiffies-to-duration inverse plus a split, ~160 bytes)?
@@ -351,6 +336,6 @@ hears or types into; a py65 harness alone is not "verified".
 7. **Jump**: which key, and should the head show the measure beside `BAR`? For a tune with no
    `MS#`, is a refusal enough, or should the editor derive a measure from bars (8 rows at the
    default tempo, which is a different number and would have to say so)?
-8. **Funding**: `muMnTab` (§ 2, ≈ 49 bytes) plus the 382 bytes in hand is the whole budget —
-   enough for items 1, 3 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
+8. **Funding**: `muMnTab` (§ 2, ≈ 49 bytes) plus the 295 bytes in hand is the whole budget —
+   enough for items 3 and 7. Item 6 (blocks) needs a lever of its own or a cheaper design;
    which does the list prefer?
