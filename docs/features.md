@@ -174,8 +174,8 @@ See [lib-gfx.md](lib-gfx.md).
 - **`musedit` edits those tunes on the machine**: a three-voice grid with the note and its
   duration on one row, a playhead that follows the music line by line through the kernel's
   REU row scroll, three coloured dots on an eight-octave piano showing what each voice is
-  sounding, an editing model (insert, rest, command panel, undo/redo) and save back to the
-  REU FS. See [musedit.md](musedit.md).
+  sounding, an editing model (insert, rest, command prompt, page and bar jumps,
+  undo/redo) and save back to the REU FS. See [musedit.md](musedit.md).
 - See [lib-sid.md](lib-sid.md).
 
 ## 10. Storage: the REU filesystem

@@ -139,7 +139,7 @@ try {
     Copy-Item (Join-Path $root "docs/LICENSE.md") (Join-Path $BinDir "LICENSE.md") -Force
 
     # --- the documentation ---------------------------------------------------
-    #  The five application guides are the documentation that ships; the rest of docs/
+    #  The six application guides are the documentation that ships; the rest of docs/
     #  (the kernel reference, the memory map, the build notes, the tutorial) is developer
     #  material and stays in the source repo. A guide's link to a doc that does not ship is
     #  NEUTRALISED rather than copied -- the target stays in the text as a bare name in

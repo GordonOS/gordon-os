@@ -822,8 +822,9 @@ run basic              ← open/create the BASIC working file (basicwrk)
   at a time, and three coloured dots on the eight-octave piano show what each voice is
   sounding (red, yellow, cyan). Editing is by cursor: note keys enter a pitch at the
   cursor, `1`-`7` arm a duration, INST/DEL writes a rest, `I` inserts a row in all three
-  voices, `C` opens the command panel, `Z`/`X` undo and redo, `W` saves. `SPACE` starts
-  and stops the tune ? one pass, then the score rewinds ? and `q` leaves. It declares
+  voices, `SHIFT`+`,`/`.` move a page, `SHIFT`+`B` jumps to a bar, `C` opens the command
+  prompt, `Z`/`X` undo and redo, `SHIFT`+`S` saves. `SPACE` starts and stops the tune ?
+  one pass, then the score rewinds ? and `q` leaves. It declares
   `filesys.lib` and `sid.lib` and needs the mouse (`mouse 1351`), like `grpaint`.
   Full reference: [musedit.md](musedit.md)
 - **`fstest`** (`.com`, typed as `fstest`) - REU filesystem **bank-boundary self-test**.

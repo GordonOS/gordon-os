@@ -459,7 +459,7 @@ GitHub write access is the enforcement, and `-SkipPush` still allows a local com
 testing.
 
 `publish-binaries.ps1` copies the artifacts, the two text files that describe them, and the
-five application guides.
+six application guides.
 
 | In the binaries repo | Copied from | Note |
 |---|---|---|
@@ -469,7 +469,7 @@ five application guides.
 | `quickstart.binaries.md` | `tools/quickstart.binaries.md` | at the root |
 | `NOTICE` | `NOTICE` | |
 | `LICENSE.md` | `docs/LICENSE.md` | moved to the root |
-| `docs/*.md` | `docs/` | the five application guides, and nothing else — see below |
+| `docs/*.md` | `docs/` | the six application guides, and nothing else — see below |
 | `docs/img/` | `docs/img/` | the screenshots — addressed as `docs/img/<name>` by the two root-level files and as `img/<name>` by a guide under `docs/` |
 
 The screenshots go to `docs/img/` rather than the root because that is the one place where
@@ -482,9 +482,9 @@ The PRG and the two REU images are written with `Split-Path -Leaf`, so all three
 the binaries repo's **root** — the `build/` and `reu/` directories exist only in the source
 repo, and the published text names them without a directory for that reason.
 
-**The shipped guides are listed; the rest of `docs/` stays private.** `$guides` names the five
-(`edit`, `gordonpaint`, `gortris`, `grknoid`, `gordonbasic`) — the programs this image carries
-plus the language reference. The kernel reference, `memory-map.md`, `syscall.md`, the build
+**The shipped guides are listed; the rest of `docs/` stays private.** `$guides` names the six
+(`edit`, `gordonpaint`, `gortris`, `grknoid`, `gordonbasic`, `musedit`) — the programs this image
+carries plus the language reference. The kernel reference, `memory-map.md`, `syscall.md`, the build
 notes and the tutorial are developer material and do not travel. `docs/` is *replaced* on each
 publish, never merged, for the same reason `docs/img/` is: a doc that leaves the set must not
 linger.
@@ -501,7 +501,7 @@ neutralised are printed on the way past.
 `gordonOS-demo.mp4` sits in the clone but is not in this list. Publishing commits whatever
 the clone holds (`git add -A`), so a file placed there by hand survives a publish untouched.
 
-⚠️ **A guide's link may only point at something that ships.** That set is the five guides,
+⚠️ **A guide's link may only point at something that ships.** That set is the six guides,
 `docs/img/`, `../NOTICE` and `LICENSE.md` at the root. A
 link to any other `.md` is neutralised at publish time rather than broken, and every other
 relative link is resolved — the publish exits with the list. So a guide that cites a developer
