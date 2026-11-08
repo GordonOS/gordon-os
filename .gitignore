@@ -12,8 +12,10 @@ tasks-out/
 # scratch (frame extractions, comparison sheets). Everything here is
 # regenerated on demand, so nothing in temp/ is worth committing -- including
 # the downloaded source video and its extracted frames for a REU animation
-# film (the recipe is in docs/pic-format.md).
+# film (the recipe is in docs/pic-format.md), and tools/temp/, where the VS64
+# build drops its symbol maps (symout/) and the per-task intermediate binaries.
 /temp/
+/tools/temp/
 
 # KickAssembler/VS64 generated symbol maps and build info
 *.sym

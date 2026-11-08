@@ -36,6 +36,14 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & "$PSScriptRoot/check-zp-indirect.ps1"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Two labels on one zero-page byte. The assembler gives them the same address
+# without a word and the task's own asserts pin only the TOP of the window, so a
+# duplicate is invisible until the day the two owners interleave -- then it reads
+# as a logic bug in whichever one is overwritten. The span comes from each label's
+# `// N bytes` comment.
+& python "$PSScriptRoot/check-zp-map.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # The command encoder tables against the format's own generator: musedit builds a
 # pair from a mnemonic id and the operand, and gen-mus.py builds the same pair from
 # the format's definition. Nothing kept the two in step, so a table row could drift
