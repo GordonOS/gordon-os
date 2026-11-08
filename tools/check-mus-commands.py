@@ -41,8 +41,8 @@ def strip(line):
     return line.split("//")[0]
 
 
-def byte_values(text):
-    """Every $xx / decimal byte in a run of .byte operands."""
+def byte_values(text, consts):
+    """Every $xx / decimal byte in a run of .byte operands, or a named .const."""
     out = []
     for token in text.split(","):
         token = token.strip()
@@ -50,13 +50,35 @@ def byte_values(text):
             continue
         if token.startswith("$"):
             out.append(int(token[1:], 16))
-        else:
+        elif token[0].isdigit():
             out.append(int(token, 0))
+        elif token in consts:
+            out.append(consts[token])
+        else:
+            raise SystemExit("check-mus-commands: a table holds %r, which is "
+                             "neither a number nor a .const" % token)
     return out
 
 
-def read_table(lines, label):
+def read_consts(lines):
+    """name -> value for every `.const NAME = value` in the sources."""
+    out = {}
+    for line in lines:
+        m = re.match(r"^\.const\s+(\w+)\s*=\s*(\S+)", strip(line).strip())
+        if not m:
+            continue
+        raw = m.group(2)
+        try:
+            out[m.group(1)] = int(raw[1:], 16) if raw.startswith("$") else int(raw, 0)
+        except ValueError:
+            pass               # `= LABEL` or an expression: not a table value
+    return out
+
+
+def read_table(lines, label, consts=None):
     """The bytes of `label:` -- a .byte run, including its continuation lines."""
+    if consts is None:
+        consts = read_consts(lines)
     for i, line in enumerate(lines):
         m = re.match(r"^%s:\s*(.*)$" % re.escape(label), strip(line))
         if not m:
@@ -64,7 +86,7 @@ def read_table(lines, label):
         values = []
         rest = m.group(1)
         if rest.strip().startswith(".byte"):
-            values += byte_values(rest.strip()[5:])
+            values += byte_values(rest.strip()[5:], consts)
         j = i + 1
         while j < len(lines):
             body = strip(lines[j]).strip()
@@ -73,7 +95,7 @@ def read_table(lines, label):
                 continue
             if not body.startswith(".byte"):
                 break
-            values += byte_values(body[5:])
+            values += byte_values(body[5:], consts)
             j += 1
         return values
     raise SystemExit("check-mus-commands: no table %r in %s" % (label, EDITOR))

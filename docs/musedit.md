@@ -548,7 +548,7 @@ is and nothing needs renumbering.
 **Values.** The prompt takes the value in decimal, up to whatever that command allows: most take
 0-255, the one-bit commands (`SNC`, `FLT`, `RNG`, `3-O`, `BMP`, `F-X`, `LFO`, `P&V`) take 0 or 1,
 `WAV` and `F-M` 0-7, the envelope nibbles 0-15, `RUP`/`RDN` 0-31, and three take more than a byte
-— `MS#` up to 767, `P-W` and `DTN` up to 4095, `POR` up to 16383. A value the command cannot
+— `MS#` up to 999, `P-W` and `DTN` up to 4095, `POR` up to 16383. A value the command cannot
 hold is clamped to its maximum rather than refused, so what the prompt shows is always what gets
 written.
 

@@ -6599,7 +6599,7 @@ mqShOr:
 // --- mqEncWide -- shapes 5-7: the operand's HIGH byte packs into the command byte ---
 //  In: A = the shape, Y = id - 1. The low byte is the option. The maximum comes
 //  from the shape rather than the table, because only these shapes can exceed a
-//  byte: P-W and DTN 4095, POR 16383, MS# 767.
+//  byte: P-W and DTN 4095, POR 16383, MS# 999.
 mqEncWide:
     tax                         // the shape (5, 6 or 7)
     lda mqShMaxHi-5,x
@@ -6763,12 +6763,25 @@ mqShape:    .byte 0,    0,    0,    0,    0,    0,    0,    0,    0
 //  how far left they move. Shapes 1-3 are the only packing ones so far.
 mqShMask:   .byte $00, $0f, $0f, $07, $1f
 mqShShift:  .byte 0,    4,    3,    5,    3
-//  Shapes 5-7 (P-W, POR, MS#) put the operand's HIGH byte in the command byte, so
-//  they carry their own maximum and their own place for those bits.
-mqShMaxLo:  .byte $ff, $ff, $ff
-mqShMaxHi:  .byte $0f, $3f, $02    // 4095, 16383, 767
-mqShCmdMask:  .byte $0f, $3f, $03
+//  Shapes 5-7 put the operand's HIGH byte in the command byte, so they carry their
+//  own maximum and their own place for those bits: P-W and DTN share shape 5, POR
+//  is 6 and MS# is 7. MS# stops at $03E7 = 999, the format's own limit -- its
+//  fourth block runs $00-$E7.
+.const MQ_WMAX_PWDTN = $0f      // the largest HIGH byte each wide shape carries
+.const MQ_WMAX_POR   = $3f
+.const MQ_WMAX_MS    = $03
+.const MQ_WMASK_PWDTN = $0f     // ...and the bits of the command byte it packs into
+.const MQ_WMASK_POR   = $3f
+.const MQ_WMASK_MS    = $03
+mqShMaxLo:    .byte $ff, $ff, $e7
+mqShMaxHi:    .byte MQ_WMAX_PWDTN, MQ_WMAX_POR, MQ_WMAX_MS
+mqShCmdMask:  .byte MQ_WMASK_PWDTN, MQ_WMASK_POR, MQ_WMASK_MS
 mqShCmdShift: .byte 4,    2,    6
+//  A maximum its mask cannot hold is truncated on the way into the command byte, so
+//  the prompt would show a number the pair does not carry.
+.assert "P-W/DTN: the maximum fits the command byte's mask", (MQ_WMAX_PWDTN <= MQ_WMASK_PWDTN) ? 1 : 0, 1
+.assert "POR: the maximum fits the command byte's mask", (MQ_WMAX_POR <= MQ_WMASK_POR) ? 1 : 0, 1
+.assert "MS#: the maximum fits the command byte's mask", (MQ_WMAX_MS <= MQ_WMASK_MS) ? 1 : 0, 1
 
 // ==========================================
 //  Undo -- a stack of range-diff records

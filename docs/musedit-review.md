@@ -35,7 +35,7 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 
 | # | Sev | Where | Finding |
 |---|---|---|---|
-| F1 | Medium | `musedit.inc:373`, `:6770`, `musedit.md:551`/`:616` | `MS#` is documented three ways (999 / 767 / 1023) and the cap is neither the documented one nor the format's |
+| F1 | Medium | `musedit.inc:373`, `:6770`, `musedit.md:551`/`:616` | `MS#` was documented three ways (999 / 767 / 1023) and the encoder capped at 767 — **fixed: the encoder carries the format's 999, asserted against its mask** |
 | F2 | Low | `musedit.inc:8647`, `:6236`, `musedit-msgs.txt` | Two unreachable "`? not yet`" branches and one unused message (`? not a tune`) — **fixed: the branches are gone and the hover no longer lights a code with no action** |
 | F3 | Low | `musedit.inc:403` | `MU_BAR_INS`'s comment said "toggles insert/overwrite"; the cell inserts one row — **fixed: the comment says what it does** |
 | F4 | Medium | `musedit.md:700-717` | The guide documented 11 of the editor's 23 messages; twelve reachable ones were missing — **fixed: all 23 now have a row, with the trigger read off the code** |
@@ -58,29 +58,51 @@ Severity: **Blocker** (must fix before merge) · **High** (fix soon) · **Medium
 
 ### F1 — `MS#` is documented three ways and capped at a fourth (Medium)
 
-`MS#` is "aa 011110" + option, so the format carries 10 bits: 0-1023
-(`reference/sidplayer-mus-file-format.md`, cross-checks section). The editor:
+`MS#` is "aa 011110" + option, so the encoding carries 10 bits: 0-1023 (the format's own table in
+`reference/sidplayer-mus-file-format.md` puts the limit at 999). The editor:
 
-- **decodes** all four high-byte values (`muDecTab`, `musedit.inc:10271-10277`, has four `MS#`
+- **decodes** all four high-byte values (`muDecTab`, `musedit.inc:10283-10289`, has four `MS#`
   slots), and `muDec16` is a 5-weight 16-bit printer, so a file holding 1000 displays correctly;
-- **writes** at most 767: `mqShMaxHi: .byte $0f, $3f, $02` (`:6770`) — 4095, 16383, 767;
+- **wrote** at most 767: `mqShMaxHi`'s third byte `$02` (4095, 16383, 767);
 - says **0-999** in the mnemonic's own comment (`:373`) and in the guide's command table
   (`musedit.md:616`), and **767** in the guide's `Values` paragraph (`musedit.md:551`).
 
 So a value of 768-1023 survives a load and is drawn truthfully, but `C` on that line opens the
 prompt at 767 and the clamp (`mqClamp`) quietly rewrites it lower. Three statements, three numbers.
 
-**Fix (small, pick one):**
+**What the number should be — 999, and the fourth block says so.** `reference/…` states the limit
+outright ("Highest value allowed is 999"), and the ported player's own block table
+(`sidplay.inc:1349-1357`) enumerates it: blocks 1-3 run `$00-$FF`, and block 4 — `11 011110` — runs
+`$00-$E7`, i.e. 768 + 231 = 999. `mqShCmdMask` for shape 7 is already `$03`, two bits, so the
+encoder has always been able to write the fourth block; only the declared maximum stopped one block
+short.
 
-- *Format-faithful:* `mqShMaxHi`'s third byte `$02` → `$03`, and the guide says 1023 in both
-  places (the prompt's five-digit display handles it: `muDec16` has the 10000 weight).
-- *Deliberate 999:* keep the encoder but raise `$02` to `$03` **and** add a clamp at 999 —
-  more code for no gain.
-- *Keep 767:* correct `:373` and `musedit.md:616` to 767 and say why (it is the largest value that
-  fits the three-cell readout the grid reserves).
+**One claim in the first draft of this finding was wrong.** It said "no bundled tune uses `MS#` at
+all", and that is what made "keep 767" look reasonable. Decoding all nine tunes from offset 8:
+**563 `MS#` pairs across six of them** — `katmand` 267, `tambrn` 156, `arose` 68, `commodo` 50,
+`fsonata` 21, `immig` 1 — with the highest value **595** (`immig`, pair `9E 53`, block 3). Heavily
+used, never at the cap, so nothing is broken today and the recommendation had no basis.
 
-The third is my recommendation: 767 keeps every drawn measure number three digits wide, and no
-bundled tune uses `MS#` at all.
+**Fixed, in two data bytes.** `mqShMaxHi`'s shape-7 entry `$02` → `$03` and `mqShMaxLo`'s `$ff` →
+`$e7`; `mqClamp` is already a general 16-bit minimum, so it stops at exactly 999 with no routine
+changed. The three maximums and their masks are now `.const`s that build both tables, so a maximum
+and its mask cannot drift apart, and three `.assert`s (`MQ_WMAX_x <= MQ_WMASK_x`) fail the build if
+one ever outgrows the other — a maximum the mask truncates is a display/write mismatch by
+construction, which is F14's shape of bug. `docs/musedit.md:551` says 999, and the `mqEncWide`
+header comment with it.
+
+`tools/check-mus-commands.py` learned to resolve a `.const` in a table (its sweep limit comes from
+these two tables), so the sweep grew by itself: **30,463 pairs → 30,695**, the 232 new ones being
+`MS#` 768-999, all passing.
+
+Verified on the built image with py65: `muObjEnc` + `mqClamp` report the maximum as **999** and
+leave 768 → 768, 999 → 999, 1000 → 999, 1023 → 999, while `P-W`/`DTN` 4095, `POR` 16383 and the
+byte-wide `MAX` 255 behave exactly as they did; `muLnDec` reads every `MS#` pair from 0 to 1023
+back to id 47 with the value intact, so a foreign file's 800 still displays as 800. The assert was
+proved to bite: with `MQ_WMAX_MS = $04` the assembler prints
+`MS#: the maximum fits the command byte's mask=0 (1) -- ERROR IN ASSERTION!!!` and `kick.ps1`
+aborts the build. `musedit` stays 17,850 bytes / 70 pages / 1,805 fixups (data only), and all ten
+source gates pass.
 
 ### F2 — Dead scaffolding and an unused message (Low)
 
@@ -270,7 +292,7 @@ written"* (`musedit.md:552`) — and it needs no malformed file, only a `P-W` ed
 statically there is now **one** `sta muObjMax / lda #0 / sta muObjMaxHi` sequence in the file
 (`$7723`), inside `muObjEnc`; and `mqClamp` was emulated under py65 with the operand 300 against
 max `255` — **255** with the high half cleared (the fix), **300** with a stale `$0F` (the bug,
-reproduced), plus the boundary cases `P-W` 4095 / `MS#` 767 / "exactly the max" all correct.
+reproduced), plus the boundary cases `P-W` 4095 / `MAX` 255 / "exactly the max" all correct.
 
 ### F15 — `muInsFrom` shares zero page with the command dialog's high half (Medium, latent)
 
@@ -444,14 +466,14 @@ The discrepancies are:
 
 | # | claim | reality |
 |---|---|---|
-| 1 | `musedit.md:551` "`MS#` up to 767" vs `:616` "0-999" | the encoder caps at **767**; the format allows 1023 (**F1**) |
-| 2 | the troubleshooting table (`:700-717`) | 13 of 23 messages documented, counting the body text; eight reachable ones are not (**F4**) |
+| 1 | `musedit.md:551` "`MS#` up to 767" vs `:616` "0-999" | the encoder capped at **767**; the format's limit is 999 (**F1**) — fixed: the encoder now carries 999 and both places say so |
+| 2 | the troubleshooting table (`:700-717`) | 11 of 23 messages documented, counting the body text; twelve reachable ones were not (**F4**) — fixed: all 23 have a row |
 | 3 | `:562` "**Every** command the picker offers is writable" | true (no shape 9), and `JIF` is correctly absent from the picker — this claim is *right* and worth keeping |
 | 4 | the tune-size cap | never mentioned (**F11**) |
 | 5 | `:39` "`? sid.lib in use` … printed by the shell before `musedit` starts" | correct, and the branch added exactly that (`shell.inc:1516`, `msgDynSidBusy`) |
 | 6 | `:214` "`JIF` … no bundled tune uses it" | verified: zero `JIF` pairs in all nine tunes |
 | 7 | `:88` dots "red / yellow / cyan" | `muVoiceCol: .byte 2, 7, 3` ✓ |
-| 8 | `:106` "quits, and answers `? unsaved` first" | `M_UNSAVED` is `"? unsaved - q again"`, so the table's `? unsaved` is a prefix, not the text |
+| 8 | `:106` "quits, and answers `? unsaved` first" | `M_UNSAVED` is `"? unsaved - q again"`; the wording now gives the whole text |
 | 9 | `:552` "a value the command cannot hold is clamped to its maximum … what the prompt shows is always what gets written" | now true: the clamp's high half is re-derived on every prompt redraw (**F14**, fixed) |
 
 Two structural notes:
@@ -616,16 +638,17 @@ diagnosis: the even-length check at open (**F9**) and the transfer flags (**F10*
 
 | command | result |
 |---|---|
-| `python tools/check-mus-commands.py` | 30,463 pairs checked against `gen-mus.py`, 49 mnemonics — OK |
+| `python tools/check-mus-commands.py` | 30,695 pairs checked against `gen-mus.py`, 49 mnemonics — OK (the `MS#` sweep runs to 999 now, not 767) |
 | `python tools/check-mus-timing.py` | 32×7 chart with 0 disagreements, tables byte-identical to `sidplay.inc`, 8,192-case sweep, all 256 tempos have a unit — OK |
 | `python tools/check-musedit-walk.py` | `immig` matches the editor over 19 lines — OK |
 | `powershell tools/check-zp-indirect.ps1` | 139 source files, every indirect operand is zero page — OK |
 | `powershell tools/verify-map.ps1` | all checks passed; 116 bytes free across 21 pockets; `tickCount` pocket pinned |
-| `powershell tools/build-tasks.ps1` | exit 0; 80 asserts, 0 failed; `musedit` 17,850 bytes / 70 pages / 1,805 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
+| `powershell tools/build-tasks.ps1` | exit 0; 83 asserts, 0 failed; `musedit` 17,850 bytes / 70 pages / 1,805 fixups, `shell` 32 pages (margin 77); `msgs` 31 slots (1,984 bytes); pool 104 of 109, margin 5 (`basic` fits exactly — pre-existing) |
 | `check-reu-fs.ps1 -Extract msgs` | the shipped `msgs` is 1,984 bytes and byte-identical to `assets/ui/musedit-msgs.bin`; layout OK, 141 entries |
 | `python tools/check-zp-map.py` | `musedit.inc  196 names, top byte +228  OK`; and it fails on the pre-fix map (`muInsFrom overlaps muObjValHi … byte 224`, exit 1) |
-| py65, `mqClamp` on the built image | 300 against max 255 → **255** with the high half cleared, 300 with a stale `$0F` (the reproduced bug); `P-W` 4095 / `MS#` 767 / boundary cases all correct |
+| py65, `mqClamp` on the built image | 300 against max 255 → **255** with the high half cleared, 300 with a stale `$0F` (the reproduced bug); `P-W`/`DTN` 4095, `POR` 16383, `MS#` 999 (768 → 768, 1000 → 999, 1023 → 999) all correct |
+| py65, `muLnDec` on the built image | every `MS#` pair from 0 to 1023 decodes to id 47 with its value intact — so 768-999 in a foreign file still draws as itself |
 | `powershell tools/check-reu-current.ps1` | no `.asm`/`.inc` changed since the last task build; all 49 binaries byte-identical in the image |
-| `python tools/check-links.py` | 48 files, 0 unresolved — OK |
+| `python tools/check-links.py` | 49 files, 0 unresolved — OK |
 | `python tools/check-ascii.py` | OK |
-| host probe over `music/*.mus` | voice lengths all even, no `JIF`, no `$00` pairs, no `MS#` ≥ 768, 39 utility-duration pairs |
+| host probe over `music/*.mus` | voice lengths all even, no `JIF`, no `$00` pairs, no `MS#` ≥ 768 (563 `MS#` pairs in six tunes, highest 595), 39 utility-duration pairs |
