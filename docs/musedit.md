@@ -350,10 +350,11 @@ where a rest stands, inside a longer one, or over a note already there. A note a
 keeps its pitch only if you leave it alone; typing a pitch re-times the event to the armed value, so
 the rows below move to suit.
 
-**Triplets** need a tempo that has a triplet table (elsewhere the entry is refused with
-`? illegal duration`). **Dotted** and **double-dotted** lengths are refused when the tempo cannot
-express them as whole jiffies: a dotted note needs an even base length, a double-dotted one a base
-divisible by four.
+**Triplets** need a tempo in one of the bands listed under
+[which lengths a tempo can hold](#which-lengths-a-tempo-can-hold) — elsewhere the entry is refused
+with `? illegal duration`, and a tune that needs them usually wants a multiple of 48. **Dotted** and
+**double-dotted** lengths are refused when the tempo cannot express them as whole jiffies: a dotted
+note needs an even base length, a double-dotted one a base divisible by four.
 
 **The tie** joins a note to the one after it into a single sound. It is armed with `,` or by clicking
 `TIE` in the bar — both toggle the same flag, so the cell lights whichever way you armed it. It
@@ -515,8 +516,11 @@ left or right into the lane that shows the command.
 ### Illegality is caught where it happens
 
 A duration the current tempo cannot express is refused with `? illegal duration`, and nothing is
-written. The classic case is a 32nd or 64th at a moderate tempo, or a triplet at a tempo that has no
-triplet table. Choose a longer value, or change the tempo first.
+written. The classic cases are a 32nd at a tempo that is not a multiple of 32, a 16th at one that is
+not a multiple of 16, and a triplet at a tempo outside the ten bands
+[which lengths a tempo can hold](#which-lengths-a-tempo-can-hold) lists. Choose a longer value, or
+change the tempo first — and if the piece needs both 16ths and triplets, make the tempo a multiple of
+48 so neither is refused.
 
 One corner a foreign file can carry: a note pair whose duration byte is exactly `$00`. What such a
 pair means is not settled — only the player decides — and this player reads it as a 64th note, so the
@@ -636,7 +640,8 @@ spot, the redo is withdrawn, and row 0 says which:
 ![a tempo the tune cannot play, refused and rolled back](img/musedit-error.png)
 
 - `? illegal tempo` — the tempo now leaves some note length inexpressible (the classic case: a 16th
-  at a tempo whose unit is coarser than one).
+  at a tempo that is not a multiple of 16, or a triplet at one outside the ten bands — see
+  [which lengths a tempo can hold](#which-lengths-a-tempo-can-hold)).
 - `? the tune cannot play that` — anything else the walk tripped over: a `CALL` to a phrase with no
   `DEF`, a call stack one frame too deep, a `TAL` whose `HED` belongs to another phrase.
 
@@ -735,11 +740,11 @@ back), or copy the line from a tune that already sounds the way you want.
 
 `TEM` is the one command whose arithmetic surprises people. It is a *divisor*, not a rate — the
 classic tempo table in the original editor steps in eighths — `F0` is 60 a minute, `E0` is 64, `10` is
-900 and `08` is 1800 — because each step of 8 in the operand is one step in the table. The player turns
-the value into jiffies per row from its own tempo table, which is why the grid's rows re-scale when a
-tempo changes and why some values cannot express a short note at all: at a coarse tempo a 16th has no
-whole number of jiffies, and that is exactly what `? illegal duration` and `? illegal tempo` are
-about.
+900 and `08` is 1800 — because each step of 8 in the operand is one step in the table. The player
+turns the value into a length in jiffies by shifting it down (four shifts for a 16th, five for a
+32nd), which is why the grid's rows re-scale when a tempo changes and why some values cannot express
+a short note at all. The subsection below is the whole picture, and it is the one place a tempo's
+limits are worth looking up.
 
 Two details: `TEM 0` does **not** mean "stop" — zero is read as 256, which is 56 quarter notes a
 minute, the slowest the table goes. And because the operand is a plain byte, a tune cannot be
@@ -755,6 +760,63 @@ to change the length of all of them.
 TEM 160
 UTL 12
 ```
+
+#### Which lengths a tempo can hold
+
+A tempo is a byte, and most of its 256 values cannot express every length. Two different rules
+decide it, and they are why `? illegal duration` arrives for one note and not another.
+
+**Plain, dotted and double-dotted lengths are the tempo divided down.** A quarter is the tempo
+shifted right twice, an 8th three times, a 16th four times and a 32nd five times, and a shift that
+would drop a bit is refused. So the tempo has to be divisible by the length: 8ths need a multiple of
+8 (`TEM 120`, `144`), 16ths a multiple of 16 (`TEM 96`, `144`, `240`), and 32nds a multiple of 32
+(`TEM 96`, `192`). A dotted length additionally needs an even base, and a double-dotted one a base
+divisible by four. This is where an odd tempo bites: `TEM 145` plays a whole note and **nothing
+shorter**, and `TEM 146` manages a half — a tempo nudged off a round number loses most of its grid.
+
+**A triplet length comes from the player's own tempo table**, which is indexed by the tempo's top
+five bits — so the low three bits do not affect it at all — and which holds an entry only every third
+index. A zero entry is a refused triplet. Triplet-capable tempi are therefore **ten bands of eight**:
+
+| tempo | quarter notes a minute | finest triplet |
+|---|---|---|
+| 24-31 | 600 | 16th |
+| 48-55 | 300 | **32nd** |
+| 72-79 | 200 | 16th |
+| 96-103 | 150 | **32nd** |
+| 120-127 | 120 | 16th |
+| 144-151 | 100 | **32nd** |
+| 168-175 | 86 | 16th |
+| 192-199 | 75 | **32nd** |
+| 216-223 | 66 | 16th |
+| 240-247 | 60 | **32nd** |
+
+Everything in one band has the same triplets; only the plain lengths differ. The bold bands can hold
+a triplet 32nd, the rest stop at a triplet 16th.
+
+Put the two rules together and the useful tempi are almost all **multiples of 48**:
+
+| `TEM` | quarter notes a minute | quarter is | finest plain note | triplets up to |
+|---|---|---|---|---|
+| 48 | 300 | 12 jiffies | 16th | 32nd |
+| 96 | 150 | 24 | 32nd | 32nd |
+| 144 | 100 | 36 | 16th | 32nd |
+| 192 | 75 | 48 | 32nd | 32nd |
+| 240 | 60 | 60 | 16th | 32nd |
+
+Those five hold 16ths *and* triplets, which is what most tunes need. If a tune wants triplets but no
+16ths, `72`, `120`, `168` and `216` are the alternatives — 8ths and longer, plus triplets up to a
+16th. And if a tune never uses a triplet, the multiples of 32 give the finest grid without one: `32`,
+`64`, `128`, `160` and `224` all reach 32nds.
+
+Two traps worth knowing. **`TEM 0` is 256**, which lands on index 0 of the triplet table — an empty
+entry, so no triplet at all — while its plain grid is very fine (a quarter of 64 jiffies, a 16th of
+16, a 32nd of 8, a 64th of 4); only a whole note is out of its range. And **most values are
+in-between**: `TEM 25`, `27`, `29` and `31` lie in a triplet band but are not divisible by 8, so they
+can write a triplet while refusing an 8th — a combination that is legal and almost never useful.
+
+If a tune changes tempo part way through, each section answers for itself: the bands are a property
+of the `TEM` in force at that point, not of the file.
 
 ### Volume — `VOL`, `BMP`
 
@@ -1374,7 +1436,7 @@ pretend to:
 
 | refusal | why |
 |---|---|
-| a duration the tempo cannot express (`? illegal duration`) | the format stores a length *class*, not a jiffy count, so a length the tempo's table has no entry for would be written as some other length |
+| a duration the tempo cannot express (`? illegal duration`) | the format stores a length *class*, not a jiffy count, so a length the tempo's table has no entry for would be written as some other length — [which lengths a tempo can hold](#which-lengths-a-tempo-can-hold) is the list |
 | a pair that leaves the tune unwalkable (`? illegal tempo`, `? the tune cannot play that`) | a `CALL`, `TAL` or tempo can break the *rest* of the tune; the walk finds it and the pair is taken back |
 | inserting or deleting time inside a `DEF` body (`? phrase 3 x5`) | the body plays at every `CALL` site, so the row count change would land in all of them |
 | deleting a row through a note (`? a note in voice 2 spans the row`) | closing the row could only shorten the note, and the format has no way to say "the same note, one row shorter" |
