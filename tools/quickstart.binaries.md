@@ -21,6 +21,10 @@ BASIC's program RAM is a persistent 64 KB REU working file (`basicwrk`) —
 open it with `run basic` (reused if present, created if absent, deleted on
 `exit`).
 
+Everything in the image — a saved BASIC program, a tune, a picture — can be
+copied out to your own computer and put back, with `reufs-gui.py` or `reufs.py`;
+see *Taking a file out of the image* at the end of this guide.
+
 The `.tsk` tasks `gfxdemo`, `fpdemo`, `spirog`, `sprdemo`, `maze`, `clock`, `grview` and
 `granim` are
 **re-runnable**: `run` them multiple times for a fresh copy each time. `sprdemo` is

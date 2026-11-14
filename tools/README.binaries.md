@@ -143,7 +143,10 @@ Key features:
   and multicolor (160x200); `gfx.lib` draws lines/boxes/circles/flood-fill and
   pixel-positioned text, all MC-aware
 - Thread support - tasks can spawn child threads that share the parent's memory
-- REU filesystem - `format`/`save`/`load`/`del`/`rename`/`copy`/`dir`/`type`/`fsinfo`/`compact`, persists across reboots
+- REU filesystem - `format`/`save`/`load`/`del`/`rename`/`copy`/`dir`/`type`/`fsinfo`/`compact`,
+  persists across reboots, and **crosses to the host**: `reufs-gui.py` (a two-pane window) or
+  `reufs.py` (a command line) list, copy out and copy in files from Windows, Linux or macOS —
+  see *Getting files out of the image* above
 - IRQ-driven keyboard - 16-byte ring buffer, key repeat, F-key screen switching
 - Interactive shell - line editing, cursor keys, blinking cursor,
   custom-glyph `.bnr` banners (`banner <file> <row> <col>`), and a machine
@@ -378,6 +381,10 @@ until you export them. Before powering down:
 4. Select **Save REU Memory**.
 5. Enter a filename (e.g. `REU.bin` to overwrite the image) and press Enter to
    write the raw 16 MB block back to the USB drive.
+
+That saved image is a normal file, so `reufs.py` or `reufs-gui.py` can open it
+on a PC and take individual files out of it — the whole image need not be handed
+around. See *Getting files out of the image* above.
 
 ## Quick start
 
