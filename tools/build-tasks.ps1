@@ -30,6 +30,41 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & "$PSScriptRoot/check-lib-ids.ps1"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Tripwire for an indirect operand outside zero page: `(label),y` addresses zero
+# page only, and KickAssembler truncates a label's address to its low byte rather
+# than refusing it -- an assembles-and-passes build with a wrong read in it.
+& "$PSScriptRoot/check-zp-indirect.ps1"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# Two labels on one zero-page byte. The assembler gives them the same address
+# without a word and the task's own asserts pin only the TOP of the window, so a
+# duplicate is invisible until the day the two owners interleave -- then it reads
+# as a logic bug in whichever one is overwritten. The span comes from each label's
+# `// N bytes` comment.
+& python "$PSScriptRoot/check-zp-map.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# The command encoder tables against the format's own generator: musedit builds a
+# pair from a mnemonic id and the operand, and gen-mus.py builds the same pair from
+# the format's definition. Nothing kept the two in step, so a table row could drift
+# and the only symptom would be a tune playing something the grid does not say.
+& python "$PSScriptRoot/check-mus-commands.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# The host walk model against what the editor actually drew. mus-sim.py's walk is
+# what the tunes and the docs are reasoned about with, and it is compared by hand
+# against a captured screen -- so a change to the walk, or to a tune, could drift
+# with nothing to say so. tools/fixtures holds the editor's own grid lines.
+& python "$PSScriptRoot/check-musedit-walk.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# Y is the index for every instance-buffer access, so setting it is half of the
+# access. A field half-converted to zero page -- the read moved, the store left
+# behind -- writes whatever Y happens to hold: the editor's text cursor stopped
+# advancing and the cursor's row byte was overwritten, and every other gate passed.
+& python "$PSScriptRoot/check-musedit-index.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # KickAssembler jar location - see tools/toolpaths.ps1
 . "$PSScriptRoot/toolpaths.ps1"                   # machine paths: $KickAssJar
 $kick = $KickAssJar
@@ -69,7 +104,40 @@ if ($PythonExe -eq '') {
     Write-Error "no Python 3 interpreter found - install one, or create the repo .venv, to run tools/check-task-headers.py"
     exit 1
 }
+
+# Generated-table gate: musedit's piano glyphs and the pixel->semitone hit tables
+# are both derived from one geometry table, so a stale .inc would draw one
+# keyboard and test another. `-Check` regenerates in memory and fails on a diff.
+& $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-glyphs.py') -Check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# The tempo table is the player's own (src/libs/sidplay.inc), copied rather than
+# restated: a stale copy would make musedit measure notes the player plays
+# differently.
+& $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-tables.py') -Check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# musedit's printed strings and mnemonics: the .inc holds the indices and the ids,
+# the REU file `msgs` holds the text, both from assets/ui/musedit-msgs.txt and
+# assets/ui/musedit-mnems.txt. A stale pair would print one message -- or one
+# mnemonic -- where another was meant.
+& $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-msgs.py') -Check
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# The duration arithmetic: the tool re-implements the player's routine, checks it
+# against the published tempo table and against the generated copy above, and
+# sweeps all 8,192 tempo/class/state combinations.
+& $PythonExe (Join-Path $PSScriptRoot 'check-mus-timing.py')
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 & $PythonExe (Join-Path $PSScriptRoot 'check-task-headers.py') --quiet
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# The pitch split: the editor turns an option byte into a semitone and an octave
+# with muPitchSplit, and mus-sim.py models the same rule for the host. Both were
+# wrong about a sharp on B at once, so this runs the ASSEMBLED routine over all 224
+# note options and compares it with the model. Needs the binary above, hence here.
+& $PythonExe (Join-Path $PSScriptRoot 'check-mus-pitch.py')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Tripwire for the pool's LIVE footprint: a task's code, plus the eager libraries

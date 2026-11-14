@@ -13,6 +13,12 @@
 //       A = 0   kPtr = the `.mus` image in RAM
 //       A = 1   kPtr = a 9-byte config block naming an image in the REU filesystem
 //
+//  WARNING: ONLY AN EXACT 1 ASKS FOR THE REU; every other value takes the RAM path. That is
+//  not leniency, it is the safe default: the stream path reads nine bytes of whatever kPtr
+//  points at as a config block and then DMA's 256 bytes from the "filesystem offset" it finds
+//  there into the addresses the next six bytes name -- so a caller that forgot to set A would
+//  scatter writes across RAM, not merely play nothing. Set A on EVERY call.
+//
 //  The player body itself is `sidplay.inc`, which
 //  is why the entry points are thin: this file owns the *policy* -- who may play,
 //  how many times, how to stop -- and the body owns the music.
@@ -158,14 +164,22 @@ sidClaim:
     sta sidStop                  // a fresh player has nothing to stop for
     plp
     pla                          // A = the mode, now that it may be acted on
-    and #1                       //   0 = image in RAM, 1 = paged from the REU
-    sta sidplay.StreamMode
-    beq sidPlayRam
+    cmp #1                       // ONLY an exact 1 asks for the REU. Anything else -- a
+    beq sidPlayStream            //   caller that never set A included -- takes the RAM
+    lda #0                       //   path, which is what every caller before the mode
+    sta sidplay.StreamMode       //   wanted. A wrong mode here is not a quiet failure: the
+    lda kPtr                     //   stream path reads nine bytes of the TUNE IMAGE as a
+    sta sidTuneLo                //   config block and DMAs 256 bytes from a garbage
+    sta sidplay.SidBaseLo        //   filesystem offset into whatever the size words name,
+    lda kPtr+1                   //   so the safe default is the old behaviour.
+    sta sidTuneHi
+    sta sidplay.SidBaseHi
+    jmp sidPlayGo
 sidPlayStream:
-    lda #0                       // a paged image has no RAM address, and no window
-    sta sidplay.SidBaseLo        //   has been filled yet (the page tag alone cannot
-    sta sidplay.SidBaseHi        //   say that: every value 0-255 is a real page)
-    sta sidplay.StreamValid
+    lda #1                       // a paged image has no window filled yet (the page
+    sta sidplay.StreamMode       //   tag alone cannot say that: every value 0-255 is a
+    lda #0                       //   real page). SidBase needs no clearing -- it is
+    sta sidplay.StreamValid      //   read only under StreamMode = 0.
     sta sidplay.StreamValid+1
     sta sidplay.StreamValid+2
     ldy #8
@@ -174,14 +188,6 @@ spsCopy:
     sta sidplay.StreamPtrLo,y
     dey
     bpl spsCopy
-    jmp sidPlayGo
-sidPlayRam:
-    lda kPtr
-    sta sidTuneLo
-    sta sidplay.SidBaseLo
-    lda kPtr+1
-    sta sidTuneHi
-    sta sidplay.SidBaseHi
 sidPlayGo:
     //  Latch the arguments into library data: kArg+1 is the sleep's own
     //  argument, so it cannot double as the repeat counter.
@@ -199,6 +205,12 @@ sidDelayOk:
     sta sidplay.DataPitchOct     //   whose +1 in this field is one octave down
     lda kArg+3
     sta sidplay.DataPitchSemi
+    lda kArg+4                   // the jiffies to play silently before the music is
+    sta sidFoldLo                //   heard: a caller's start row, in the tune's own
+    lda kArg+5                   //   clock. Latched HERE, before any DMA can walk
+    sta sidFoldHi                //   over the kArg block's tail
+    lda #$ff
+    sta sidplay.VolMask          // every play starts audible
     jsr sidplay.sidDetectVideo  // which video standard's clock this machine has -- the
                                 //   archive's table is the NTSC one, so a PAL machine needs
                                 //   the PAL copy (measured once, so this is free after it)
@@ -209,6 +221,34 @@ sidDelayOk:
     //  and a player called with repeats 1 stops immediately, silently. The
     //  restart path has its own INIT_SONG call, so this one is easy to lose when
     //  the body moves -- it must stay here, on the first-play path.
+    //  --- fast-forward: play the pass silently up to the caller's start jiffy ---
+    //  A caller that wants the music to begin at a row the tune reaches only after
+    //  K jiffies has no seek available -- the format has none -- so the pass is
+    //  played from the first row with the volume masked, one jiffy after another,
+    //  as fast as the CPU allows. Every command takes effect, so the sound state at
+    //  the end is the tune's own, and the published jiffy count is already K, which
+    //  is what the caller's playhead reads. Only the SID's own envelope generators
+    //  run at the compressed speed, so a note already sounding when the mask lifts
+    //  is caught earlier in its envelope than a timed pass would leave it.
+sidFold:
+    lda sidFoldLo
+    ora sidFoldHi
+    beq sidLoop
+    lda #$f0
+    sta sidplay.VolMask
+sidFoldJif:
+    jsr sidplay.sidTick          // one jiffy, silently
+    lda sidFoldLo
+    bne sidFoldDec
+    lda sidFoldHi
+    beq sidFoldDone
+    dec sidFoldHi
+sidFoldDec:
+    dec sidFoldLo
+    jmp sidFoldJif
+sidFoldDone:
+    lda #$ff
+    sta sidplay.VolMask
 sidLoop:
     lda sidStop
     bne sidStopNow               // hush asked us to stop: do not touch the SID
@@ -324,6 +364,25 @@ sidTuneLo:   .byte 0             // the tune image (the caller's buffer)
 sidTuneHi:   .byte 0
 sidDelay:    .byte 1             // ticks slept per jiffy
 sidRepeats:  .byte 1             // 0 = forever, else plays remaining
+sidFoldLo:   .byte 0             // jiffies to play silently before the music starts
+sidFoldHi:   .byte 0             //   (the caller's start row, in the tune's clock)
+
+// The player publishes each voice's next-command pointer here for a playhead:
+// WorkNxtCmdLo[3] at SID_POS_BLOCK, WorkNxtCmdHi[3] at SID_POS_BLOCK+3. A reader
+// (musedit) maps the pointer to the sounding event's row, and reads it only while
+// its own child is inside kSidPlay. Fixed RAM, pinned by an assert in main.asm.
+// WARNING: THE VALUE IS A FILE OFFSET, not a RAM address. The player addresses a
+// command as base + offset (a RAM image) or as a window + the offset's low byte (a
+// tune paged out of the REU), so only the offset means anything in both modes. A
+// reader that walks the image itself holds addresses, and must subtract the image
+// base before comparing -- see musedit's muHistAdd.
+.const SID_POS_BLOCK = $54A2
+// The block is CONTIGUOUS and belongs to the player alone: $54A2-$54A7 hold each
+// voice's next-command offset (lo at +0, hi at +3) and $54A8-$54A9 hold the jiffies
+// it has played in this pass. Address it by these offsets, never by arithmetic on the
+// base -- the kernel's tickCount sits immediately after at $54AA, so a reader that
+// counts one field too far reads a free-running counter and a row rate ten times out.
+.const SID_POS_TICK = SID_POS_BLOCK + 6
 
 .import source "sidplay.inc"
 

@@ -255,7 +255,7 @@ On success the carry is clear (`C=0`) and the task starts immediately. On failur
 | 0 | No free task slot (all 23 spawnable slots in use) |
 | 1 | Instance-data heap exhausted (`$1D40-$1FFF` full — only after the size-class scavenge found no recyclable buffer) |
 
-**ZP DMA fields** (`kArg+6`/`kArg+7`): Set `kArg+6` = ZP base address, `kArg+7` = length in bytes (0 = no ZP save). Constraints: `base + len ≤ $F1` (must not overlap kernel ZP), max 240 bytes. See "Zero Page & DMA Preservation" above.
+**ZP DMA fields** (`kArg+6`/`kArg+7`): Set `kArg+6` = ZP base address, `kArg+7` = length in bytes (0 = no ZP save). Constraints: `base + len ≤ $F0` (must not overlap kernel ZP, whose first byte is `$F0`), max 240 bytes. See "Zero Page & DMA Preservation" above.
 
 ```asm
     bcc spawnOk

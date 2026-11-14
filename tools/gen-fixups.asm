@@ -2239,6 +2239,66 @@
     }
     .word $FFFF
 
+// --- musedit - KF_TAKES_ARGS + KF_NOT_EVICTABLE ($49) - the tracker-style .mus editor; declares ZP $0B-$EA (224 bytes: the state the walk, the draw and the key loop touch most, which is what keeps its code image inside the pool) and leaves $02-$0A to sid.lib's scratch; libMask $01A2 (filesys + sid lazy, sprite + mouse eager); the screen, the layout and the eight-octave piano are drawn with the routed fixed-cell writers ---
+.var museditBase     = LoadBinary("../tasks-out/temp/musedit.base.bin")
+.var museditShift    = LoadBinary("../tasks-out/temp/musedit.shift.bin")
+.var museditCheck    = LoadBinary("../tasks-out/temp/musedit.check.bin")
+.var museditNameLen  = museditBase.get(12)
+.var museditCodeSize = museditBase.getSize() - 256
+.var museditFixups   = List()
+
+// scan: a code byte that advanced by exactly one page is a high byte.
+// Mask both operands to 0..255 - LoadBinary returns signed bytes, and
+// an unmasked difference is only correct while no byte crosses $80.
+.for (var i = 256; i < museditBase.getSize(); i++) {
+    .if (((museditShift.get(i) & $FF) - (museditBase.get(i) & $FF)) == 1) {
+        .eval museditFixups.add(i - 256)
+    }
+}
+.print "musedit: " + museditCodeSize + " bytes of code, " + museditFixups.size() + " fixups"
+
+// verify fixups: base + 2 pages must equal check.
+.for (var f = 0; f < museditFixups.size(); f++) {
+    .var idx = 256 + museditFixups.get(f)
+    .if ((((museditBase.get(idx) & $FF) + 2) & $FF) != (museditCheck.get(idx) & $FF)) {
+        .error "musedit: fixup verify failed at code offset " + museditFixups.get(f)
+    }
+}
+
+// verify position independence: every NON-fixup byte must be equal.
+.var museditFi = 0
+.for (var i = 256; i < museditBase.getSize(); i++) {
+    .if ((museditFi < museditFixups.size()) && (i - 256 == museditFixups.get(museditFi))) {
+        .eval museditFi++
+    } else {
+        .if ((museditBase.get(i) & $FF) != (museditCheck.get(i) & $FF)) {
+            .error "musedit: non-fixup byte changed at code offset " + (i - 256)
+        }
+    }
+}
+.print "musedit: relocation verification OK"
+
+.segmentdef museditFinal [outBin="../tasks-out/musedit.bin"]
+.segment museditFinal
+
+// magic byte 1 (+0) is shared.
+.fill 2, museditBase.get(i)
+
+// Header: flags..name, then the fixup trailer (16-bit count + the
+// table offset), then zero padding to the 256-byte page.
+    .fill 11 + museditNameLen, museditBase.get(2 + i)      // flags..name
+    .word museditFixups.size()                          // fixup count (16-bit)
+    .word 256 + museditCodeSize                         // fixup_offset (file offset of the table)
+    .if (17 + museditNameLen > 256) {
+        .error "musedit: header overflow"
+    }
+    .fill 256 - (17 + museditNameLen), 0                // pad to the 256-byte page
+    .fill museditCodeSize, museditBase.get(256 + i)         // code body
+    .for (var f = 0; f < museditFixups.size(); f++) {
+        .word museditFixups.get(f)
+    }
+    .word $FFFF
+
 // --- timelib - lib 0 (eager), relocatable ---
 .var timelibBase     = LoadBinary("../tasks-out/temp/timelib.base.bin")
 .var timelibShift    = LoadBinary("../tasks-out/temp/timelib.shift.bin")

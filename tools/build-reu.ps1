@@ -121,6 +121,7 @@ $assets = @(
     @{ name = "gkpad.spr";   file = "assets/sprites/gkpad.spr" },
     @{ name = "godzi.spr";   file = "assets/sprites/godzi.spr" },
     @{ name = "pointer.spr"; file = "assets/sprites/pointer.spr" },
+  @{ name = "dot.spr";     file = "assets/sprites/dot.spr" },
     # .pic pictures, written by tools/img2pic.py from the matching -src.png.
     @{ name = "hires.pic";   file = "assets/pics/hires.pic" },
     @{ name = "mc.pic";      file = "assets/pics/mc.pic" },
@@ -132,7 +133,13 @@ $assets = @(
     # the MODE tile's face differs between them, and only the MC band carries the
     # four palette-slot chips.
     @{ name = "gpui.bin";    file = "assets/ui/gpui.bin" },
-    @{ name = "gpui_mc.bin"; file = "assets/ui/gpui_mc.bin" }
+    @{ name = "gpui_mc.bin"; file = "assets/ui/gpui_mc.bin" },
+    # musedit's printed text, written by tools/gen-musedit-msgs.py from
+    # assets/ui/musedit-msgs.txt: one 64-byte record per message, so the task reads
+    # a string instead of holding it, and its messages cost it no code page. The
+    # command mnemonics follow the slots in a four-byte-field block of their own
+    # (assets/ui/musedit-mnems.txt), with the same effect on the grid.
+    @{ name = "msgs";        file = "assets/ui/musedit-msgs.bin" }
 )
 
 # --- regenerate the generated artefacts from the sources on disk ---

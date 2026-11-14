@@ -126,7 +126,7 @@ fontInitLp:
     sta fontRecLo,x
     dex
     bpl fontInitLp
-    .fill 4, $EA                // size-match pad -- MUST be NOPs: the loop
+    .fill 1, $EA                // size-match pad -- MUST be NOPs: the loop
                                 // falls through here (a 0 pad = 4 BRKs)
 
     // REU detection: write test values to addr regs, read back.

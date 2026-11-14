@@ -712,6 +712,13 @@ reuDirBuf:
 .import source "kernel/slot-shadow.inc"
 .assert "slot-shadow helpers fit below scrollScreenSlot", (slotShadowEnd <= $54AB) ? 1 : 0, 1
 
+//  The SID player publishes in the 8 bytes at $54A2 (sid.asm's SID_POS_BLOCK):
+//  each voice's next-command offset at +0..+5 and its song jiffies at +6..+7, one
+//  contiguous block a reader may trust. The kernel's tickCount follows at $54AA.
+//  The slot-shadow code must not reach into either; verify-map.ps1 tracks the run.
+.assert "sid player-position block ($54A2) is free of slot-shadow code", (slotShadowEnd <= $54A2) ? 1 : 0, 1
+.assert "tickCount sits after the player's published block", (tickCount == $54AA) ? 1 : 0, 1
+
 //  The kernel core ($0810+) is bounded by reuDirBuf, pinned at $13D4. Nothing
 //  guarded this before: syscall.inc is the last core file, so if it grew past
 //  $13D4 the .pc = $13D4 above would silently collide with it and the build
@@ -793,8 +800,8 @@ reuDirBuf:
 .assert "kernel-data.inc alias: reuFsFlags moved", reuFsFlags, $42DB
 .assert "kernel-data.inc alias: reuFsName moved", reuFsName, $42DC
 .assert "kernel-data.inc alias: reuDirBuf moved", reuDirBuf, $13D4
-.assert "shell.asm alias: osName moved", osName, $AD3
-.assert "shell.asm alias: osVersion moved", osVersion, $ADC
+.assert "shell.asm alias: osName moved", osName, $AD0
+.assert "shell.asm alias: osVersion moved", osVersion, $AD9
 .assert "shell.asm alias: taskLo moved", taskLo, $186F
 .assert "shell.asm alias: taskHi moved", taskHi, $1887
 .assert "gfxdemo.asm alias: taskGfxReuLo moved", taskGfxReuLo, $421D

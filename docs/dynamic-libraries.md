@@ -374,6 +374,16 @@ exit freed it, so the dependency is safe (a 1-page reload at worst).
 `kByteToDec` stays resident (used by `syscall.inc` for `parent.N` thread
 names).
 
+**Sharing is per library.** A loaded library is shared by every task whose
+`libMask` names it — `gfx.lib` routinely serves three or four tasks at once. A
+library that streams a *device's* state instead is single-use: `sid.lib` holds
+one player's working set and one task owns the SID at a time. Its pages are
+`$FF` in `libStartPage` until the library is really loaded (a declared lazy lib
+has a refcount but no pages), so the shell tests that byte against the target's
+`libMask` before loading a task and refuses with `? sid.lib in use` — otherwise
+the second player's first `kSidPlay` is refused after it has already taken the
+screen.
+
 ---
 
 ## 6. How a task declares libraries

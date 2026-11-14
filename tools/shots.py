@@ -9,8 +9,13 @@ GordonOS from a script:
   * VICE's own -keybuf, and the monitor's KEYBOARD FEED, feed the C64 KERNAL's
     keyboard buffer at $0277. GordonOS replaces the KERNAL and scans the matrix
     itself, so both are silently ignored.
-  * tools/vice-step.ps1 and vice-test.ps1 drive the VICE window through Win32
-    SendKeys, so they need Windows.
+  * driving the VICE WINDOW (Win32 SendKeys) loses the first key after every
+    focus change and drops keys outright, because the kernel scans the matrix
+    itself at 60 Hz and an instant press/release falls between scans. Nothing
+    in tools/ does that any more.
+
+For a small, copyable example of this loop -- launch visibly, attach, type,
+read the framebuffer, compare -- see tools/vice-drive.py.
 
 Input is therefore injected at the OS level:
   * keys -> the kernel's own ring buffer (keybCount $E216 / keybHead $E217 /
@@ -250,7 +255,14 @@ def screen_code(ch):
 
 
 def rom_args():
-    """The -directory search path the project's own launch flow uses."""
+    """The -directory search path the project's own launch flow uses.
+
+    `-directory` REPLACES VICE's own search path, so naming a directory that is
+    not there makes the emulator fail to load its ROMs and exit before it draws a
+    window -- which reads as "VICE will not start". So a path is passed only when
+    it exists, and an install whose ROMs are where VICE looks by default gets no
+    argument at all.
+    """
     settings = ROOT / ".vscode" / "settings.json"
     if settings.exists():
         try:
@@ -263,7 +275,10 @@ def rom_args():
             pass
     #  No per-clone setting: the two locations a Linux VICE install uses, with the home
     #  directory expanded rather than assumed.
-    return ["-directory", str(Path.home() / ".local/share/vice") + ":/usr/share/vice"]
+    fallback = str(Path.home() / ".local/share/vice") + ":/usr/share/vice"
+    if any(Path(p).is_dir() for p in fallback.split(":")):
+        return ["-directory", fallback]
+    return []
 
 
 def launch(shot_png, port, extra=()):
@@ -404,6 +419,86 @@ def shot_spirog(m):
     m.type("run spirog"); m.enter(); time.sleep(14.0)
 
 
+# --- musedit -----------------------------------------------------------------
+#  The editor is driven entirely from the kernel key ring: the piano needs the
+#  mouse, but every shot here is reachable from the keyboard, which is what a
+#  scripted run can do. commodo is the tune -- 8 rows to the bar at tempo 160,
+#  with phrase bodies and a command line above its first row.
+MUSEDIT_OPEN = 8.5          # open commodo, allocate the surface, walk the band
+
+
+def fb_row0(m):
+    """The top line of the framebuffer, one 8-byte bitmap per cell.
+
+    The framebuffer is cell-interleaved -- a cell's eight scanlines are
+    consecutive bytes -- so a row of forty cells is 320 bytes and each cell
+    can be matched against a glyph learnt from the same screen.
+    """
+    _, body = m.mem_get(0x2000, 320)
+    body = bytes(bytearray(body))
+    return [body[i * 8:(i + 1) * 8] for i in range(40)]
+
+
+def fb_text(m, table):
+    return "".join(table.get(c, "~") for c in fb_row0(m))
+
+
+def shot_musedit(m):
+    m.resume(); time.sleep(BOOT_SETTLE)
+    m.type("run musedit commodo"); m.enter(); time.sleep(MUSEDIT_OPEN)
+    for _ in range(3):
+        m.key(0x84); time.sleep(0.25)        # CRSR down: the cursor into the grid
+
+
+def shot_musedit_cmd(m):
+    m.resume(); time.sleep(BOOT_SETTLE)
+    m.type("run musedit commodo"); m.enter(); time.sleep(MUSEDIT_OPEN)
+    for _ in range(6):
+        m.key(0x84); time.sleep(0.25)        # down to the row's TEM command line
+    m.key(0x43); time.sleep(0.8)             # SHIFT+C: the prompt, filled in
+
+
+def shot_musedit_bar(m):
+    m.resume(); time.sleep(BOOT_SETTLE)
+    m.type("run musedit commodo"); m.enter(); time.sleep(MUSEDIT_OPEN)
+    m.key(0x42); time.sleep(0.8)             # SHIFT+B: the bar prompt
+    m.type("12"); time.sleep(0.6)
+
+
+def shot_musedit_play(m):
+    m.resume(); time.sleep(BOOT_SETTLE)
+    m.type("run musedit commodo"); m.enter(); time.sleep(MUSEDIT_OPEN)
+    m.key(0x20); time.sleep(1.0)             # SPACE: the pass runs, dots on the keys
+
+def shot_musedit_error(m):
+    #  A tempo the tune cannot play, refused and taken back. commodo carries TEM 160
+    #  on the line above its first row, so six cursor-downs land on it and SHIFT+C opens
+    #  that pair. Writing 95 leaves a 16th the tempo cannot express: the editor walks
+    #  what it wrote, takes the pair back, and reports it on row 0 for MU_STAT_FRAMES
+    #  frames -- a window too short to sleep for, so this watches the line and quits
+    #  the moment the message is up. The glyphs are learnt from the title itself.
+    m.resume(); time.sleep(BOOT_SETTLE)
+    m.type("run musedit commodo"); m.enter(); time.sleep(MUSEDIT_OPEN)
+    m.resume(); time.sleep(0.3)
+    title = "commodo TEM 160 BAR 1 R0"
+    table = {}
+    for cell, ch in zip(fb_row0(m), title.ljust(40)):
+        table.setdefault(cell, ch)
+    for _ in range(6):
+        m.key(0x84); time.sleep(0.22)        # down to the row's TEM command line
+    m.key(0x43); time.sleep(0.6)             # SHIFT+C on it: the prompt, filled in
+    m.key(0x81); time.sleep(0.5)             # RETURN: take the mnemonic
+    m.type("95"); time.sleep(0.5)
+    m.key(0x81)
+    for _ in range(120):
+        m.resume(); time.sleep(0.04)
+        line = fb_text(m, table)
+        #  "? illegal tempo": the '?' glyph is one the title cannot teach, and the
+        #  only 'm' the line can carry is the one in "tempo".
+        if line[0] == "~" and line[1] == " " and line[12] == "m":
+            return
+
+
 def shot_mtest(m):
     m.resume(); time.sleep(BOOT_SETTLE)
     m.type("mtest"); m.enter(); time.sleep(4.0)     # a .com: typed by its bare name
@@ -444,6 +539,11 @@ SHOTS = {
     "sprdemo":         ("eight sprite balls with collision", shot_sprdemo),
     "gfxdemo":         ("gfxdemo's line weave", shot_gfxdemo),
     "spirog":          ("the spirograph on a bitmap", shot_spirog),
+    "musedit":         ("the editor with commodo open", shot_musedit),
+    "musedit-cmd":     ("the CMD prompt on a TEM line", shot_musedit_cmd),
+    "musedit-bar":     ("the bar prompt, a number typed", shot_musedit_bar),
+    "musedit-play":    ("a pass playing: the playhead and dots on the keys", shot_musedit_play),
+    "musedit-error":   ("a tempo the tune cannot play, refused and taken back", shot_musedit_error),
     "mtest":           ("the 1351 readout", shot_mtest),
     "dir-p":           ("dir /p: a listing paused at the page prompt", partial(shot_dir, command="dir /p")),
     "dir-w":           ("dir /w: two columns, with a wildcard", partial(shot_dir, command="dir /w *.tsk")),

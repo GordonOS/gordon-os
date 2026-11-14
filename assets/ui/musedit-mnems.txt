@@ -1,0 +1,62 @@
+// ==========================================
+//  musedit-mnems.txt -- the 49 command mnemonics, in id order
+// ==========================================
+//  Read by tools/gen-musedit-msgs.py, which appends them to the REU file `msgs`
+//  (four bytes each, after the message slots) and emits the MU_MN_* ids into
+//  src/tasks/dynamic/musedit-msgs.inc. The line order IS the id order: line N is
+//  id N, so the block's offset is (id - 1) * 4 and there is no id table in the
+//  code -- the grid reads one field per command line it draws.
+//
+//  A field is four bytes and the grid stops printing at the first space, so a
+//  mnemonic is at most three characters and CALL is the one that fills all four.
+//  The generator pads with spaces and rejects anything longer.
+
+MU_MN_TEM      "TEM"      // tempo
+MU_MN_UTL      "UTL"      // the global utility length
+MU_MN_UTV      "UTV"      // this voice's utility length
+MU_MN_HED      "HED"      // the head of a repeat section
+MU_MN_DEF      "DEF"      // definition
+MU_MN_CALL     "CALL"     // call a phrase -- four characters, the only one
+MU_MN_TAL      "TAL"      // back to the head, or the section ends
+MU_MN_HLT      "HLT"      // stop the voice
+MU_MN_END      "END"      // end of the tune
+MU_MN_FC       "F-C"      // filter cutoff
+MU_MN_PNT      "PNT"      // release point
+MU_MN_RTP      "RTP"      // relative transpose
+MU_MN_HLD      "HLD"      // hold time
+MU_MN_PS       "P-S"      // pulse sweep
+MU_MN_FS       "F-S"      // filter sweep
+MU_MN_SCA      "SCA"      // modulation scale
+MU_MN_VDP      "VDP"      // vibrato depth
+MU_MN_VRT      "VRT"      // vibrato rate
+MU_MN_AUT      "AUT"      // auto filter
+MU_MN_TPS      "TPS"      // transpose
+MU_MN_PVD      "PVD"      // pulse-width vibrato depth
+MU_MN_PVR      "PVR"      // pulse-width vibrato rate
+MU_MN_MAX      "MAX"      // modulation maximum
+MU_MN_PW       "P-W"      // pulse width
+MU_MN_DTN      "DTN"      // detune
+MU_MN_POR      "POR"      // portamento
+MU_MN_ATK      "ATK"      // attack
+MU_MN_DCY      "DCY"      // decay
+MU_MN_SUS      "SUS"      // sustain
+MU_MN_REL      "REL"      // the release command the editor does not offer
+MU_MN_VOL      "VOL"      // volume
+MU_MN_RES      "RES"      // resonance
+MU_MN_WAV      "WAV"      // waveform
+MU_MN_FM       "F-M"      // filter mode
+MU_MN_BMP      "BMP"      // bump volume
+MU_MN_FLT      "FLT"      // filter through
+MU_MN_RNG      "RNG"      // ring modulation
+MU_MN_SNC      "SNC"      // oscillator sync
+MU_MN_FX       "F-X"      // filter external
+MU_MN_3O       "3-O"      // voice 3 off
+MU_MN_LFO      "LFO"      // LFO
+MU_MN_PNV      "P&V"      // portamento + vibrato
+MU_MN_RUP      "RUP"      // LFO ramp up
+MU_MN_RDN      "RDN"      // LFO ramp down
+MU_MN_SRC      "SRC"      // modulation source
+MU_MN_DST      "DST"      // modulation destination
+MU_MN_MS       "MS#"      // measure number, 0-999
+MU_MN_FLG      "FLG"      // the player's flag byte
+MU_MN_AUX      "AUX"      // reserved: the player has no hook to run

@@ -64,6 +64,7 @@ $LiveLazy = @{
     'banner'  = @('filesys.lib')                     # reads the .bnr
     'fstest'  = @('filesys.lib')                     # its whole job
     'sidplay' = @('filesys.lib', 'sid.lib')          # loads the tune, then plays it
+    'musedit' = @('filesys.lib', 'sid.lib')          # opens the tune, plays it
     'ipctest' = @('ipc.lib')                         # its whole job
     # --- resident tasks: the load happens in the startup sequence ---
     'shell'   = @('filesys.lib', 'string.lib')       # the boot target runs "runbatch boot"
@@ -94,6 +95,10 @@ $LiveMallocFixed = @{
     'gortris' = 3    # one tune (tetris)
     'godzi'   = 3    # both tunes share the one window set
     'grknoid' = 3    # three tunes, one config rewritten per switch
+    'musedit' = 6    # the window service: three 256-byte read windows for the editor
+                     #   and three more handed to the music child in kSidPlay's mode-1
+                     #   config. The tune itself is PAGED out of <base>.wrk, so its
+                     #   length is not a pool question.
     'edit'   = 32    # the document: MAX_CHUNKS x CHUNK_PAGES (8 chunks of 4 pages).
                      # The clipboard is NOT here: it is transient, and a select-all
                      # copy of a full document asks for ~32 more pages, which the

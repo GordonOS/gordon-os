@@ -46,8 +46,9 @@ flowchart LR
 The build scripts run under **Windows PowerShell 5.1** on Windows and under
 **PowerShell 7 (`pwsh`)** on Linux/macOS; they resolve the host's own interpreter,
 Python and Ninja themselves (`tools/host.ps1`, `tools/toolpaths.ps1`). The VICE
-driver helpers (`vice-test.ps1`, `vice-step.ps1`, `drive-string-tests.ps1`) use
-Win32 `P/Invoke` and are Windows only.
+driver (`tools/shots.py`) talks to the emulator's binary monitor over TCP, so it is
+not tied to a window manager -- and it is the ONLY supported way to drive VICE: see
+its header for why a keystroke sent to the window cannot reach GordonOS.
 
 Per-OS install commands for every prerequisite — VS Code + VS64, Java,
 KickAssembler, VICE and PowerShell 7 — are in
@@ -162,8 +163,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-kernel.ps1   # W
 
 What it does, in order:
 
-1. **Three tripwires**, each of which exits non-zero and stops the build:
-   `check-fs-offsets.ps1`, `check-lib-ids.ps1`, `check-header-offsets.ps1` (section 6).
+1. **Four tripwires**, each of which exits non-zero and stops the build:
+   `check-fs-offsets.ps1`, `check-lib-ids.ps1`, `check-zp-indirect.ps1`,
+   `check-header-offsets.ps1` (section 6).
 2. **Patches the generated `build.ninja`** so its `asm` rule runs
    `tools/kick.ps1` instead of `java -jar KickAss.jar` directly, which is what turns a
    failed `.assert` into a failed build. If the rule is neither the known direct form
@@ -207,7 +209,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-tasks.ps1   # Wi
    only `fplib` sets (it emits `fp.bin`). A task that is not genuinely
    position-independent fails the build here instead of misbehaving on the machine.
 6. **`check-task-headers.py --quiet`** re-derives every header field of every binary
-   just written and checks the ABI invariants.
+   just written and checks the ABI invariants, and **`check-mus-pitch.py`** runs the
+   assembled `muPitchSplit` under py65 over all 224 note options against
+   `mus-sim.py`'s model of the same rule — see the gates table in §6.
 7. **Writes `tasks-out/build.stamp`** — a content hash of `tools/tasks.json` plus every
    `.asm`/`.inc` under `src/`, which is the input set the assembly actually reads (a task
    pulls shared files in with `.import source`, so the manifest's `source` list is not the
@@ -279,6 +283,16 @@ as a substitution in the finished buffer rather than by seeding the whole image 
 > exits non-zero; the F5 fresh-REU flow refuses to launch on that, rather than booting the
 > old filesystem under a fresh label.
 
+**Session leftovers stay in the file, so build the shipping pair from nothing.** The build
+owns the filesystem region and rewrites it; the banks below are left exactly as it found them,
+and a running system pokes there -- the per-task sprite blocks at `REU_SPR_BASE`, the `kArg`
+shadows, the `kMalloc` shadows in banks 252-255. An image a session has opened therefore keeps
+that session's runtime state, and it travels in a commit because the pair is tracked. Delete
+`reu/REU.bin` and `reu/REU-C64U.bin` before a shipping build: a build from nothing leaves
+banks 0-4 all zero, which is what a shipped image contains. `check-reu-current.ps1` cannot
+catch this -- it compares the FS payloads against `tasks-out/`, and the leftovers are outside
+them.
+
 ### What depends on what
 
 | You changed | Rebuild |
@@ -318,7 +332,8 @@ Each of these is the one place a fact is written down; everything else reads it.
 
 **Plans are working documents, not documentation.** An active plan lives in
 `docs/plans/` and is retired to `Documents/GordonOSPlans/` once it is implemented, so the
-repo carries only plans that still describe work to be done.
+repo carries only plans that still describe work to be done. `docs/plans/` is empty at the
+moment.
 
 **Two build outputs are tracked on purpose, and both change on every build:**
 `build/gordon-os.prg` (the runnable kernel, so a visitor needs no toolchain) and
@@ -346,30 +361,41 @@ show up on the machine as a wrong number, a stale binary or a garbled screen.
 | `tools/kick.ps1` | a failed `.assert` — KickAssembler prints `Made N asserts, M FAILED!` and still exits 0, so the wrapper turns that into a non-zero exit | every KickAssembler invocation, both builds |
 | `check-fs-offsets.ps1` | 24-bit REU-FS offset arithmetic: a copy of `reuFsPtr` that drops the bank byte, a hard-coded bank byte, or a 24-bit add whose carry never reaches `+2`. A deliberate case is marked `fs-lint: allow` | kernel + task builds |
 | `check-lib-ids.ps1` | the `LIB_*` ids in `task-header.inc` against the positional descriptor tables in `src/main.asm` — a reorder would load the **wrong library silently** | kernel + task builds |
+| `check-zp-indirect.ps1` | an **indirect operand outside zero page**. `(label),y` addresses zero page only, and KickAssembler does not reject a label above it -- it truncates the operand to the label's LOW BYTE, so `lda (muWcPt),y` with `muWcPt` at `$893A` silently reads the pointer at `$3A`. It assembles, every `.assert` passes, and the fault shows up as a logic bug in the routine. Every name in an indirect operand must resolve below `$100` (a zero-page `.const` or `.label` in the sources, an assembled symbol, or a `.const` chain ending at one); a name that cannot be resolved is a failure, because a check that goes quiet on new code goes quiet exactly when it matters. It reads the sources alone, so a fresh clone has everything it needs -- the symbol files it also consults are build output |
 | `check-header-offsets.ps1` | a header field read as a bare `+N` on `scratchBuf`/`reuDirBuf` instead of an `HDR_*` constant. No `.assert` can see this (it is an index into a DMA'd page, not a label) | kernel build |
+| `check-zp-map.py` | **two labels on one zero-page byte**. The assembler gives them the same address silently and the task's asserts pin only the top of the window (`MU_ZP_END`), so a duplicate is invisible until the two owners interleave — and then it reads as a logic bug in whichever one is overwritten. The span of each name comes from its `// N bytes` comment; the end marker (`*_END`) is not storage | task build, and CI |
 | `check-pool-budget.ps1` | a task's **live footprint** — its code, the libraries it holds while alive (the eager ones its `libMask` names *and* the lazy ones its own code loads: a `$LiveLazy` table, since no header can state that) and the `kMalloc` blocks it holds (`$LiveMallocMusic`, recomputed from each tune file, and `$LiveMallocFixed`, in pages). The loader's pre-need sum counts the eager libraries only, so an over-budget task loads and then dies at the first lazy call | task build |
 | `check-task-headers.py` | every built binary's header, re-derived from its bytes: magic, size identity, trailer, fixup bounds and order, the `$FFFF` sentinel, zero padding, page-aligned origin | end of the task build |
+| `check-mus-pitch.py` | `muPitchSplit` **run under py65 on the assembled task** over all 224 note options, against `mus-sim.py`'s `pitch_name` — the semitone, the octave and the roll flag. The editor and the host model are two statements of the player's own rolling rule (a sharp on B is the next octave's C), and they were once wrong in the same way at the same time, so each is what checks the other | task build (it reads `tasks-out/musedit.bin`) |
+| `check-mus-commands.py` | `musedit`'s command encoder tables against `gen-mus.py`'s decoder over every pair the format can hold — 30,695 of them, 49 mnemonics — so the editor and the tool that writes test tunes cannot disagree about which bits carry a value, or about the wide phrase encodings | task build, and CI |
+| `check-mus-timing.py` | `musedit`'s duration, unit and bar model against `sidplay.inc`'s own duration routine: the tempo chart re-derived, the two tables compared byte for byte, an 8,192-case sweep of legal and refused lengths, and every one of the 256 tempos given a row unit | task build, and CI |
+| `check-musedit-walk.py` | the host walk model (`mus-sim.py --walk`) against a screen captured from the running editor, line for line — two captures: `immig`'s opening, one command a line, and `katmand`'s, three on a line plus `FLG` and `TEM`. A capture is the grid's 19 rows from a freshly opened tune, so it starts at walk line 1 (the row column is bar-relative); the playhead, the scroll, the split and undo are behaviour, not grid text, and no capture can see them | task build, and CI |
+| `check-musedit-index.py` | that every `(dataPtr),y` access in `musedit.inc` uses a Y set for it: a plain `ldy` within five statements, a computed index (`tay`/`iny`), or a caller-supplied Y in the three routines that take one. The instance buffer is addressed as `(dataPtr),y`, so Y is the index and setting it is half of the access — a half-converted field is a store into the wrong byte, which compiles, passes every other gate, and only shows as a broken screen | task build, and CI |
+| `gen-musedit-glyphs.py -Check`, `gen-musedit-tables.py -Check`, `gen-musedit-msgs.py -Check` | the three generated includes (`musedit-glyphs.inc`, `musedit-tables.inc`, `musedit-msgs.inc`) and `assets/ui/musedit-msgs.bin` against their sources — `musedit-msgs.txt`, `musedit-mnems.txt`, the piano geometry and `sidplay.inc` — so a hand edit is a failure rather than a silent divergence | task build, and CI |
 
 **Run by hand:**
 
 | Gate | Checks |
 |---|---|
-| `verify-map.ps1` | the kernel `Memory Map` block against the free-run totals `memory-map.md` publishes (125 bytes across 22 pockets). It runs the kernel build itself; `-ExpectTotal`/`-ExpectPockets` override the figures for a change that is meant to move them — update the doc in the same commit |
+| `verify-map.ps1` | the kernel `Memory Map` block against the free-run totals `memory-map.md` publishes (116 bytes across 21 pockets). It runs the kernel build itself; `-ExpectTotal`/`-ExpectPockets` override the figures for a change that is meant to move them — update the doc in the same commit |
 | `verify-jumptable-docs.ps1` | two things: every address in `kernel.md`'s section headings against `jumptable.inc`, and that every entry is headable in **some** doc — `kernel.md`, its owning `lib-*.md`, or an inventory. An entry no document heads is a gap and fails the gate; an entry documented outside `kernel.md` is reported, not failed |
 | `verify-inventory-docs.ps1` | every address quoted in `kernel-call-inventory.md` and `library-call-inventory.md` against `jumptable.inc`, and — through `gen-call-inventory.ps1 -Check` — every call count in them against the tree |
 | `gen-call-inventory.ps1` | the **numbers** in those two documents: totals, per-file breakdowns and the summary figures. `-Check` reports drift and writes nothing; a rewrite touches no prose and no address, and refuses to write if the result is a different shape |
-| `check-reu-fs.ps1` | the image is internally consistent — entries packed, data ending exactly at the allocator's `nextFreeOffset`, no overlap. `-Strict` also forbids gaps (`fscross.bin`'s placement is one) |
+| `check-reu-fs.ps1` | the image is internally consistent — entries packed, data ending exactly at the allocator's `nextFreeOffset`, no overlap. `-Strict` also forbids gaps (`fscross.bin`'s placement is one). `-Extract <fsName> -Out <path>` writes one file's bytes out of the image, which is how a file a task *saved* is hashed against the source it came from (file offsets are stored relative to the image's data base, so the extract adds it) |
 | `check-reu-current.ps1` | every `tasks-out/*.bin` is present and byte-identical **inside the image** — the answer to "why is my change not there?". It checks `reu/REU.bin`; pass `-Image reu\REU-C64U.bin` for the other image. It also fails when `tasks-out/` was built from sources that have since changed, which no image comparison can see |
 | `scan-history.py` | history-flavoured comment content in code files: bug numbers, dates, phase markers, change narration (Rule 14 categories). It reports per category and skips `docs/`, `reference/`, the generated folders and the vendored ports (`ehbasic.asm`, `sidplay.inc`, `basicedit.inc`, `filesys.asm`), whose comments are their upstream author's. Its report files (`tools/hist_*.txt`) are gitignored |
 | `check-ascii.py` | any non-ASCII byte in a code file (Rule 19 — the toolchain is CP1252-hostile, and a non-ASCII character inside a `.text` string emits a wrong screen code). Data files (`src/corpus/*.bas`, `charsets/*`, `src/banners/*`, `music/*`, `reference/**/*.md`) are exempt |
 | `check-links.py` | that every relative link in the tracked Markdown resolves. Fenced and inline code are skipped, so a syntax example is not read as a link; the two binaries-repo templates are excluded and are checked by `publish-binaries.ps1` in their published layout |
 
-**Run by CI, on every push and pull request:** `check-fs-offsets`, `check-lib-ids`,
-`check-header-offsets`, `gen-task-asm -Check`, `verify-jumptable-docs`,
-`verify-inventory-docs`, `check-ascii.py`, `check-links.py`, and `scan-history.py` as a read-out —
-the `.github/workflows/gates.yml` workflow, the half of the build that needs no
-assembler and no emulator. The rest need built binaries under `tasks-out/` or
-`build/`, so they run locally after a build.
+**Run by CI, on every push and pull request** (`.github/workflows/gates.yml`): `check-fs-offsets`,
+`check-lib-ids`, `check-zp-indirect`, `check-zp-map.py`, `check-header-offsets`,
+`gen-task-asm -Check`, `verify-jumptable-docs`, `verify-inventory-docs`, `check-ascii.py`,
+`check-links.py`, `check-mus-commands.py`, `check-mus-timing.py`, `check-musedit-walk.py`,
+`check-musedit-index.py`, the three `gen-musedit-* -Check` steps, and `scan-history.py` as a read-out — the half of the build that
+needs no assembler and no emulator. The rest need built binaries under `tasks-out/` or `build/`,
+so they run locally after a build. A gate that reads the tree only belongs in the workflow as well
+as in the build: a change to `musedit`'s command tables, its duration model or one of its generated
+includes has to fail a pull request, not wait for someone to run the task build.
 
 > **A check that cannot be shown to fail is not a check.** `tools/probes/` holds the
 > negative fixtures: `check-header-offsets.ps1 -Path tools/probes` must exit 1 and name
@@ -386,16 +412,22 @@ back:
 
 | Configuration | Builds first | Use when |
 |---|---|---|
-| **Build & Launch with REU** | the kernel only, plus a refresh of `reu/REU-C64U.bin` | kernel work; the existing `reu/REU.bin` is current |
+| **Build & Launch with REU** | the kernel only; **no image is rebuilt** | kernel work; the existing `reu/REU.bin` is current, or you want to keep what a session saved |
 | **Build & Launch with fresh REU** | kernel → tasks → REU (both images) | **you changed a task** — this is the one you want |
-| **Build & Launch with REU (1351 mouse)** | the kernel only, plus a refresh of `reu/REU-C64U.bin` | like *Build & Launch with REU*, for `grpaint`: adds `-controlport2device 1351 -mouse` |
+| **Build & Launch with REU (1351 mouse)** | the kernel only; **no image is rebuilt** | like *Build & Launch with REU*, for `grpaint`: adds `-controlport2device 1351 -mouse` |
 | **Build & Launch with fresh REU (1351 mouse)** | kernel → tasks → REU (both images) | like *Build & Launch with fresh REU*, with the 1351 and the pointer grab |
 | **Publish binaries** | the kernel only | publishing (section 9) |
 
-`reu/REU-C64U.bin` is refreshed by **every** VICE flow: VICE opens only
-`reu/REU.bin`, so writing the C64 Ultimate image costs neither the session's saved files
-nor the live filesystem — and it is the one build output a session cannot regenerate for
-itself.
+**Only the "fresh REU" flows start a new filesystem.** They are the way to pick up
+changed task binaries, and they are the only flows that discard what a session saved
+onto the image — which is also why the plain flows leave both images alone: a saved
+filesystem is the one thing no build step can reproduce. A plain flow whose
+`reu/REU-C64U.bin` predates the last task build says so instead of rewriting it, because
+a C64 Ultimate boots *that* image and its saves live there too.
+
+`build-reu.ps1` itself always writes a fresh filesystem (a zeroed 16 MB buffer, formatted,
+then seeded), so it is byte-identical between runs apart from the `buildid` stamp it
+writes with the build time.
 
 `launch.json` also carries VS64's built-in 6502 debugger configuration. The VICE flows
 and `tools/launch-vice.ps1` all pass the same base command line — the two *(1351 mouse)*
@@ -438,7 +470,7 @@ GitHub write access is the enforcement, and `-SkipPush` still allows a local com
 testing.
 
 `publish-binaries.ps1` copies the artifacts, the two text files that describe them, and the
-five application guides.
+six application guides.
 
 | In the binaries repo | Copied from | Note |
 |---|---|---|
@@ -448,7 +480,7 @@ five application guides.
 | `quickstart.binaries.md` | `tools/quickstart.binaries.md` | at the root |
 | `NOTICE` | `NOTICE` | |
 | `LICENSE.md` | `docs/LICENSE.md` | moved to the root |
-| `docs/*.md` | `docs/` | the five application guides, and nothing else — see below |
+| `docs/*.md` | `docs/` | the six application guides, and nothing else — see below |
 | `docs/img/` | `docs/img/` | the screenshots — addressed as `docs/img/<name>` by the two root-level files and as `img/<name>` by a guide under `docs/` |
 
 The screenshots go to `docs/img/` rather than the root because that is the one place where
@@ -461,9 +493,9 @@ The PRG and the two REU images are written with `Split-Path -Leaf`, so all three
 the binaries repo's **root** — the `build/` and `reu/` directories exist only in the source
 repo, and the published text names them without a directory for that reason.
 
-**The shipped guides are listed; the rest of `docs/` stays private.** `$guides` names the five
-(`edit`, `gordonpaint`, `gortris`, `grknoid`, `gordonbasic`) — the programs this image carries
-plus the language reference. The kernel reference, `memory-map.md`, `syscall.md`, the build
+**The shipped guides are listed; the rest of `docs/` stays private.** `$guides` names the six
+(`edit`, `gordonpaint`, `gortris`, `grknoid`, `gordonbasic`, `musedit`) — the programs this image
+carries plus the language reference. The kernel reference, `memory-map.md`, `syscall.md`, the build
 notes and the tutorial are developer material and do not travel. `docs/` is *replaced* on each
 publish, never merged, for the same reason `docs/img/` is: a doc that leaves the set must not
 linger.
@@ -480,7 +512,7 @@ neutralised are printed on the way past.
 `gordonOS-demo.mp4` sits in the clone but is not in this list. Publishing commits whatever
 the clone holds (`git add -A`), so a file placed there by hand survives a publish untouched.
 
-⚠️ **A guide's link may only point at something that ships.** That set is the five guides,
+⚠️ **A guide's link may only point at something that ships.** That set is the six guides,
 `docs/img/`, `../NOTICE` and `LICENSE.md` at the root. A
 link to any other `.md` is neutralised at publish time rather than broken, and every other
 relative link is resolved — the publish exits with the list. So a guide that cites a developer
@@ -497,9 +529,8 @@ runs at ~60 Hz and misses an instant press.
 
 | Helper | What it does |
 |---|---|
-| `vice-step.ps1` | `launch` / `keys "text"` / `enter` — a stepwise driver with explicit key events and screenshots |
-| `vice-test.ps1` | boots and drives BASIC via SendKeys, taking screenshots |
-| `drive-string-tests.ps1` | runs the string-domain regression suite in BASIC |
+| `shots.py` | drives VICE through its **binary monitor** and captures the README's screenshots |
+| `vice-drive.py` | the **worked example** of driving VICE: `launch` (visible) / `type` / `key` / `fb` / `cmp`. Read its header before writing any VICE code -- it records the three dead ends (KERNAL keybuf, window keystrokes, modifiers) so they are not rediscovered |
 | `shots.py` | the README's screenshots, on any host: drives VICE's **binary monitor** (`-binarymonitor`), which halts the machine for every command, so a poke into the kernel's key ring or its `keybHeld` level lands exactly as the keyboard IRQ would write it. `python3 tools/shots.py [name...]` re-takes them into `docs/img/`, `--list` names the shots |
 
 ⚠️ VICE's own `-keybuf`, and the monitor's `KEYBOARD FEED`, put text in the **KERNAL's**
@@ -632,6 +663,9 @@ generator lives in `tools/`:
 | Banners `src/banners/*.bnr` | an image file | `img2bnr.py` (Pillow) | every `src/banners/*.bnr` |
 | Pictures `assets/pics/*.pic` | the source image `assets/pics/*-src.png`, which names its own conversion: `-mc-` before `-src` (or a leading `mc-`) is multicolour, `-dither-` error-diffuses (optionally `-dither45-` for 45%) | `img2pic.py` (Pillow) | `$assets` in `build-reu.ps1` |
 | UI band `assets/ui/gpui.bin`, `gpui_mc.bin` | the ASCII art `assets/ui/gpui.txt`: one 16x16 picture a tool, the last two being the MODE tile's two faces | `gen-ui.py --mode std` / `--mode mc` | `$assets` in `build-reu.ps1` |
+| musedit's text `assets/ui/musedit-msgs.bin` + `src/tasks/dynamic/musedit-msgs.inc` | `assets/ui/musedit-msgs.txt`: one quoted string a line, in slot order; and `assets/ui/musedit-mnems.txt`: one quoted mnemonic a line, in id order, whose line number is the id the grid prints it under | `gen-musedit-msgs.py` | `$assets` in `build-reu.ps1`, and `-Check` in `build-tasks.ps1` |
+| musedit's piano `src/tasks/dynamic/musedit-glyphs.inc` | one geometry at the top of the generator: eight octaves over the 40-cell width, so a key is 5.7 px wide and every octave edge falls on a cell edge. The cell bytes and the two hit tables are derived from that one geometry, so a glyph and the key it answers cannot disagree | `gen-musedit-glyphs.py` | `-Check` in `build-tasks.ps1` (it is compiled into the task, so nothing is seeded) |
+| musedit's tempo table `src/tasks/dynamic/musedit-tables.inc` | `src/libs/sidplay.inc` — the player's own `DataTempoTable`, **parsed and copied** rather than restated, so the editor's triplet base is the player's byte for byte | `gen-musedit-tables.py` | `-Check` in `build-tasks.ps1` (compiled into the task) |
 | Animation `assets/anim/<film>/*.anm` + `<film>.inf` | a video that is **not** in the tree — see below | `gen-anim.py` (Pillow; the frames are extracted with an FFmpeg first), which is also where the colour / greyscale / tone-curve choice lives | every `assets/anim/*/` `*.anm` and `*.inf` |
 | Batch scripts `src/batch/*.bat` | the script itself, one command per line | — | every `src/batch/*.bat` |
 

@@ -135,9 +135,13 @@
 //      kSidPlay: A = mode -- 0 = kPtr/kPtr+1 is a .mus image in RAM,
 //                1 = kPtr/kPtr+1 is a 9-byte config block naming a file in the
 //                    REU FS (the caller gets the offset from kReuFindFile) plus
-//                    one 256-byte, page-aligned window per voice
+//                    one 256-byte, page-aligned window per voice.
+//                ONLY an exact 1 streams; any other value takes the RAM path,
+//                because a wrong mode DMA's from a garbage FS offset.
 //                kArg = delay (ticks/jiffy), kArg+1 = repeats (0 = forever,
-//                1 = once, 2-255)
+//                1 = once, 2-255), kArg+2/+3 = transpose, and kArg+4/+5 = the
+//                jiffies to play silently first (a start row: the pass fast-forwards
+//                from row 0, muted, so the sound state is the tune's own)
 //                -> C=1 refused (another task is already playing)
 //      kSidHush: silence the SID and stop a running player (any task, any time)
 .const kSidPlay         = $FF7E

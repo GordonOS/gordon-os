@@ -6,6 +6,13 @@ name: gates
 # documented address, a header field read as a bare offset, a call count that
 # drifted from the tree, a non-ASCII byte in a `.text` string.
 #
+# `musedit`'s four gates are here for the same reason: they read the tree only
+# (the command tables against `gen-mus.py`, the duration model against
+# `sidplay.inc`, the host walk against a captured screen) and the three
+# `gen-musedit-*` generators' `-Check` steps compare COMMITTED files with their
+# source, so a hand edit to a generated include is a failure rather than a
+# silent divergence.
+#
 # What is NOT here, deliberately:
 #   * the kernel and task builds -- they need the VS64-generated
 #     build/build.ninja and a KickAssembler jar, neither of which lives in this
@@ -44,6 +51,11 @@ jobs:
 
       - name: Library ids vs the descriptor tables
         run: pwsh -NoProfile -File tools/check-lib-ids.ps1
+      - name: Indirect operands are zero page
+        run: pwsh -NoProfile -File tools/check-zp-indirect.ps1
+
+      - name: No two zero-page labels share a byte
+        run: python3 tools/check-zp-map.py
 
       - name: Header fields read as HDR_* constants
         run: pwsh -NoProfile -File tools/check-header-offsets.ps1
@@ -62,6 +74,24 @@ jobs:
 
       - name: Relative links in the documentation resolve
         run: python3 tools/check-links.py
+
+      - name: musedit's command tables agree with the generator (30k pairs)
+        run: python3 tools/check-mus-commands.py
+
+      - name: musedit's duration and tempo model agrees with sidplay.inc
+        run: python3 tools/check-mus-timing.py
+
+      - name: musedit's host walk matches the captured screen
+        run: python3 tools/check-musedit-walk.py
+
+      - name: musedit's instance accesses each set their own Y
+        run: python3 tools/check-musedit-index.py
+
+      - name: musedit's generated includes are current
+        run: |
+          python3 tools/gen-musedit-glyphs.py -Check
+          python3 tools/gen-musedit-tables.py -Check
+          python3 tools/gen-musedit-msgs.py -Check
 
       - name: History-flavoured comments (Rule 14) -- advisory read-out
         run: python3 tools/scan-history.py

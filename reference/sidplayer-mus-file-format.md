@@ -31,7 +31,7 @@ Not all note durations are available in all tempos.  See tempo chart below.
 | 2-4 | Duration | 010 Whole <br/> 011 Half <br/>100 Quarter <br/>101 Eighth <br/>110 16th <br/> 111 32nd <br/> 000 64th <br/> 001 Utility duration|
 | 5 |  Dotted | 0=No 1=Yes |
 | 6 |  Tie | 0=No 1=Yes |
-| 7 |  Double Dotted | 0=No 1=Yes |
+| 7 |  Triplet (alone) / second dot (with bit 5) | 0=No 1=Yes |
 
 A pair whose command byte is exactly `$00` is an **absolute-pitch** pair rather than a
 64th note, and `$04` / `$24` are the utility-duration forms — both sources list them
@@ -111,7 +111,13 @@ n signifies bits that are not used at all by the routine.
 ## Tempo Table
 Values in jiffys (1/60) of a seconds.  
 These are the values used by the TEM command.  
+Every value is one byte, as the player stores it: a length that does not divide
+into whole jiffies is not a value the tempo offers, so the cell is blank rather
+than rounded. Tempo `$00` is the degenerate one -- its whole note is 0, which is
+why the 64th column is a fixed 4 jiffies there. `tools/check-mus-timing.py`
+re-derives this table from `src/libs/sidplay.inc`'s duration routine.
    
+
 |       Value  |  M.M. | Whole  |  Half  |  Quarter  |  8th  |   16th  |  32nd  |   64th |
 |       :-:    |   -:  |   -:   |   -:   |   -:      |   -:  |    -:   |   -:   |    -:  |
 |       $08    |  1800 |    8   |    4   |    2      |   1   |         |        |        |
@@ -144,8 +150,8 @@ These are the values used by the TEM command.
 |       $E0    |    64 |  224   |  112   |   56      |  28   |    14   |     7  |        |
 |       $E8    |    62 |  232   |  116   |   58      |  29   |         |        |        |
 |       $F0    |    60 |  240   |  120   |   60      |  30   |    15   |        |        |
-|       $F8    |    58 |  258   |  124   |   62      |  31   |         |        |        |
-|       $00    |    56 |  256   |  128   |   64      |  32   |    16   |     8  |   4    |
+|       $F8    |   58 |  248   |  124   |   62      |  31   |         |        |        |
+|       $00    |   56 |    0   |  128   |   64      |  32   |    16   |     8  |   4    |
 
 ## Cross-checks
 
@@ -159,8 +165,10 @@ fields). Where they disagree with this file:
 - **DST** puts the destination in bits 6-5 of the option byte: `8F` off, `AF`
   frequency, `CF` pulse width, `EF` filter cutoff. Thornton's "101 = 2" does not
   match the pattern or Weighill's byte table.
-- **The double-dotted bit.** Thornton reports a *triplet* when bit 7 is set and bit 5
-  is clear. The player body in `src/libs/sidplay.inc` is the authority for it.
+- **The double-dotted bit.** Bit 7 alone is a *triplet* and bit 7 with bit 5 is
+  the double dot, as the player body in `src/libs/sidplay.inc` does it: a triplet
+  takes its length from `DataTempoTable[tempo >> 3]`, the dot chain multiplies the
+  tempo itself by 3/2 and then 7/4.
 - **MS#** reaches 1023 in the encoding (bits 7-6 of byte 1 plus byte 2); the editor
   caps the value at 999.
 - **Utility durations.** `$04` and `$24` are note-form pairs whose duration is a

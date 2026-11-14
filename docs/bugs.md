@@ -21,6 +21,919 @@
 
 ---
 
+## Bug #209 — `SHIFT+N` and `SHIFT+P` moved the window during playback and left the follow behind 🟡 ✅ FIXED (2026-11-08)
+
+**Symptoms.** Starting the tune and then stepping a bar with `SHIFT+N`/`SHIFT+P` moved the grid while
+the playhead kept running, and the two no longer agreed: the highlighted row drifted away from the
+music, and the window could end up showing rows the player was nowhere near. The page keys and
+`SHIFT+U` refused correctly, so only these two keys did it.
+
+**Root cause.** Those four keys are meant to be refused while the player runs -- the guide says so, and
+`SHIFT+U`, `SHIFT+<` and `SHIFT+>` each call `muPlaying` first. `muBarNext` and `muBarPrev` did not:
+they went straight to `muBarGo`, whose search walks the tune and then calls `mlkJump` to replace the
+window and the cursor.
+
+**Fix.** `muBarGo` now opens with the `muPlaying` test, so a bar move answered `? stop first` before
+the search runs -- the guard has to come first, or the search has already walked the producer and the
+band would need rebuilding. One guard covers `SHIFT+N`, `SHIFT+P` and the `SHIFT+B` prompt's
+`RETURN`. The five bytes came back out of the status-line calls: the four sites that set a message and
+then print it now go through `muSay`, which ends in `jmp muStatus`, so `musedit` nets 17,919 ->
+17,914 bytes and stays at 70 code pages with its pool margin of 5.
+
+**Rule.** A key that changes what the band shows belongs behind the same guard as an edit: the follow
+owns the window and the cursor while the player runs, so anything that moves either is a desync, not
+a jump. Guard at the routine that owns the move (`muBarGo`), not at each key, or the next key added
+to the group misses it. And a task at a page boundary cannot pay for a guard with a new page -- find
+the bytes: `lda #m / jsr muMsgSet / jsr muStatus` is 8 where a shared tail makes it 5.
+
+---
+
+## Bug #208 — SHIFT+P in `musedit` crashed the editor once the cursor reached bar 1 🟠 ✅ FIXED (2026-11-08)
+
+
+**Symptoms.** `run musedit immig`, a few SHIFT+N presses to walk forward, SHIFT+U to refine the row
+unit, then SHIFT+P repeatedly: the editor crashed part way back. The refined unit is what makes it
+look random -- it turns every bar into several, so the walk back is longer and the crash arrives
+several presses later, at bar 1.
+
+**Root cause.** `muBarPrev` computed the cursor's bar minus one and, when the answer was zero (bar 1
+has nothing before it), ended in a bare `rts`. The key chain dispatches with `jmp` -- `muKeyLoop` is
+reached by `jmp` and loops with `jmp muKeyIdle` -- so no frame of its own exists: that `rts` popped
+whatever the task was entered with and the CPU carried on into garbage. `muLinkKey` carries a comment
+saying it "ends in the idle loop, not in an rts" for exactly this reason; `muBarPrev` did not.
+
+**Fix.** `muBarPrev` now falls into `muBarGo` when there is a bar to go to, and branches to the idle
+tail (`muBarIdle`, shared with `muBarGo`'s own refusal path) when there is not. Unchanged code size:
+17,919 -> 17,918 bytes, so `musedit` stays at 70 code pages and no pool budget moves.
+
+**Rule.** A handler reached from the key chain with a `jmp` must end in `jmp muKeyIdle` (or another
+`jmp` that does). Test it: a routine dispatched by `jmp` may never `rts`, and a routine dispatched by
+`jsr` must not fall into the idle loop.
+
+---
+
+## Bug #207 — `SRC 1` and `SRC 2` modulated with a constant zero, because the port stopped sampling the two SID outputs 🟠 ✅ FIXED (2026-11-08)
+
+
+**Symptoms.** A voice modulating from the chip's own generators — `SRC 1` (oscillator 3) or `SRC 2`
+(envelope 3) — moved nothing: no pitch bend, no pulse-width movement, no filter sweep. Nothing
+reported it. The pair decoded, the setting showed on the grid, and the destination simply stayed put.
+
+**Root cause.** `DST` reads its source as `lda WorkLFO,y` with Y = `SRC`, so the three sources are
+the three bytes starting at `WorkLFO`: the software oscillator, then `WorkOscillatorVoice3`, then
+`WorkEnvGenOutputVoice3`. The port had removed the per-tick `$d41b`/`$d41c` sample that fills the
+last two, on the comment that "nothing reads either byte" — true of the original's *screen*, and
+wrong here, because the modulation path is what reads them, through an index rather than a label.
+Both bytes therefore stayed at 0 for ever, and sources 1 and 2 delivered nothing.
+
+**Fix.** The two read/store pairs are back in `sidplay.inc`, once per tick before the voices are
+processed: `lda $d41b` / `sta WorkOscillatorVoice3` and `lda $d41c` / `sta WorkEnvGenOutputVoice3`.
+That is 12 bytes in `sid.lib`, which stays at 15 pages, so no task's pool budget moves (`basic` is
+still exactly full at 109).
+
+**Verified on the emulator.** A 196-byte hand-written probe -- `TEM 112`, `WAV 4`, `SRC n`, `DST 1`,
+`SCA 1`, four whole notes of C-4 on voice 1, and 64 sixteenths of C-2 on voice 3 to keep envelope 3
+moving -- with `$D400`/`$D401` read from the binary monitor at ~50 Hz: `SRC 2` walked 31 distinct
+frequencies across `$08B3`-`$0A4B` inside a single held note, `SRC 1` flipped between `$08B3` and
+`$0AB1` (oscillator 3 aliased at one sample per jiffy, so it reads as an on/off buzz), and the same
+tune without `SRC`/`DST` sat at `$08B3` for every one of 248 samples. `$D41B`/`$D41C` themselves
+read as 0 through the monitor: its memory read does not go through the SID's read handler for those
+two registers, so the frequency register is the evidence, not the source byte.
+
+**Rule.** A commented-out store is only safe once every *reader* has been found, and an array
+indexed by a command operand (`lda WorkLFO,y`) makes its neighbours part of its API — search the
+label, not just the obvious use. Reading these two SID registers has no side effect on the chip, so
+"nothing shows it on screen" is not a reason to drop the sample.
+
+---
+
+## Bug #205 — `musedit` printed two stray glyphs for a pitch stored as B sharp 🟡 ✅ FIXED (2026-11-08)
+
+**Symptoms.** On `immig`, bar 5 row 1 (and bars 7, 27 and 29), voice 1's pitch cells showed a
+horizontal bar, an inverse `H` and `5` where `C-6` belonged.
+
+**Root cause.** That event is stored as option `$57`: letter 7 (B), type `01` (sharp), octave field
+2 (octave 5) -- **B#5**. The player's note path rolls such a spelling into the pitch it sounds
+(`DataHalfStepsFromC[7] + 1` = 12, `cmp #12` / `sbc #12` = semitone 0, `dec $08` = one octave up),
+so the tune plays **C-6**. `muGdPitch` did not roll: it took the semitone to 12, doubled it to 24
+and read `muNoteNames+24`/`+25`, two bytes past the end of the 24-byte name table -- which are
+`muBoundLo`'s `<320` and `<200`, screen codes `$40` and `$C8`. `$40` is the font's horizontal bar
+and `$C8` the inverse of glyph `$48`, an `H`. The octave cell printed the raw field, `2 eor 7` = 5.
+
+**Fix.** `muPitchSplit` turns an option byte into the pitch it *sounds* -- semitone 0-11 in A,
+octave 0-7 in X, C = 1 when the accidental rolled the pitch into the neighbouring octave --
+mirroring the player's own two-sided roll, with the field's ends clamped because a roll there has
+no octave to move into. `muGdPitch` prints from it, so B#5 reads as `C-6`, and `muDots` places the
+voice dot from it, which also fixes a flat C (semitone `-1`, which indexed 255 keys past the dot
+table) and B#7 (index 96, one past the twelve-per-octave rows). `tools/mus-sim.py`'s `pitch_name`
+rolls the same way, which its own docstring says it models -- and only `immig` stores such a
+spelling: four events, all voice 1, all `$57`.
+
+## Bug #206 — two key handlers left a stack frame behind on every successful jump, so the task's saved SP crawled down 🟠 ✅ FIXED (2026-11-08)
+
+**Symptoms.** None at first: the jumps worked, the cursor landed right, the grid and head followed.
+The fault is in the task's stack, and shows as `savedSP[slot]` (`$4008 + slot`) drifting down as the
+key is pressed. Measured on `musedit` in VICE, one `SHIFT+N` per sample: **243 -> 229 -> 227 -> 226**
+over four presses. The task stack is one page and shared with the C stack frames of every kernel
+call, so this ends in corruption, not in a message.
+
+**Root cause.** The key dispatch in `muKeyLoop` is a compare chain that `jmp`s into a handler, so a
+handler is entered with **no** frame, and the handlers that never return (the ones ending in
+`jmp muKeyIdle`) are written for exactly that. A handler entered with `jsr` instead must end in a
+chain that `rts`es — like `muObjKey`, whose every path ends in `muStatus`/`muStatArm`/the prompt loop.
+I wrote the bar keys as `jsr muBarNext` / `jmp muKeyIdle`, but `muBarNext`'s success path is
+`jmp mlkJump` -> `jmp muCurRedraw` -> `jmp muKeyIdle`: it never returns, so the `jsr`'s frame was
+never popped — two bytes per jump. `SHIFT+D` had the same fault from before this work
+(`jsr muLinkKey`), which is why the leak was easy to reproduce and easy to miss.
+
+**Fix.** Both keys follow the convention the rest of the chain uses: the dispatch `jmp`s into the
+handler, and the handler's own tail ends in `jmp muKeyIdle`. The paths that must print a message now
+`jsr muMsgGo` (whose chain `rts`es) and then `jmp muKeyIdle`, instead of `jmp muMsgGo`. Measured
+after the fix, five `SHIFT+N` and three `SHIFT+D` presses: SP **239, 234, 234, 235, 234, 239**, i.e.
+it returns to where it started, with only the sampling point inside the key loop varying.
+
+**Rule.** A handler's entry and its exit are one decision: if it ends by jumping back into the key
+loop it must be entered by `jmp`, and if anything in it can `rts` it must be entered by `jsr` — a
+handler with both kinds of exit has to make the message path `jsr` its printer so the frame it does
+not own is never popped. And a leak with no symptom is still worth measuring for: the saved-SP table
+at `$4008` shows it in four presses.
+
+---
+
+## Bug #204 — entering a note in `musedit` hangs the machine on `immig`, and the band disappears below the row typed on 🔴 ✅ FIXED (2026-11-08)
+
+**Symptoms.** In `musedit`, type a note on a row of `immig` that falls *inside* a long event:
+everything from that row down vanishes from the band and the machine stops dead (screen frozen,
+interrupts gone -- a reboot is needed). `commodo` was unaffected only because its rows took the
+in-place replace path instead of a split.
+
+**Root cause.** `muNcSplit` sets the band repaint's end from **tune** rows without clamping it to
+the band: `muGdTo = the cursor's screen row + MU_SEKEND - MU_TGT`, and the split's new note runs to
+the end of the event it replaced. A note typed on the onset of a 32-row rest therefore asked
+`muRedrawRows` to clear **63 screen rows**, and the clear loop wrote far past the band -- over the
+stack page, the zero page and the glyph data (`muClearRow` derives its address from a row table
+that has only the band's rows). The rest of the editor then ran on wrecked memory, which is why the
+crash looked unrelated to the edit. The two sibling tails (`muFillNote`, `muInsertTime`) already
+clamp with `ldx #MU_GRID_BOT+1`; this one did not.
+
+**Fix.** `muNcSplit` now clamps the value it hands `muRedrawRows` to `MU_GRID_BOT+1`, keeping the
+"repaint only what changed" optimisation when the note fits the band.
+
+**How it was found.** The working image survived each hang (`-reuimagerw` maps it read-write), so
+`tools/check-reu-fs.ps1 -Extract immig.wrk` showed the note taking the insert path, not the
+replace path. A temporary breadcrumb ring in the task image (tag/value pairs, one per step) then
+named the failing call from the *wedged* machine without any register reads: `muSplitPlan`'s numbers
+were self-consistent (a 128-jiffy rest, cursor 2 jiffies in, so a 2-jiffy head and a 126-jiffy
+note), the emitted pairs matched that decomposition exactly, `muPushEdit` completed its undo
+record, and the log stopped at `muRedrawRows` before the first walk mark. The instrumentation was
+removed once the fix was verified.
+
+**Verified.** `run musedit immig`, row 1, five notes in a row (the split path, then successive
+splits, plus one on voice 2): the machine stays alive, the cursor advances R1 -> R6, and the band
+shows each note.
+
+**The split's lengths.** A note typed inside a running event is given the **armed** duration (the
+bar's `DUR`), not the event's remainder, and the event is written as three runs: the rows before
+the cursor on the old pitch, the note, and what the event had left on the old pitch again. The
+three together last exactly as long as the event did, so nothing below moves. The repaint starts at
+the event's own first row, because the head's line carries a new length as well as the rows below
+it. A note typed on an
+event's own onset (the replace path) still takes the armed length outright, which re-times that
+event and moves the rows below — the behaviour `docs/musedit.md` documents. Successive notes inside
+one long rest therefore each get the armed length instead of halving the remainder.
+
+**Not the new cursor advance.** Reproduced with the advance reverted, and again on a build taken
+from before the per-row-tick change (#203): `frameCount` goes frozen either way. The pair the
+editor writes is not the fault either -- replacing `immig`'s first voice-1 pair with the same
+`$18`/pitch bytes and running `tools/mus-sim.py --walk` over it parses and plays to the end
+(7632 ticks, all three voices stopped), so the image a naive replacement produces is legal. What
+the editor does *around* the write is what breaks it.
+
+**Which write path it is.** The working image is the evidence, because it survives the hang: the
+emulator's REU image is mapped read-write, so `tools/check-reu-fs.ps1 -Extract immig.wrk` pulls
+`<base>.wrk` out of a wedged run. Two things fall out of it. First, the note took the **insert**
+path (`muFillNote`/`muNcSplit`), not `muNcReplace`: the voice-1 length word went 358 -> 370, one
+pair was inserted at offset 54 and ten bytes at offset 28, and the opening rest pair at 26 changed
+`08 A0` -> `1C A0`. That is why every run that survived -- including all of `commodo`'s -- was an
+in-place replace: only the insert path hangs. Second, the ten inserted bytes are
+`0C 9A | 50 9A | 54 9A | 58 9A | 5C 9A`: five pairs all carrying the typed note's option byte, with
+duration bytes `$0C $10 $14 $18 $1C` (`$40` is the tie bit on all but the first), i.e. table
+entries 0-4 of `muDurTab` picked **in order**. That is a correct greedy decomposition of
+`muLenJ = 124` jiffies (64+32+16+8+4), so `muLenEmit` itself is doing its job -- what is wrong is
+the *length* it was handed. Nothing in the run writes `muDurJif` after `muNoteClick` sets it, so
+the value to trace is that one byte (`$84`) between the key and the emit.
+
+**What the wedged guest looks like.** Read over the binary monitor after the hang:
+- `frameCount` (`$CFFF`) is static and the interrupt flag is set, which is why a reboot is needed.
+- Zero page `$02-$EF` is almost entirely zero, and `dataPtr` (`$F1/$F2`) holds `$0000`. The
+  editor addresses *all* of its instance state through `(dataPtr),y`, so a null `dataPtr` turns
+  every one of those accesses into a zero-page read or write.
+- The stack page `$0100-$01FF` has been overwritten with a repeating `00/FF` pattern; no frame of
+  the editor's call chain survives on it. `taskState` is `00 01 01 01` and the slot `savedSP`
+  entries are still coherent.
+- On screen, the band is cleared from the cursor's row down and never redrawn (the repaint is
+  `muRedrawRows` from the edited row, so this is a repaint that died part-way), *and* several
+  characters of lines that were already drawn are missing -- `immig` renders as `imm g`, `SUS 12`
+  as ` US 12`. Glyph data was overwritten too, not just the band.
+
+**Superseded.** The paragraphs below record the investigation before the root cause was found; the
+finding that stands is the fix above.
+
+**Correction to confirm.** Both inserted pairs sit inside voice 1's stream (offsets 26..55 of a
+stream that runs 8..370), although the second note was typed after CRSR-RIGHT. If that is real it
+is a second defect in the same area: the write must be reaching voice 1's base for a voice-2 edit.
+
+**Reproduce.** `run musedit immig`, cursor to row 1, press a note key. It wedges on the first key
+every time, and `commodo` never does.
+
+---
+
+## Bug #203 — `musedit`'s playhead froze on `immig` at bar 18, because every row inside a note recorded the note's *onset* tick 🟡 ✅ FIXED (2026-11-06)
+
+**Symptoms.** Playing `immig` in `musedit`, the walk stops dead at bar 18, row 33 (row 1120)
+and never moves again while the tune plays on to its end. Nothing recovers it: `muErr = 0`, all
+three voices still up, and the player's published tick keeps climbing (2240 -> 3611) with
+`muGrpRow` stuck at 1130 and the playhead pinned on 1120.
+
+**Root cause.** Row 1120 is the first row of a long note, and the grid's line table records, per
+line, "the tick its row was walked at" (`muLnTick`) — used by the playhead as "the deepest line
+whose tick the music has reached". That value was taken from `muClkLo`, and **`muClkLo` is only
+written by `muStep`, once per *event***. `muGrpOpen` advances `muGrpRow` for every row in time
+(`inc muGrpRow` per group) but left the clock alone, so a note lasting N rows gave all N of them
+the **same** tick. The playhead's rule then had a run of equal ticks as long as the note, and
+walking that run back to its first line pinned the playhead on the note's first row. A note
+longer than the band pinned it for the rest of the tune: `muPhFollow` only scrolls when the
+playhead's line is at or past its target, so a playhead pinned at the run's start never scrolls,
+the walk never runs again, and the band is frozen while the music plays.
+
+**Fix.** A row's tick is now **derived from the segment's own map** --
+`MU_SEGTK + (row - MU_SEGROW) * MU_SEGU` — computed per emitted line in `muLnTkSet` (one
+`kMul16`; `Y`, the table index, survives it). It is derived rather than accumulated, so it
+cannot drift however long a tune or a segment runs, and one row's tick is exactly one unit past
+the row above it: ticks strictly increase down the table, and the playhead is simply the row the
+music is *inside*, advancing one row per segment unit. The walk back is kept for what it is
+for — the several lines of *one* row (a row's own line plus the command lines above it, e.g.
+`immig` row 0's ten) — where returning the row is correct.
+
+**Rejected on the way, and why (do not retry it).** The first attempt advanced the row
+arithmetically from the band instead: `band row of line 9 + (tick - that line's tick) / unit`.
+That base is not state, it is a reading of the very window the value scrolls, so every scroll it
+caused raised the base by one while the tick term kept counting — the band raced up to
+`MU_FOLLOW_WALK` lines per frame and then stalled. Measured: 1 to 29 rows per 0.4 s against the
+music's steady ~13. **A value must never be derived from a window that the value itself moves**,
+and a band-relative row cannot be added to an absolute tick count.
+
+**Measured after the fix.** `immig`, 400 samples over 99.75 s: playhead 0 -> 2624 (bar 42), **zero
+regressions and zero flat samples**, mean 6.58 rows per 0.25 s with stdev 1.07 (0.25 s is not a
+whole number of rows, so 6/7 alternating is the expected spread), **0.500 rows per tick** — unit
+2, i.e. exactly the music's own rate, never ahead and never behind — `walkRow - playhead` bounded
+6..10 (the band's frontier leads the playhead by less than a band, no runaway), and the cursor
+row was 10 in 399 of 400 samples, with the band scrolling one line at a time under it.
+
+**Rule.** A per-line record of a *time* must be the row's own time, never the last event's; and
+anything the display scrolls must not be allowed to feed the number that scrolls it.
+
+---
+
+## Bug #202 — the audition ignored the declared machine speed, so it sounded an octave high on the project's own emulator 🟠 ✅ FIXED (2026-11-06)
+
+**Symptoms.** In `musedit`, a note key or a piano hover sounds one octave above the pitch it
+names: press the key for `C-4` and you hear C-5. Playback of the same tune is in the right
+octave, so the editor and the player disagree about a note they both call C-4.
+
+**Root cause.** VICE is started at `-speed 200`, and the tracked image's `boot.bat` declares it
+(`speed 200`), which sets the kernel's `sysSpeedShift` to 1. That variable exists precisely for
+this: the SID's 16-bit accumulator advances twice as fast on a 200% machine, so a register value
+that sounds C-4 at 100% sounds C-5. **sid.lib compensates** — it does `clc / adc sysSpeedShift`
+on the caller's transpose before writing the pitch. **`muAudFreq` did not**: it computed the
+frequency from the player's table and halved per octave, with no `sysSpeedShift` term at all.
+
+**Fix.** `muAudFreq` now shifts its result by `sysSpeedShift` after the table lookup and octave
+halvings — one `lsr`/`ror` per step for a faster machine, one `asl`/`rol` (clamped at `$ffff`)
+for a slower one — which is the same arithmetic sid.lib applies to a tune.
+
+**Measured.** Note `C-4` (linear note 48) writes `$1167` before the fix and `$08B3` after. With
+the machine at 200%, `$08B3` sounds 261.6 Hz = C-4; `$1167` sounded 523.3 Hz = C-5.
+
+**Why it did not show on an Ultimate.** The declaration lives in the image, not in musedit:
+`boot.bat` in `reu/REU.bin` starts `speed 200` and the same file in `reu/REU-C64U.bin` starts
+`speed 100` (both then `mouse 1351`, `print` ×3, `sidrst`, `banner logo320 0 0`, `ver`, `mem`).
+So `sysSpeedShift` is 1 on the VICE image and 0 on the C64U one — the player was right on both,
+and only the audition, which read nothing, was wrong on the faster one.
+
+**Rule.** Anything that converts a note to a SID frequency must apply `sysSpeedShift`, exactly
+once. The player already does it internally, so a caller adding it again on the *playback* path
+would double the error — the compensation belongs where the frequency is *computed*, and the
+audition computes its own.
+
+---
+
+## Bug #201 — `muBandRebuild` counted its lines in X, which `muLnNext` eats, so a refused delete spun the machine with the pointer frozen 🔴 ✅ FIXED (2026-11-05)
+
+**Symptoms.** In `musedit`, after entering some notes, pressing `SHIFT+INST/DEL` (or the
+bar's `DEL`) on a line where there is nothing to delete sometimes freezes the whole machine:
+the grid stops, the pointer sprite stops, the keyboard is dead. It is intermittent — the same
+keystrokes on the same tune can freeze it one time and answer `? no event here` the next.
+
+**Root cause.** `muDelKey2`'s refusal path calls `muBandRebuild`, which re-emits the band's own
+lines to put the walk's producer back where the draw left it. It counted them in **X**:
+
+```asm
+    ldx #MU_GRID_ROWS
+mbrLp:
+    jsr muLnNext          ; ...which runs muGrpOpen -> muSimNext -> muStep, all of which
+    bcs mbrRts            ;    load X (ldx muSv, ldx muLogIx, ...)
+    dex
+    bne mbrLp
+```
+
+So `dex` decremented whatever the walk had last put in X, and the loop ended only when that
+value happened to be 1. The walk's own end never saves it either: past the tune's last event
+`muGrpOpen` still returns C=0 on purpose, because the grid keeps emitting numbered empty rows
+down to the bottom of the band. The freeze is therefore a **very long loop**, which reads as a
+hang — and the frozen machine's `muOn` flags are all zero, i.e. the walk is past the tune.
+
+**How it was found.** The reviewer took a VICE snapshot of the frozen machine. Its `MAINCPU`
+module gives `PC = $74BE`, which `RAM` shows is the `bcc` back-edge of `muSimNext`'s voice loop,
+and the task's stack (`SP = $F5`) holds a return address of `mbrLp + 2` — the loop above.
+
+**Fix.** The countdown lives on the **stack** (`lda #MU_GRID_ROWS / pha` … `tsx / dec $0101,x`),
+where no callee can reach it, and the loop pops it on the way out.
+
+**Rule.** Never count in X across a call. `muLnNext`, `muGrpOpen`, `muStep` and every draw
+routine load X for their own indexing — `tsx`/`dec $0101,x` or a data byte is the counter.
+
+---
+
+## Bug #200 — a click on voice 2's lane selected voice 3, because `lda #1 / beq` is never taken 🟡 ✅ FIXED (2026-11-05)
+
+**Symptoms.** Clicking in the grid's middle lane puts the cursor on voice 3. Voice 1 and voice 3
+are correct.
+
+**Root cause.** The lane hit test ended each arm with a branch that is only unconditional when the
+value loaded is zero:
+
+```asm
+muClkV0:  lda #0
+          beq muClkSetVoice    ; Z set: taken
+muClkV1:  lda #1
+          beq muClkSetVoice    ; Z CLEAR: not taken, falls into muClkV2
+muClkV2:  lda #2
+```
+
+So voice 2's arm always fell through and overwrote A with 2. `lda` sets N and Z, so `beq` after a
+non-zero load never branches — the `beq` idiom is only valid after `lda #0`, where it is a plain
+`jmp` that happens to be shorter.
+
+**Fix.** Both arms `jmp muClkSetVoice`.
+
+**Rule.** A branch whose "always" reading depends on the loaded value is a bug waiting for a
+constant to change. Use `jmp` — and when a `beq`/`bne` looks unconditional, check what set Z.
+
+---
+
+## Bug #199 — a reversed cell could not be un-reversed by the text writer, so the mode button stayed three white blocks 🟡 ✅ FIXED (2026-11-05)
+
+**Symptoms.** The `OVR`/`INS` readout at the right of row 1 reverses under the pointer as it
+should, but leaving it leaves three blank white cells: the letters are still there, drawn in the
+text colour on the text colour.
+
+**Root cause.** The cell was put back with `kPrintCharAt`, and that writer **keeps the cell's
+background nibble**. A reversed cell's background IS the text colour (`kBlitCharRev` writes
+`(bg << 4) | text`), so the text writer restored the character over a white background and left it
+white-on-white. `kBlitChar` writes `(text << 4) | bg`, which is what puts a plain cell back — the
+bar's own paint already restores its reversed cells that way.
+
+**Fix.** `muModePut` writes the character with `kPrintCharAt` (so the shadow carries it, which the
+blits do not) and then gives the cell its background with a blit: `kBlitCharRev` while the pointer
+is on it, `kBlitChar` otherwise. Both are framebuffer writes, so both are gated on holding the
+display.
+
+**Rule.** A cell that has been drawn in reverse is only restored by a **blit**: the text writers
+keep the existing background nibble by design, so they cannot undo an inverse-video write.
+
+---
+
+## Bug #198 — inserting a voice's first note left that voice's `HLT` on the line it was drawn on, though the file was right 🟡 ✅ FIXED (2026-11-05)
+
+**Symptoms.** A brand-new tune shows one `HLT` per voice, all three on the command line printed
+above row 01. Entering a note into voice 1 puts the note on row 01 — but the `HLT` stays on the
+line above it, so voice 1 reads `HLT` then `C-4 16` then `HLT`: a voice that appears to be
+stopped by a `HLT` before its first note. Saving, quitting and re-opening shows the correct
+picture (the note on row 01, one `HLT` after it), so only the live band was wrong. Deleting the
+note again leaves the band short of the `HLT` that returns when the file is re-opened.
+
+**Root cause.** `muFillNote` and `muDelKey` repainted from the cursor's row **down**
+(`muRedrawRows` seeded with `MU_ROW`). The line an event sits on is the command line *above* the
+row it belongs to, and a voice's only event — its `HLT` — is drawn on the line above row 01, so
+an edit made at row 01 changes a line the partial repaint never reaches. The edit itself was
+correct all along: `muInsSek2` inserts at `muSekLo + 2`, i.e. before the `HLT`.
+
+**Fix.** The repaint starts at `muBandRow`: it looks up the first row the edit *touched* in the walk's line table and returns the first screen line that holds it — a row's lines are its command lines first and its own line last, so that is the group's first line. Callers pass their own first row: a note replace passes the cursor's row, a delete the deleted event's row, insert time the boundary, and a **gap fill the row where the event before the gap ended** (`muInsFrom`), because the rests it writes start *above* the cursor. `muRedrawRows` also had to learn about a band that runs past the tune's end: such a band's last line holds `$ffff`, and the "one past the end" conversion turned that into row 0, which draws nothing at all.
+
+**Rule.** A repaint scoped from the cursor's row down is only sound for edits that cannot change the band *above* that row — and a fill edit does: it writes rests from an earlier row, so its own first row is the one to scope by. A row's lines are its command lines then its own, so scope by the row and let the line table name the line.
+
+---
+
+## Bug #197 — a save that outgrows its file deleted the tune *before* the create, so a full directory lost it 🔴 ✅ FIXED (2026-11-04)
+
+**Symptoms.** On a filesystem whose directory has no free slot, opening a tune and saving an edit
+that makes the image longer answers `? dir full` — and the tune is then not in `dir` at all. The
+entry is a tombstone: flags bit 7 set, name cleared, size still there. The editor keeps working
+because the image lives in `<base>.wrk`, but that file is dropped on exit, so leaving the editor
+loses the tune and the edit together.
+
+**Root cause.** `muSaveNow`'s create path was right about the data area and wrong about the
+directory. `muSvCreate` computed the pages the image needed, asked `muFreeSpace` (capacity minus the
+allocator's high-water mark) whether they fit, and only then called `kReuDelete` and `kReuCreate`.
+But `fsxDelete` sets the entry's deleted bit and clears its name while keeping its size, and
+`fsxCreate` treats a slot as free only when **both** size bytes are zero — a tombstone frees neither
+slot nor data. So the delete could not make room for the create, the create failed with
+`kArg+6 = 2`, and the tune was already gone from the directory by then. The space check could not
+catch it because the data area was not what ran out: the filesystem has two resources, a 16 KB
+directory of 512 slots and the data area, and the save path only ever asked about the second.
+
+**Fix.** The replacement is built under a scratch name and the tune is deleted only once that file
+is whole: `muTmpArg` names `<base>.tmp` (a third 12-byte name from `muNameSetup`), `kReuCreate` and
+the page write fill it, `kReuDelete` then tombstones the old `<base>.mus`, and `kReuRename` gives
+the replacement its name. A directory with no free slot now refuses at the create, before anything
+has been deleted, and the message is still the specific one. A scratch left behind by a failed
+rename is cleared at the start of the next create, and a failure after the create removes it, so no
+half-made file is ever left in the way.
+
+**Verified on hardware.** With all 512 slots carrying a size and the editor's own `musedit.und` and
+`<base>.wrk` holding the last two, `SHIFT+S` answered `? dir full` and `immig.mus` was still at its
+own slot with flags 0 and its 932 bytes intact. The same state previously left that slot a nameless
+tombstone.
+
+**How reachable it is — correcting an earlier reading of this.** The state is not what ordinary use
+drifts into: a tune costs 65,280 bytes of data per editor session and one slot, so the 12 MB data
+area runs out (186 sessions) long before the 366 free slots (366 sessions), and `? no space` is the
+message session use reaches. Slots bind first only when the files are small — 366 tiny `copy`s fill
+the table with megabytes still free. And `dir` cannot show it either way: its footer is capacity
+minus the allocator's high-water mark, i.e. bytes, with no slot count anywhere, so a filesystem at
+511 of 512 slots prints an ample figure. The test image was therefore built host-side
+(`temp/fsimg.py filldir`) rather than reached by editing.
+
+**Transferable rule.** A check that mirrors an allocator must mirror *every* resource that allocator
+hands out. Here there are two — data area and directory slot — and the delete that precedes the
+create frees neither, so a green space check says nothing about the slot. And refuse before you
+destroy: any path that deletes first and creates second has to know the create cannot fail, or the
+delete is the last thing the user's data sees.
+
+---
+
+## Bug #196 — the bar's lit item is cleared every frame while the music is stopped, so a sticky item could never stay lit 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** Clicking `TIE-` in the control bar did not leave it reversed, so there was no way to
+see — or trust — that the tie was armed.
+
+**Root cause.** `muBarAct` holds *the one item the bar shows reversed*. It was written for PLAY,
+which is the only item whose activity ends by itself: `muPtStopped` runs on every frame the music is
+not playing and did `lda #0 / jsr muBarActive`, i.e. it forced the byte to 0 each frame. That was
+harmless while PLAY was the only user. The tie then reused the same byte for a **sticky** state, and
+the stopped path wiped it on the very next frame — the cell lit for a fraction of a second at most,
+and any later repaint put it back to plain.
+
+**Fix.** `muBarPlayOff` (`lda muBarAct / cmp #MU_BAR_PLAY / bne rts / lda #0 / jmp muBarActive`)
+clears the highlight only when the lit item *is* PLAY, and the three sites that used to clear the
+byte outright (`muPtStopped`, `muPlayRewind`, `muPtNoPlayer`) call it. Verified by poking
+`muBarAct = 6` from the monitor: it now survives, where before it read back 0 within a frame.
+
+**Lesson.** A single "current item" byte can carry a transient (PLAY while running) but not a
+sticky state: any owner that refreshes the byte every frame will erase the other. Two lifetimes in
+one variable need either two variables or an owner that clears only what it set.
+
+---
+
+## Bug #195 — the declared zero page window was shrunk below the variables it held, so 21 of them were silently outside the scheduler's DMA 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** None observed — and that is what made it worth recording. Every one of those bytes
+behaved correctly for as long as no other task wrote `$0b-$ef`, which is the case today: the shell
+keeps to the kernel's bytes and the music child declares only sid.lib's `$02-$0a`.
+
+**Root cause.** When the instance buffers took two pointer pairs the window was narrowed from 229 to
+202 bytes to match the highest *pointer*, but the variable map had already been built with
+`muDurTie`/`muDirty`/`muWarn`/`muRecV`… up at offsets 203-223. A declared window is the region the
+scheduler DMAs on every context switch, so everything above it is ordinary zero page shared with any
+other task that happens to use it — the state would have been overwritten by a successor and the
+fault would have surfaced as a *successor's* misbehaviour in the edit records and the dirty flag.
+
+**Fix.** The window is back to `$0b-$ea` (224 bytes), which covers the highest variable at offset
+223, and two asserts now hold it: `MU_ZP_END - MU_ZP_BASE <= MU_ZP_LEN` (small enough for the header)
+and `>= 224` (big enough for the map). The second is the one that matters: it is the only thing that
+notices a variable being added above the window, because the assembler happily assembles a `.label`
+at any address.
+
+**Lesson.** A window's length is not a total like a pool budget — it is a *coverage* statement about
+a map that grows at the other end of the file. Assert the coverage, not the arithmetic.
+
+---
+
+## Bug #194 — a note that lasts several rows made the playhead stand on the note's LAST row, not the row it starts on 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** In `twotem.mus`'s second section (tempo 192, where a 16th is 12 jiffies and a row is
+3) the cursor sat three rows below the note instead of on it. The first section was correct.
+
+**Root cause.** `muPhSync` finds the playhead's row by looking the player's published tick up in the
+per-line tick table, taking the **deepest** line whose tick the music has reached. A held note has no
+event of its own, so every row it covers records the *same* onset tick: the four rows of one 12-jiffy
+note all read 156. The deepest of those is the note's last row, so the cursor was pinned to the end
+of the note for as long as it sounded. A row that is one note long — the whole first section — has
+strictly increasing ticks, so nothing there could show it.
+
+**Fix.** After the lookup finds the deepest qualifying line, `muPhSync` walks back up while the line
+above carries the same tick (and holds a real row), so the cursor lands on the row the note starts
+on. Command lines share their row's tick and appear above it, so the walk stops on them harmlessly:
+they carry the same row, and `muLnFind` still picks the row's own line.
+
+**Lesson.** "The deepest X" is only the right answer when X is unique per row. Where a producer
+repeats a value across several lines (a held note, a command line and its row), the consumer needs
+the *first* line of the run, and the difference only shows where one row is shorter than one event.
+
+---
+
+## Bug #193 — the walk drew ahead of the playhead and repointed the playhead's own tempo segment, so a tune's second tempo took effect on screen 16 rows early 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** `twotem.mus` (tempo 144 for 16 rows, then `TEM 192`) played correctly, but the
+playhead did not move at all during the first section: the cursor sat still and only began
+following once the music reached the `TEM 192` line. The whole head readout stayed at `R0`. A tune
+whose first `TEM` differs from the player's default (`$90`) was unaffected — `immig` was fine.
+
+**Root cause.** After a tempo change the grid's rows are a piecewise function of the song tick, one
+segment per tempo, and the playhead needed to know which segment to divide in. The walk published
+that segment as it opened each one — including the segments that lie **ahead** of the playhead,
+because the walk always draws below the cursor. The startup draw fills 19 lines, which is enough to
+reach the second tempo of a short tune, so before a note played the playhead's segment was already
+the tick-144 one. `muPhSync` then computed `tick − 144`, which borrows, clamped to zero, and
+reported `segment row` = 16 for every tick in the first section. The guard on that publish asked
+whether the new segment's row was at or past the playhead's row — with the playhead at row 0 and the
+segment at row 16 the answer was **yes**, which is exactly backwards: a segment the music has not
+reached is ahead of the playhead, not behind it. A tune whose opening `TEM` is not `$90` opened its
+first segment at tick 0/row 0 and looked correct, which is why only `twotem` showed it.
+
+**Fix.** The playhead no longer keeps a segment at all: **every drawn line records the song tick its
+row was walked at** (`muLnTick`/`muLnTickHi`, filled in `muLnSpot` from `muClk`, shifted with the
+band), and `muPhSync` finds the deepest line whose tick the music has reached and takes that line's
+row, walking back over any lines that share that tick so a note that lasts several rows puts the
+cursor on the row it starts on (bug #194). The playhead therefore cannot disagree with the rows
+on screen, because it reads them, and it
+needs no ordering assumption, no lookahead and no cap — any number of tempo changes, at any rows,
+including inside phrase bodies, follow for free. A tick above every line clamps to the band's last
+row, which is still below `muFollow1`, so the band keeps scrolling and the next line answers
+correctly. `muPhSegTk`/`muPhSegRw`/`muPhSegU` and the playhead block in `muSegOpen` are gone (5
+bytes of ZP freed).
+
+**Lesson.** A producer that runs **ahead** of its consumer must not publish the consumer's state as
+a side effect: the walk draws below the cursor, so anything it records "for the playhead" is by
+construction about a row the music has not reached. Derive the consumer's answer from what was
+actually emitted (a per-line record), never from the producer's current position.
+
+---
+## Bug #192 — a `CALL`/`DEF` of phrases **16–23** was drawn as another command, because `muLnDec` never tested the wide form 🔴 ✅ FIXED (2026-11-01)
+
+**Symptoms.** A tune that uses the 16–23 phrase form had its `CALL 16+n` drawn as a **sound
+command** (the `SW`/`SUS` group) and its `DEF 16+n` drawn as `DEF n` — the wrong number, off by
+sixteen. Nothing else was affected: the walk and the player both executed the form correctly, so
+the notes played and the grid's rows were right; only the command lines lied.
+
+**Root cause.** The format has two encodings for a phrase command. The plain one is a `$01`-family
+pair whose *option* carries the phrase in its high nibble: `nnnn0010` (CALL) or `nnnn0110` (DEF).
+The wide one puts a marker in the option's low bits and grows the phrase by sixteen:
+`muObjEnc` writes `((phrase - 16 + 8) << 4) | $03` for a DEF and `| $0B` for a CALL, so `DEF 20` is
+`01 C3`. The player routes option bits 0–3 and, when the shifted value is **15**, falls through to
+`and #$07 / ora #$10` — a phrase of 16–23 with the carry picking CALL from DEF (`ro_______11` in
+`sidplay.inc`, whose comment says "a number from 0-23 for the phrase commands"). `muSimCmd` mirrors
+that (`muCmPhr`), which is why the walk was right. `muLnDec` — the routine that decides what a pair
+*reads as* — had no such test: its option chain sends `& $07 == 3` to `moSwS`, a sound command.
+
+**Fix.** `muDecOpt` tests the wide form before its chain: option `& $07 == 3` with **bit 7 set** is
+a phrase command, its value is `((opt >> 4) & 7) + 16`, and bit 3 picks CALL from DEF. Bit 7 is the
+test that keeps an ordinary `& $07 == 3` sound command out of it.
+
+**Why it was not noticed.** The form is used by one bundled tune and by no generator:
+`immig`'s voice 2 defines phrase 18 and calls it twice (`01 A3` at voice-2 offset 100, `01 AB` at
+114 and 124, beside the plain `DEF 15`/`CALL 15` at 96), but that line sits far below the band's
+first nineteen, and `tools/gen-mus.py` wrote the plain form and could not decode the wide one —
+it printed `?` for those three pairs, so the host model was silent about them too. Only the
+editor's own encoder (7.8) and a reader who scrolled reached the form; the decoder now reads it.
+
+**Transferable rule.** When a command has two encodings, the *router* and the *renderer* are two
+places that each have to know both, and only the router is exercised by playing the tune. A table
+gate over every mnemonic's bytes (7.9) is the cheap way to keep them in step; without it the
+disagreement hides until someone uses the rare form.
+
+---
+
+## Bug #191 — the dot x table had been stored CLAMPED, so every note above F-7 got the same dot 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** `musedit`'s keyboard dots stopped tracking at **F-7**: hovering F#7 through B7, and
+playing any of them back, left the dot sitting on F-7. Everything below F-7 was correct, in both
+the hover dot and the playback dots, which share one table.
+
+**Root cause.** `muDotTab` held the top octave as `..., 51, 54, 54, 54, 54, 54, 54, 54`. Those
+`54`s are a **clamp**, not a position: an earlier version of the routine computed the dot's x and
+capped it at `MU_DOT_XMAX = 310`, and when that code was replaced the table was regenerated with
+the clamped results baked in. The cap was wrong in the first place — the display window is 320
+pixels wide at raster 24, so its last column is 343, and `dot.spr` draws its two pixels at columns
+10-11 of the shape, so a dot's own pixels are at `x + 10..11`. B-7's x is 330, i.e. pixels at
+340-341, which is **on screen**. Nothing needed the clamp, and nothing removed it.
+
+**Fix.** The top octave now runs `296, 299, 302, 305, 307, 313, 316, 319, 322, 325, 328, 330` —
+the same noise pattern as every other octave (each is the one below plus 40). An assert fails the
+build if the row is clamped again (`muDotTab+95 > muDotTab+90`). The **two unlabelled drafts of the
+whole table** that were still in the image between `muDotTabHi` and `muLaneCol` — 192 bytes that
+nothing referenced, left behind by the same edit — are deleted; that took `musedit` from 68 code
+pages to 67.
+
+**Transferable rule.** A clamp is a *decision about a context*, and a table of clamped values
+outlives the context that justified it. Either compute the value from the geometry every time, or
+assert the bound the clamp was protecting; a clamped constant in a data table is a bug waiting for
+the guard to be deleted.
+
+---
+
+## Bug #190 — the grid's row numbers were printed by a two-digit routine, so row 100 came out as `:0` 🟡 ✅ FIXED (2026-11-01)
+
+**Symptoms.** On a tune whose grid is refined, the numbers in the left column went wrong past
+99: `100` printed as `:0`, `105` as `:5`, `128` as `:8`. The row column is bar-relative, so this
+first became reachable when a refined unit gave a bar more than a hundred rows (`arose` at a
+third: 48 rows to the bar; at one jiffy it is 256).
+
+**Root cause.** `muLnNum` divided the row by the rows in a bar and ended `jmp muNum2`, which
+emits **exactly two** digits: it subtracts ten while it can and prints the count, then the
+remainder. A row of 100 makes that count 10, and `10 + '0'` is `$3A` — the colon — followed by
+the low digit. The routine is right for its name; the caller was wrong to use a two-digit printer
+for a number that can hold three.
+
+**Fix.** `muLnNum` decides the width first, in 16 bits, and only then prints: under a hundred it
+takes the same two digits from column 1 as before; at a hundred or more it counts hundreds off the
+value and prints them from **column 0**, then the remaining two digits from column 1, so the three
+digits end at column 2 and the cursor's own cell at column 3 stays free. The counting is 16-bit
+because a bar's last row can be 256, which does not fit a byte.
+
+**Transferable rule.** A fixed-width number printer is safe only where the width is a bound the
+caller can prove. Any value derived from a tempo, a unit or a count of rows needs its width
+decided at the call site, and the *column* it starts at matters as much as the digit count when
+the next column belongs to something else.
+
+---
+
+## Bug #189 — the playhead divided the song tick by the PLAIN row unit, so a refined grid ran the cursor at a fraction of the row rate 🟠 ✅ FIXED (2026-11-01)
+
+**Symptoms.** On a tune whose onsets only land on rows when the row unit is refined
+(`arose`, tempo 144 — a triplet tune, so the unit is a third, 3 jiffies and 48 rows to
+the bar), the first play put the cursor behind the music: the band advanced and the `>`
+followed at a third of that rate. Stopping and playing again was **correct**, which is
+what made it look like a startup problem rather than a division.
+
+**Root cause.** `muPhSync` recomputes the divisor every displayed frame so that the
+playhead and the grid cannot disagree — but it computed it with `jsr muUnit`, which
+returns the **plain** unit (the shortest length the tempo can express), and stored that
+straight into `muUnitVal`. The refinement lives in `muUnitRef` and is applied by
+`muUnitApply`, which the playhead never called. So a grid drawn at unit 3 was then
+divided by the plain unit 9: the row was a third of what it should be.
+
+The second play "fixed" it because `muUnitVal` had been clobbered to the plain unit, so
+the next redraw rebuilt the grid with **that** — a coarse grid and a plain divisor agree,
+and the music then simply scrolled three times more slowly than the first pass had. One
+symptom, two wrong states, and only the first looks broken.
+
+**Fix.** `muPhSync` derives the plain unit into `muPlainU`/`muPlainBar` and calls
+`muUnitApply`, so the divisor carries whatever refinement the grid was drawn with. The
+`bne`/`lda #1` guard against a zero unit stays, and now also covers a third that does not
+divide.
+
+**Transferable rule.** A routine that recomputes a derived value "for freshness" must
+recompute it the **same way** the consumer did, or it silently replaces a refined value
+with a plain one. Two ways of deriving one quantity are a bug waiting for the one caller
+that differs — search every writer of the derived variable, not just the obvious one.
+
+---
+
+## Bug #187 — a start scrolled the band before a note had played: the follow's fixed centre against a first row that is deeper than it, and a stale pass counter behind that 🟠 ✅ FIXED (2026-10-28)
+
+**Symptom.** Starting a pass scrolled the grid a line or two before the music had
+played any of it, and the tune then had to walk back up to where the view already was.
+Reported for the bar's `PLAY` cell first, then for SPACE as well — which is the tell:
+the entry point was never the variable.
+
+**Root cause, in two layers.**
+
+1. **The follow's target was a constant.** `muPhFollow` scrolls until the playhead's
+   *line* index is at most `MU_FOLLOW_CENTER` (8). But a row's own line sits as many
+   lines down as that row has commands above it — the sound commands first, then the
+   structural ones — so **the tune's first row can already be deeper than 8**, and a
+   grid showing the tune's start has nothing above it that scrolling may discard. The
+   first `muPhFollow` of a pass then scrolled 1-3 lines off the *opening* of the tune
+   before anything had played, and the music had to reach that line before the pencil
+   and the sound agreed again. How deep the opening is depends on the tune alone
+   (`immig` 9 command lines, `tetris` 9, `tambrn` 11, `commodo` 5), which is exactly
+   why it looked intermittent and looked entry-point-specific.
+2. **The counter read behind it.** `muPhSync` derives the row from `SID_POS_TICK`,
+   which belongs to ONE pass: `sidInitSong` zeroes it as the pass begins and the
+   per-jiffy path increments it, while a hush (`muPlayStop`) only silences the chip.
+   So the first playhead evaluation of a restart could read the *previous* pass's
+   count and chase a row the last pass died on.
+
+**Fix.** The target is no longer a constant. `muLnRowDraw` — the one routine that knows
+how many command lines a row carried — raises `MU_FOLLOW1` to the opening's own depth
+when it emits the tune's first row, for whatever that depth is:
+
+```asm
+muLnRowDraw:
+    lda muGrpRow                // the tune's first row: its own line sits as deep as
+    ora muGrpRow+1              //   the opening's command count, and the follow may
+    bne mlrSpot                 //   never ask for a line above that
+    lda muLogLns                // the command lines that came before this row's own
+    clc                         //   line, in this very walk
+    adc #1
+    cmp muFollow1
+    bcc mlrSpot
+    sta muFollow1
+```
+
+`muLogLns` is the producer's own count of the row's command lines, so nothing about a
+particular tune is baked in: a shallow opening leaves the centre at 8, a deep one moves
+the pin down to that depth and keeps the lines of lookahead the band can still afford.
+A row whose opening is deeper than the whole band is still handled, by the blind path,
+which scrolls until the line is found.
+
+The pin is not permanent. `muScrollBand` sets it back to the centre the moment the band
+leaves the opening — that offset existed only so the opening could stay on screen — and
+`MU_FOLLOW_WALK` is one line, because a pass is one displayed frame. So the playhead
+returns to the middle of the band as a glide over a few frames rather than a jump, and
+the first scroll is the music's, not the editor's. A deep opening therefore costs a
+short catch-up once the tune moves, and never a jog before it does.
+
+Behind it, `muPtStart` records the published count and sets `muPhWait`; `muPhSync` holds
+row 0 until the player publishes a **different** byte. The first version of that gate
+compared the recorded byte against the count *after* the player's one-jiffy adjustment
+(`count - 1`), so the two never matched and the gate opened immediately — a no-op that
+cost a build. It compares the published byte with the published byte now.
+
+**Transferable:** a target that describes a *view* ("pin the playhead at line 8") is a
+claim about the content, and content that carries a variable number of header lines —
+commands above a row, a preamble, a legend — can start deeper than the claim. Derive
+the target from the content the producer emits, not from a constant that assumes the
+content is shallow. And when a guard is meant to compare two readings, compare them in
+the **same units**: a snapshot of a raw counter against a derived value is always
+unequal, so the guard silently does nothing while looking correct.
+
+---
+
+## Bug #188 — `musedit`'s deletes moved the stream 2 bytes down instead of closing it: a gap move's source is the tail, not the bytes being closed 🔴 ✅ FIXED (2026-10-30)
+
+**Symptom.** `SHIFT+INST/DEL` on a row's own line appeared to do **nothing**: the
+event stayed on screen and the file kept it. The saved tune then showed a *different*
+fault -- the pair the user meant to delete was still there and the pair **before** it
+had vanished -- and the voice was two bytes shorter, so the last pair of the voice was
+gone. Reached from the new command-line editor (remove a command line, or undo a
+command insert) it looked like the delete and the undo were both broken.
+
+**Root cause.** `muDelGap` handed `muGapMove` **the gap's own offset** as the start of
+the run to shift, and `muGapPage` then writes that run to `start - MU_INSN`. So a
+"close" copied the doomed bytes two bytes lower instead of starting after them, and
+everything beyond them was duplicated one pair down while the length word shrank. The
+same offset convention has a *different* meaning on the open path: an insert moves the
+tail **up**, so its run really does start at the gap. `muRangeReplace` -- the undo and
+redo replay -- already passed `RecOff + want`, i.e. a *destination*, which is what the
+down move needs and what `muDelKey` did not pass.
+
+**Fix.** `muDelGap` advances the offset past the bytes it is closing before the move,
+with the page carried, so `muGapPage`'s `start - MU_INSN` lands on the gap:
+
+```asm
+muDelGap:
+    sta muInsV
+    lda #0
+    sta muGapUp                 // the tail moves DOWN: the pages are walked forwards
+    lda muInsLo
+    clc
+    adc muInsN
+    sta muInsLo
+    bcc muDgGo
+    inc muInsHi
+muDgGo:
+    jsr muGapMove
+```
+
+Verified in VICE against the saved `.mus`: insert a `UTV 3` at row 01, redo it, delete
+it, and the saved file is **byte-identical** to the original (before the fix the same
+sequence left the pair moved down two bytes and `VRT 2` destroyed).
+
+**Transferable:** a routine that shifts a region has two offsets -- where the region
+*is* and where it is going -- and a caller that passes one for the other can be exactly
+`n` bytes wrong in a way that still produces a plausible file. When two directions of
+one move share a helper, write down **which** offset the helper takes (here: the run's
+own start, with the destination derived), and check every caller against that, not
+against the direction it happens to pass.
+
+---
+
+## Bug #186 — `musedit`'s reversed command bars left solid blocks behind: a routed text write keeps the paper nibble it finds 🟠 ✅ FIXED (2026-10-28)
+
+**Symptom.** Stop the player and start it again, and solid blocks of colour were
+left on the grid exactly where the reversed command bars had been — ghosts that
+survived every later redraw. Reported as *"if I stop and restart the player, the
+reversed positions remain as ghosts"*.
+
+**Root cause.** Two nibbles, two writers. `kBlitCharRev` writes the cell as
+`(bg0 << 4) | textColour` — the bar's ink is bg0 and its **paper is the text
+colour**. `kPrintCharAt` (and the surface-slot writer behind it, `blitCharSlot`)
+writes `(textColour << 4) | existing low nibble`: it is an **ink** write and keeps
+whatever paper it finds. So the first plain character drawn over a former bar —
+a space from `muClearRow` as much as a note — came out with ink **and** paper on
+the text colour, i.e. a solid block. A full repaint clears the grid and then draws
+the new lines, so every bar that the new view no longer had left a block in its
+place, and the blocks compounded with every redraw.
+
+**Fix.** `muPutC`'s plain path now goes through `kBlitChar` while this task owns
+the display: the fixed blitter sets the paper nibble back to `bg0`, so a cell a bar
+has touched is clean again the moment it is written. The routed writer stays for
+the background case, where the cell belongs in the task's own surface and no bar
+is ever drawn. The reverse case still uses `kBlitCharRev`. Cost: 7 bytes, and the
+displayed case is now a single blit per cell with no cursor routing at all.
+
+**Transferable:** only the fixed blitters (`kBlitChar` / `kBlitCharRev`) write
+**both** nibbles; a routed text write is an ink write and inherits the paper. So a
+cell that a reverse blit has touched cannot be brought back by ordinary text — it
+needs another fixed blit. `kBlitCharRev`'s own header calls the bar *idempotent*
+(redrawing it cannot fade the glyph); the other half of that contract is that it is
+**not reversible** by anything except `kBlitChar`.
+
+---
+
+## Bug #185 — after any edit, `musedit`'s grid stopped drawing beyond the window: the partial repaint's clip was never cleared 🟠 ✅ FIXED (2026-10-28)
+
+**Symptom.** Enter a note, move the cursor to the bottom of the grid and keep
+pressing CRSR-DOWN: the band shifted and the head's `R` field advanced, but every
+line that arrived was blank and **unnumbered** — the rest of the tune never came
+into view. Reported as *"I enter a note then scroll down with cursor, and once the
+cursor reaches the bottom, if I keep scrolling down I do not see anything
+appear"*. Loading the same tune and scrolling without editing it showed the tune
+normally, so the edit was the trigger.
+
+**Root cause.** `muRedrawRows` — the band-limited repaint an edit uses — opens with
+`lda #1 / sta muGdClip` and never clears it. `muGdClip` is what `muDrawGrid` reads
+to decide whether it may clear the grid and its line table, and what `muLnSpot`
+reads to decide whether a line falls inside the repainted band
+(`MU_GDLo..MU_GDHi`, the screen rows the edit touched). So from the first edit on,
+the editor stayed permanently in partial-repaint mode: every line the scroll pulled
+in was outside that stale band, so `muLnSpot` recorded its table entry and then
+**declined to draw it** — which is why the walk and the row numbering state
+advanced while the screen stayed blank. `muRedrawNoHead` (undo/redo) carried its own
+`lda #0 / sta muGdClip` before repainting, which is what proved the clip was known
+to be sticky and only remembered at one of the call sites.
+
+**Fix.** The clip belongs to the draw that reads it, so `muDrawGrid` **consumes**
+it: `muDgEnd` clears `muGdClip` on the way out, and `muRedrawNoHead`'s private clear
+went away (net 0 bytes). Same commit: the note-replace path now repaints from the
+cursor's row down instead of one row (`ldx #MU_GRID_BOT+1`), because a pitch typed
+over a **rest** takes the armed length, so every row below it can move.
+
+**Transferable:** a mode flag set by one routine and cleared by another is a
+one-shot that *will* be forgotten — clear it in the routine that consumes it, so the
+next caller cannot inherit it. The tell here is a blank-but-advancing display: the
+walk, the table and the head were all correct, and only the drawing was gated.
+
+---
+
+## Bug #184 — `musedit`'s messages came up as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes 🟠 ✅ FIXED (2026-10-27)
+
+**Symptom.** With the printed text moved out of the code and into the REU-FS file
+`msgs`, every message displayed as a `?` followed by graphics characters — the `?`
+itself was right and nothing after it was. Reported as *"error messages show as ?
+<some graphics characters>"*.
+
+**Root cause.** `muTextAt` prints the file's bytes **straight to the screen**, so a
+slot has to hold screen codes. `tools/gen-musedit-msgs.py` wrote ASCII
+(`text.encode("ascii")`): `?` is `$3F` in both encodings, which is why it survived,
+and every letter differs — `R` is `$52` in ASCII, and in the screen-code set
+`$41-$5A` is upper-case text while `$20-$3F` is punctuation and digits. So an
+ASCII letter is a graphics character. Measured with a one-line probe assembled by
+KickAssembler: `.text "MS# TEM ? aZ"` under `.encoding "screencode_mixed"` emits
+`4D 53 23 20 54 45 4D 20 3F 20 01 5A` — upper-case letters and everything in
+`$20-$3F` pass through **unchanged**, and only a lower-case letter is folded
+(`a` -> `$01`), because `screencode_mixed` is the mixed-case screen set, not a
+case-insensitive one.
+
+**Fix.** `screencode()` in the generator: `ord(c) - 96` for `a`-`z`, otherwise
+`ord(c)` — and an `assert` on the probe value (`"aZ"` -> `$01 $5A`) so the rule is
+checked rather than trusted. Verified by **assembling the same 40 strings** — each
+as `.text`, then `.byte 0`, then zero fill to 64 — and diffing the 2,560 assembled
+bytes against the generated `.bin`: identical. The images were reseeded and the
+seeded `msgs` compared with the file, so what a boot reads is what was checked.
+
+**Transferable:** an asset that the machine prints **is** screen codes, not ASCII,
+and `screencode_mixed` is not ASCII either — the two agree only in `$20-$3F`, so a
+message that starts with `?` prints that character correctly and disguises the
+fault behind it. Verify a generated text asset by assembling the same text with the
+assembler the firmware is built with and diffing the bytes; a visual check hides
+exactly this class of error.
+
+---
+
 ## Bug #183 — `grpaint`'s flood fill ran on the press that dismissed the UI band, so a click on the palette filled the canvas 🟠 ✅ FIXED (2026-10-11)
 
 **Symptom.** In fill mode, with the palette band up, a left click on the band ran the
@@ -2019,6 +2932,31 @@ cursorCol/Row/On exactly as before. Two facts worth keeping:
 **Verified:** 228 asserts green, PRG starts `$01 08`, `tools/verify-map.ps1` green with the two new
 pocket pins. ⚠️ **Documentation drift:** the code chain shifted, so `docs/memory-map.md`'s section
 spans from roughly `$EE3B` upward still need re-deriving from the build's Memory Map block.
+
+### The hand-back needs no erase, and musedit had one that could not fire
+
+The erase is for TAKING the display: the surface `surfSave` copies there is the previous
+owner's, it outlives the switch, and a block left in it is permanent. On the way OUT the
+surface being saved is the exiting task's own and `kFreeScreen` discards it a few
+instructions later — so `edit`, `grview` and `grknoid` hand back with a **bare**
+`kSwitchView` (or leave it to `sysExit`'s `transferFocusAway`), and so does `musedit` now.
+A `kDisableCursor` + `kBlinkReset` pair on that path is inert for a task whose cursor is
+off for its whole life: `musedit` disables it once in `muScreen` and never re-enables it,
+so there is no block of its own to un-draw.
+
+### Measured 2026-11-01 — not reproduced in 42 cycles
+
+`musedit` launch/quit cycles in VICE against the invariant above (`cursorVisible = 1` iff
+the tail's saved cell holds `GLYPH ^ $FF`, plus a decode of the shell's saved REU slot
+where any cell that matches no font glyph is a block, solid or not): 8 with `q` as an
+event, 8 with `q` held as a level (`keybHeld`, which is what forces the IRQ's
+`kbHeldBlink` ON), 6 quitting mid-playback, 6 with the shell's cursor parked mid-line, 8
+hands-off with no sampling at all, and 5 direct scans of the shell's slot after each
+take-over. **The invariant never broke in ~1,200 samples and no take-over baked a cell**;
+one take-over was caught with the shell's block actually drawn (`px = ff..ff` at the
+cursor) and it was erased correctly. So the flag-lie path above is not firing on the
+shell's normal route, and the sighting is still to be caught in the act: the user reports
+it as very intermittent, and that only a full-screen redraw removes it.
 
 ---
 
@@ -7503,6 +8441,18 @@ The bags were right and the sampling was wrong, and no re-weighting could fix it
 
 ---
 
+## Bug #137 — `musedit` read and wrote the note octave field un-inverted, so every file displayed and every entered note sounded an octave off 🟠 ✅ FIXED (2026-10-23)
+
+**Symptoms:** opening `immig` showed `F#5` and `F#4` in the grid for notes whose real pitches are `F#2` and `F#3` (`tools/gen-mus.py --decode` prints the truth), and a note entered at the keyboard's middle octave came back on the grid one octave lower than the key that produced it.
+
+**Root cause:** the Sidplayer's note option byte stores the octave **inverted** — `accidental<<6 | (7-octave)<<3 | letter` — because the player's frequency table begins at octave 7 and is halved once per field (`sidplay.inc`: "Octive is stored in EORed format so up is down"). `musedit` treated bits 3-5 as the octave itself in both directions: `muGdPitch` printed the raw field, and `muNoteOpt` wrote `octave << 3`. Nothing caught it because `tools/mus-sim.py`, the host model the grid was checked against, made the same mistake in its `pitch_name` — the editor and its oracle agreed while both disagreed with the format. The entry side was invisible on screen too: the writer and the display inverted the same way, so an entered note looked right and only its *pitch on the chip* (and its pitch in a saved file) was wrong.
+
+**Fix:** both musedit sites apply `eor #7` on the field (`muGdPitch` when reading, `muNoteOpt` when writing) and `mus-sim.py`'s `pitch_name` computes `7 - ((opt >> 3) & 7)`. Verified in VICE: `immig`'s grid now reads `F#2`/`F#3`, `mus-sim.py --grid` prints the identical `F#2` at row 01, and a note entered at octave 4 (keyboard `s`, D) renders as `D-4`. The byte layout is stated where a reader needs it: `muPitchSplit` and `muNoteOpt` both say the octave field is stored as `7 - octave` and why.
+
+**Transferable:** when a format field is stored transformed, every reader *and* every writer has to apply the inverse — and a host-side model of that format is a second reader, so it has to be corrected in the same pass or it silently blesses the bug. A display bug that a writer reproduces symmetrically will never show up on screen; only the file, or the chip, tells you.
+
+---
+
 ## Bug #136 — `spirog` handed the bitmap mode to `allocScreen` unset, so every preset exited at once, and its montage painted the wrong rows 🔴 ✅ FIXED (2026-09-24)
 
 **Symptoms:** after preset 10 was converted to multicolour, `run spirog 1`-`9` (and any explicit `R r d`) drew nothing at all and left the shell on screen, while `run spirog 10` took the display and showed a blank screen.
@@ -7564,6 +8514,10 @@ The AM/PM suffix is written in non-sequential order (`timeBuf+9` before `timeBuf
 
 | ID | Severity | Status | Title |
 |---|---|---|---|
+| #187 | 🟠 High | ✅ Fixed | **A start scrolled the band before a note had played.** Two layers. (1) `muPhFollow` pinned the playhead's **line** at `MU_FOLLOW_CENTER` (8), but a row's own line sits as deep as that row has commands above it, so a tune whose opening has more than 8 command lines (`immig` 9, `tambrn` 11, `commodo` 5) had the view scroll off its own first lines before anything played, and the music then walked back up to the pencil. `muLnRowDraw` now raises `MU_FOLLOW1` to the opening's own depth, from the producer's `muLogLns`, for any tune. (2) `muPhSync` read `SID_POS_TICK`, which belongs to one pass and survives the hush that ends it; `muPtStart` now records it and sets `muPhWait`, and the row holds at 0 until the player publishes a different byte. Rule: **a target that describes a view is a claim about the content — derive it from what the producer emits, never from a constant that assumes the content is shallow; and compare a guard's two readings in the same units, or it silently does nothing** |
+| #186 | 🟠 High | ✅ Fixed | **`musedit`'s reversed command bars left solid blocks of colour behind.** `kBlitCharRev` writes `(bg0<<4) \| textColour`, so a bar leaves the cell's **paper** nibble on the text colour — and `kPrintCharAt`, the routed writer every plain cell used, is an *ink* write that keeps the paper it finds. So the first space or note drawn over a former bar came out ink-on-ink: a solid block wherever a bar had been, compounding with every repaint. `muPutC`'s plain path now uses `kBlitChar` while the task owns the display, which sets paper back to `bg0`; the routed writer stays for the background case. Rule: **only the fixed blitters write both nibbles — a routed text write inherits the paper, so a reversed cell can only be un-reversed by another fixed blit** |
+| #185 | 🟠 High | ✅ Fixed | **After any edit, `musedit`'s grid stopped drawing beyond the window.** `muRedrawRows` (the band-limited repaint an edit uses) set `muGdClip` and never cleared it, so from the first edit on the editor stayed in partial-repaint mode: every line the scroll pulled in fell outside the stale `MU_GDLo..MU_GDHi` band, `muLnSpot` recorded its table entry and declined to draw it, and the arriving lines were blank **and unnumbered** while the head's `R` advanced. `muDrawGrid` now consumes the clip at `muDgEnd`, `muRedrawNoHead`'s private clear is gone (net 0 bytes), and the note-replace path repaints from the cursor's row down, because a pitch typed over a rest takes the armed length and moves every row below. Rule: **a mode flag set by one routine and cleared by another is a one-shot that will be forgotten — clear it in the routine that consumes it.** The tell is a blank-but-advancing display |
+| #184 | 🟠 High | ✅ Fixed | **`musedit`'s messages printed as `?` and graphics characters: the generated `msgs` file held ASCII, not screen codes.** `muTextAt` prints the REU file's bytes straight to the screen, so a slot must hold screen codes; `gen-musedit-msgs.py` wrote ASCII, which differs for every letter (`?` is `$3F` in both, which is why that one character looked right). `screencode()` now reproduces `.text` under `screencode_mixed` — `ord(c) - 96` for `a`-`z`, otherwise `ord(c)` — with an assert on the probe value, and the bytes were verified by assembling the same 40 strings with KickAssembler and diffing all 2,560 of them |
 | #183 | 🟠 High | ✅ Fixed | **In fill mode, the left press that dismissed the palette band also ran the flood fill.** `gpDraw`'s band guard reads `GP_MENU`, but `gpPicker` runs first in the same frame and `gpPickAway` clears `GP_MENU` as the band goes down — so the dismissal press reached `gpShapeFlood` as a canvas press and filled from a click made while the UI was up (deliberate for the pencil/shapes, #164b; wrong for a fill that reads its region from the canvas's pixels). `GP_MENU0` now records `GP_MENU` at the top of each displayed frame, before the picker can put the band away, and `gpShapeFlood` refuses when it is set: the dismissal only dismisses and the next press fills. `grpaint` 7729 -> 7743 bytes, 71 pool pages (unchanged), 64 asserts. Rule: **a guard that must tell "the UI was up when the press landed" from "the UI is up now" reads the frame's STARTING state — the flag that means "is up now" is cleared by the very dismissal it must detect.** |
 | #182 | 🔴 Critical | ✅ Fixed | **`allocFromPool` promised X and clobbered it, so every `kMalloc` recorded a wrong page count — pages stranded in the bitmap, or another owner's pages freed.** `kMallocImpl`'s `kmSlotFound` took the count from X with `txa` (commented "from X, not kArg: `kmEvictAlloc`'s `dlEvict` clobbers `kArg..+7`" — right about `kArg`, wrong about X), and `allocFromPool`'s own `poolBitCheck`/`poolBitSet` candidates each end in `tax`, so the value that stuck was `startPage + pages - 1`: `mallocPages = (startPage + pages - 1) & 7`, an arbitrary 0-7. `kFreeImpl`/`freeMallocBlocks` then freed exactly that many pages — too few strands used pages with no owner, too many clears the pages *above* the block, and the next allocation hands those to a new owner, which writes code over a live task's code: a JAM, and VICE falls back to the KERNAL READY prompt. Found from two save-states of the reported repro (`run sidplay`, `run edit`, quit, let the tune finish, `run sidplay` again): `edit`'s 4-page chunk at 55-58 was freed as 2 pages from 55, stranding **57-58** and splitting the free run at 56/59 — with **no owner table row for either page**, which is why `pool` looked clean, and why `run sidplay` then died in the load path while a second `run edit` was silently refused (the shell sacrificed itself). Fix: read the count from `allocFromPool`'s `kArg+4` echo (2 bytes). Same false `Clobbers:` line corrected in `freeFromPool`, `markPagesUsed`, `dlAllocCode`, `setTextColor`, `setCursorColor` and `spriteCollide`; `shareScreen`/`takeScreenOwnership` gained their (true) X contract. Free total 127 → **125 B / 22 pockets**; the code chain's growth tail `$FC3B-$FC3E` → `$FC3D-$FC3E`. Left behind: **`tools/audit-clobbers.py`** (path-sensitive X-contract screener with a 17-routine `--selftest`) and **`tools/vsf-pool-audit.py`** (reads a VICE save-state's pool bitmap and cross-checks it against the owner tables, reporting STOLEN and STRANDED pages). Rule: **a clobber list is a contract, and the outermost one is the only one a caller reads — a routine that calls a `tax`ing primitive has already clobbered X.** |
 | #181 | 🟠 High | ✅ Fixed | **The first of the four MC slot chips always showed black, however the picture had been saved.** On a load `gpPicPalMc` fills the task's four palette entries (`GP_MB+0..+3` -- what the chips draw, what a swatch press for slot 0 assigns to, what `gpCells`/`gpCram` refills the canvas from, and what value 0's marks are matched against) and it took `bg0` from `GP_HDR + GPIC_PAL_OFF` -- **+12, the border** -- instead of `+13`. `GPIC_PAL_OFF` is the palette's FIRST byte and the order is `border, bg0, bg1, bg2`, so the one MC colour the header carries (`$D021`, the value-0 source) was overwritten with the border's. Measured on the seed: `assets/pics/mc.pic` holds border 0, **bg0 6 (blue)**, bg1 0, bg2 1, with cell 0's matrix `$01` and its colour RAM `2`, so its four chip colours are blue, black, white, red -- the task drew black, black, white, red. Only the FIRST of those two blacks was wrong: the file's c1 really is 0 (613 of its 1000 cells carry a 0 high nibble), which is what the second chip is showing. The picture on screen was never affected, because `$D021` is written by `gpPicPal`'s selector loop, which does use +13 -- so the fault showed as a chip and nothing else, and the picture looking right is exactly why 4.13.5's verification passed it. Fix: `ldy #GP_HDR + GPIC_PAL_OFF + 1`. Rule: **an offset constant that names a STRUCTURE's start is not a field index** -- `GPIC_PAL_OFF + n` is a different colour per mode (hires: paper, ink; MC: bg0, c1, c2), so a read of it has to name the field it means rather than count from the block's base. `grpaint` 6762 bytes, 53 asserts. |

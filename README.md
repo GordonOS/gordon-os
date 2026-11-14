@@ -21,6 +21,8 @@ Every image is a real capture from VICE at the project's own profile
 | `ver`, `me` and `ps` at the shell | `pool`: 109 pages, with the libraries at the top |
 | ![GordonPaint on a new canvas](docs/img/grpaint-new.png) | ![the editor](docs/img/edit.png) |
 | **GordonPaint**, a new canvas with the band up | the **editor**, status bar and all |
+| ![musedit](docs/img/musedit.png) | ![musedit playing](docs/img/musedit-play.png) |
+| **musedit**: a tune open, the cursor on its command line | **musedit** playing from bar 1: the head counts rows |
 | ![gortris](docs/img/gortris-play.png) | ![gorkanoid](docs/img/grknoid-play.png) |
 | **gortris**: three pieces landed, one falling | **gorkanoid**: a damaged wall, ball in play |
 | ![gfxdemo](docs/img/gfxdemo.png) | ![spirog](docs/img/spirog.png) |
@@ -33,8 +35,8 @@ Every image is a real capture from VICE at the project's own profile
 The rest, one per subsystem, sit in the docs they belong to: the `dir` options in
 [quick-start.md](docs/quick-start.md), each game in its own guide
 ([gortris](docs/gortris.md), [grknoid](docs/grknoid.md), [gordonpaint](docs/gordonpaint.md)),
-the picture viewers in [pic-format.md](docs/pic-format.md), and the 1351 readout in
-[lib-mouse.md](docs/lib-mouse.md).
+the picture viewers in [pic-format.md](docs/pic-format.md), the tune editor in
+[musedit.md](docs/musedit.md), and the 1351 readout in [lib-mouse.md](docs/lib-mouse.md).
 
 **Key features currently implemented and working:**
 
@@ -51,6 +53,17 @@ the picture viewers in [pic-format.md](docs/pic-format.md), and the 1351 readout
 - **Bitmap graphics** — REU-backed bitmap surfaces (28 slots) in standard hires (320×200) and multicolor (160×200) modes. `gfx.lib` provides the full primitive set (`kPlot`/`kLine`/`kBox`/`kFillBox`/`kCircle`/`kEllipse`/`kFloodFill`/`kGetPixel`/`kClearBitmap`/`kSetGfxColor`/`kFillMatrix`) plus pixel-positioned text (`kGfxChar`/`kGfxString`), all hires- and MC-aware
 - **Hardware sprites** — all **8** VIC-II sprites through **`sprite.lib`** (`kSpriteSheet`/`kSpriteFrame`/`kSpritePos`/`kSpriteReg`/`kSpriteCollide`) with the art stored in the REU FS as 64-byte-frame sheets. Tasks write a 39-byte RAM **shadow** and the kernel publishes it to `$D000-$D02E` once per frame in the vertical blank, so nothing can tear from a badly-timed write; collisions come back as frame-latched masks. Each task's sprite state (shadow, sheet records, frame indices) is saved per task and **handed over with the display**, so two sprite tasks coexist. Demos: `run sprdemo` (bouncing balls) and `run godzi` (the ported walker/Godzilla demo). See **[docs/lib-sprite.md](docs/lib-sprite.md)**
 - **GordonPaint, and a 1351 mouse** — `mouse.lib` (lib 8) reads the Commodore **1351** through the SID's POT lines behind one dispatching call, and **`grpaint`** is the paint program built on it: a canvas in hires or multicolour, a palette/tool band over the bottom two cell rows, thirteen tools, an undo/redo ring five steps each way, and `<name>.pic` save/load in a documented 10,032-byte format (`grview` is its viewer). Declare the mouse with `mouse 1351`; `mtest` is the readout that settles the protocol on a machine. See **[docs/gordonpaint.md](docs/gordonpaint.md)**, **[docs/pic-format.md](docs/pic-format.md)** and **[docs/lib-mouse.md](docs/lib-mouse.md)**
+- **`musedit`, a tracker and editor for Sidplayer tunes** — `run musedit <tune>` opens a COMPUTE!'s
+  Sidplayer `.mus` on its own screen as a three-voice grid in which a note reads as its pitch
+  and its duration on one row (`C-4 16`). A playhead driven by the player's own jiffy clock
+  follows the music a line at a time, the window scrolling through the kernel's REU row move
+  and drawing only the row that arrives; three coloured dots on an eight-octave piano show what
+  each voice is sounding, and the notes are placed from the piano's own key geometry. Editing
+  is by cursor — note keys, arming durations, rests, row insert across all three voices, a
+  command panel for every effect the format has, free jumps by bar, and undo/redo — and a pass
+  plays once and rewinds. The tune is a 64 KB scratch copy in the REU filesystem, so it is far
+  larger than the original Sidplayer could hold, and `SHIFT`+`S` writes it back. See
+  **[docs/musedit.md](docs/musedit.md)**
 - **REU video playback (`granim`)** — a full-screen **animation** played out of the REU filesystem: the bundled film is 360 multicolour frames at 24 fps (15 seconds) in 60 chunks of six frames plus a manifest, and `run granim llama` plays it. Each frame is six `kReuReadAt` calls, so no window holds interrupts off for more than ~2,000 bytes, and they run in the beam's own order — matrix and colour RAM before the pixels — so the rewrite stays ahead of the raster and never shows a seam; the film clock steps on the machine's **declared speed**, so the film is the same length in *real* time on a 200% emulator as on a real C64; and the display is checked before every update, so an F-key switch **pauses** the film instead of drawing into the new owner's screen. See **[docs/pic-format.md](docs/pic-format.md)** → *The `.anm` film container*
 - **Per-task ZP preservation** — tasks declare a ZP region; scheduler DMAs it to/from REU on every switch (zero overhead for non-declaring tasks)
 - **Counting semaphores** — 4 semaphores with yield-based blocking (tasks yield instead of spinning)
@@ -410,7 +423,7 @@ sidrst                     Reset the SID (zero all SID registers) — the manual
 | gfxdemo | `run gfxdemo [step]` | Spider-web line weave demo — `step` = line interval 1–25 (relocatable, bundled) |
 | fpdemo | `run fpdemo` | `fp.lib` showcase — sine wave edge-to-edge with a cosine superimposed, plotted pixel-by-pixel (relocatable, bundled) |
 | spirog | `run spirog [R r d col \| 1-9 \| 10]` | Integer spirograph — a hypotrochoid traced as a `kLine` polyline from a 256-entry sine table (no floating point), so it closes exactly. `R` ring radius, `r` rolling radius (`R` > `r`), `d` pen offset, `col` 1–15; values over 127 are clamped and the figure is scaled to fit. No arguments draws an 80/35/45 rosette, `1`–`9` picks a preset sized to the full screen height, and `10` uses **multicolour** to draw 25 random presets. `q` exits; **re-runnable** (relocatable, bundled) |
-| sidplay | `run sidplay <name> [delay] [repeats]` | Plays a COMPUTE!'s Enhanced Sidplayer `.mus` song (`commodo`, `fsonata` bundled) through **sid.lib** — single-instance, no screen; `delay` = ticks per jiffy (default 1, raise it to slow down), `repeats` = `0` forever / `1` once (default) / N plays. A failure prints `? tune <name>` / `? load <name>` / `? no memory` / `? no player` on a temporary screen and waits for a key, instead of exiting silently |
+| sidplay | `run sidplay <name> [delay] [repeats]` | Plays a COMPUTE!'s Enhanced Sidplayer `.mus` song (`commodo`, `fsonata` and ten more bundled — see [docs/musedit.md](docs/musedit.md) and `NOTICE`) through **sid.lib** — single-instance, no screen; `delay` = ticks per jiffy (default 1, raise it to slow down), `repeats` = `0` forever / `1` once (default) / N plays. A failure prints `? tune <name>` / `? load <name>` / `? no memory` / `? no player` on a temporary screen and waits for a key, instead of exiting silently |
 | sprdemo | `run sprdemo` | The sprite subsystem's demo: eight coloured balls bouncing off the walls and off each other, one update per displayed frame. `q` exits. Its only asset is the sprite sheet `ball.spr` (relocatable, bundled). **Re-runnable**, and it may run alongside any other sprite task: the kernel keeps one task's sprite state live and swaps it with the display |
 | godzi | `run godzi [1\|2]` | **Pinned (`KF_NOT_EVICTABLE`)** — pool eviction never swaps it out. A port of the stand-alone demo in `reference/godzi.asm`/`reference/main.asm`: a boat-shaped walker crosses the screen while a "Godzilla" flaps between two poses. Four sprite slots - The walker's two overlapping layers plus the two Godzilla poses — art in `boat.spr`/`godzi.spr`, X-expanded walker (black rigging over a light-blue hull), one update per displayed frame. Its music is its own (`sid.lib` called directly from a thread child, as `gortris` does): it loads `commodo` for mode 1 and `fsonata` for mode 2 at startup and the child plays the selected one, so `1`/`2` switches the song with the look — no re-load, no gap — and `q` hushes the SID, reaps the child and frees both buffers, leaving nothing playing. `1`/`2` switch between the two looks live, `q` exits. Killing it from the shell does not run that path, so `sidrst` is needed to silence the chip. It is relocatable and **single-instance for the SID** — it holds the chip for its whole life, so a second `run godzi` is refused (`? already running`) — while the sprite side needs no guard at all: the per-task sprite state is swapped with the display. It is bundled |
 | gortris | `run gortris` | **Tetris** — the game logic of Wiebo de Wit's `tetris.c64` (MIT license) ported to GordonOS: the piece set, the frame-range rotations, the move-then-test order and the line sweep are its, while the artwork is ours (drawn with the kernel's glyph support, because the original was char-mode and GordonOS is all-bitmap). The 10×20 board lives in the task image, so collision is a board lookup instead of a screen read. Five modes: attract (four screens), level select (levels 0–9 on the original's own grid — `j`/`k` or a digit to choose, ENTER to start, with the hi-score table shown here), play, and the original's game-over animation (the well fills a row a frame, is held full ~3 s, empties, then `game over` / `press key` print inside it). The keys are the original's bar the move pair — `j` `k` move, `a` `s` turn, ENTER soft drop, `p` pause — plus SPACE (hard drop) and `q` (exit); the port-2 joystick works too (UP rotate CCW, DOWN soft drop, LEFT/RIGHT move, FIRE rotate CW, and FIRE starts a game). 10 lines per level, the fall delay drops by 4 per level (floored at 4), a line scores × (level+1), and the level you chose is remembered for the next game. Three hi scores (7-character names) live in the REU FS as `gortris.hi`, typed in on the game-over screen under the kernel's blinking block cursor. The music is `music/tetris.mus`, loaded by the task itself and played through **sid.lib** from a thread child it spawns — not through `sidplay.tsk` — and hushed when the display is lost — the tune is a single pass, so the repetition is the *player's* (`kSidPlay` repeats 0), which is also why `run sidplay tetris` plays it once and stops. `m` mutes it from any screen — the panel says `music off` — and the mute survives losing and regaining the display. **Not re-runnable** (a second `run gortris` gets `? already running`) and pinned in the pool (`KF_NOT_EVICTABLE`), because it owns the display and holds the board (relocatable, bundled). Full reference: **[docs/gortris.md](docs/gortris.md)** |
@@ -418,6 +431,7 @@ sidrst                     Reset the SID (zero all SID registers) — the manual
 | grpaint | `run grpaint <name> [colours…]` | **GordonPaint** — the **1351 paint program**, and the reason `mouse.lib` exists. `run grpaint shot` opens `shot.pic` (a picture that is there is loaded, one that is not is the blank canvas), and the rest of the command line sets the colours a NEW picture starts in — their **count** is the mode: three values for hires (`run grpaint shot 1 1 0` = border 1, paper 1, ink 0), five for multicolour (`1 1 2 7 15` = border, background, c1, c2, c3); an existing picture's own mode and colours win. The canvas is the whole screen and the UI band sits over its bottom two cell rows — **a right press anywhere toggles it**, a left press takes an entry and leaves it up, a left press off the entries closes it. Sixteen palette swatches (in hires the first is the **eraser**: the drawing calls read colour 0 as *clear*), thirteen tiles (pencil, line, box, filled box, circle, flood fill, three brushes, text, clear, save, MODE) plus the four multicolour slot chips. **Undo and redo are five steps each way** — `u`/`r` or the band's two stacked arrows, white while they have a step to take — and the line's first click only anchors, so it is not a step. `q` leaves at once on a clean canvas and otherwise asks first, flashing the SAVE tile. It needs `mouse 1351` (see **GordonPaint and the 1351 mouse**); **single-instance** and pinned, because its live footprint is 71 of the pool's 109 pages. Saves the documented `.pic` format — see **[docs/pic-format.md](docs/pic-format.md)**; full program reference: **[docs/gordonpaint.md](docs/gordonpaint.md)** |
 | grview | `run grview <name>` | Picture viewer for the `.pic` format (`run grview hires` opens `hires.pic`): it allocates a bitmap surface, takes the display and DMAs the file's three regions straight to `$2000`/`$0400`/`$D800`, with the mode and all four VIC colours from the file's own header. `m` reinterprets the same bytes in the other mode (nothing is converted) and any other key exits. `hires.pic`, `mc.pic`, `alf.pic` and `alfgs.pic` ship as samples — the last two the same photograph as a multicolour conversion, in colour and in the three greys |
 | granim | `run granim <film>` | **GordonAnim** — a full-screen animation player for the REU filesystem's `.anm` chunks. `run granim llama` plays the bundled film: 360 multicolour frames at 24 fps, 15 seconds, shipped as 60 chunks of six frames plus a manifest (`assets/anim/llama/`). Each frame is six `kReuReadAt` calls, so no window holds interrupts off for more than ~2,000 bytes; the film clock steps on the machine's **declared speed**, so the film is the same length in real time on a 200% emulator as on a real C64; and the display is checked before every update, so an F-key switch **pauses** the film rather than drawing into the new owner's screen. `+`/`-` change the rate (a quarter speed to double, default is the film's own), SPACE pauses, `q` exits. The bundled film is a greyscale conversion of *Caminandes 1: Llama Drama* — credit in [NOTICE](NOTICE); the container is [docs/pic-format.md](docs/pic-format.md) |
+| musedit | `run musedit <name>` | **The tune editor** — a COMPUTE!'s Sidplayer `.mus` opened from the REU filesystem as a three-voice grid, with a playhead driven by the player's own jiffy clock, a command panel for every effect the format has, jumps by bar, undo/redo and `SHIFT`+`S` to save. **Pinned** (it holds unsaved work) and single-instance; the score is a 64 KB scratch file in the filesystem, so it is not touched until it is saved. Needs `mouse 1351` and `sid.lib`. See **[docs/musedit.md](docs/musedit.md)** |
 
 The dynamic task sources live in `src/tasks/dynamic/` (v2 format); the original code they import (`.inc` files) lives in the same folder, next to the wrappers. See the [programmers guide](docs/programmers-guide.md) for how to write or migrate a task.
 
@@ -518,7 +532,10 @@ gordon-os/
 ├── assets/ui/             UI band sources: gpui.txt (ASCII-art tool pictures, the
 │                          source of truth) next to the gpui.bin and gpui_mc.bin
 │                          that grpaint reads into its palette band (one file per
-│                          mode); shipped by the same $assets array
+│                          mode); shipped by the same $assets array. musedit's text
+│                          lives here too: musedit-msgs.txt (every string it prints)
+│                          and musedit-mnems.txt (the 49 command mnemonics) generate
+│                          musedit-msgs.bin, shipped as the REU file `msgs`
 ├── assets/pics/           Picture samples: hires.pic, mc.pic, alf.pic and
 │                          alfgs.pic (a photograph, colour and greyscale) -- the
 │                          .pic format, docs/pic-format.md -- shipped by the same
@@ -534,8 +551,9 @@ gordon-os/
 │                          here. llama/ is the bundled 360-frame film:
 │                          `run granim llama`
 ├── music/                 COMPUTE!'s Enhanced Sidplayer tunes (*.mus, seeded raw
-│                          into the REU FS: commodo, fsonata and tetris, plus
-│                          grknoid's katmand, immig and firstdt)
+│                          into the REU FS: commodo, fsonata, seffsng, tambrn, tetris and the
+│                          archive's ringmod, syncmod, layla and daytrip, plus grknoid's
+│                          katmand, immig and firstdt)
 ├── docs/                  Design docs -- the Documentation table below indexes
 │                          them: guides (quick-start.md, tutorial.md,
 │                          architecture.md, development.md, programmers-guide.md,
@@ -545,10 +563,10 @@ gordon-os/
 │                          pic-format.md, c64_1750_REU_programming_guide.md and the
 │                          lib-*.md call references), the call inventories
 │                          (kernel-call-inventory.md, library-call-inventory.md),
-│                          application guides (gordonbasic.md, edit.md,
-│                          gordonpaint.md, gortris.md, grknoid.md), then bugs.md
-│                          (bug history, symptom and fix), features.md, limitations.md,
-│                          future-improvements.md and LICENSE.md
+│                          application guides (gordonbasic.md, gordonpaint.md,
+│                          edit.md, gortris.md, grknoid.md, musedit.md), then
+│                          bugs.md (bug history, symptom and fix), features.md,
+│                          limitations.md, future-improvements.md and LICENSE.md
 │                          (img/ holds the screenshots the README and these docs embed)
 ├── reference/             Third-party reference sources (EhBASIC + its editline, filesys.asm, minimon.asm, sidobj64.asm, sideditor64.asm and the Sidplayer notes, tetris/)
 ├── removed/               Removed source kept for reference (indirectcall, reu-swap-verify, sprdemo-modes)
@@ -672,6 +690,16 @@ gordon-os/
 │           ├── granim.asm   animation player — task wrapper (imports granim.inc)
 │           ├── granim.inc   player body: manifest, chunk seam, six paced reads a
 │           │                frame, speed-shifted clock, pause if display is lost
+│           ├── musedit.asm  the tune editor — task wrapper (imports musedit.inc and
+│           │                its three generated includes), pinned
+│           ├── musedit.inc  editor body: the grid, the playhead, the piano, the
+│           │                command panel, undo/redo, the .mus reader and writer
+│           ├── musedit-msgs.inc generated — one M_* id per string in the REU file
+│           │                `msgs`, the mnemonic ids, and every message's length
+│           ├── musedit-glyphs.inc generated — the piano's glyphs and hit tables,
+│           │                from one geometry
+│           ├── musedit-tables.inc generated — the editor's copy of the player's
+│           │                tempo table, checked against sidplay.inc
 │           ├── spirog.asm   spirograph demo — task wrapper (imports spirog.inc)
 │           └── spirog.inc   demo body: hypotrochoid from a sine table, presets
 ├── tasks-out/             Built task binaries (*.bin) + temp/ (assemble → shift → check scratch; gitignored)
@@ -686,6 +714,8 @@ gordon-os/
 │   ├── gen-fixups.asm     Fixup table generator (generated)
 │   ├── check-fs-offsets.ps1 Lint — 24-bit REU FS offset arithmetic
 │   ├── check-lib-ids.ps1  Lint — LIB_* ids vs the lib descriptor tables
+│   ├── check-zp-indirect.ps1 Lint — an indirect operand must be zero page
+│   ├── check-zp-map.py    Gate — no two zero-page labels share a byte
 │   ├── check-header-offsets.ps1 Lint — task/lib header fields read by bare offset
 │   │                      instead of an HDR_* constant
 │   ├── check-task-headers.py Gate — every built task/lib header vs task-header.inc
@@ -697,6 +727,14 @@ gordon-os/
 │   ├── check-pool-budget.ps1 Gate — a task's live pool footprint (its code + the
 │   │                      libraries it holds) vs the 109-page pool
 │   ├── check-links.py     Lint — relative links in the tracked Markdown resolve
+│   ├── check-ascii.py     Lint — every code file is plain 7-bit ASCII (Rule 19)
+│   ├── check-mus-commands.py Gate — musedit's encoder tables vs gen-mus.py's
+│   │                      decoder, over every command the format can hold
+│   ├── check-mus-pitch.py Gate — the editor's pitch split vs the host model
+│   ├── check-mus-timing.py Gate — the duration arithmetic vs the player
+│   ├── check-musedit-index.py Gate — every `(dataPtr),y` access sets its own Y
+│   ├── check-musedit-walk.py Gate — the host walk model vs a captured screen
+│   ├── fixtures/          The captured walks check-musedit-walk.py compares against
 │   ├── tasks-stamp.ps1    The task build's input hash — proves tasks-out was
 │   │                      built from the src/ on disk
 │   ├── verify-map.ps1     Layout gate — the kernel build map vs the free-run totals docs/memory-map.md publishes
@@ -708,10 +746,18 @@ gordon-os/
 │   ├── gen-mus.py         Write/read COMPUTE!'s Enhanced Sidplayer .mus tunes
 │   │                      (--from-midi <file> --bars 16 writes the shipped tune;
 │   │                       --build <file> = the hand-written score; --decode lists one)
+│   ├── mus-sim.py         The Sidplayer's control flow, modelled on the host
+│   │                      (--walk prints the editor's own line list)
+│   ├── gen-musedit-msgs.py musedit-msgs.txt + -mnems.txt → `msgs` and its .inc
+│   ├── gen-musedit-glyphs.py The piano's geometry → glyphs + hit tables (an .inc)
+│   ├── gen-musedit-tables.py The player's tempo table → musedit-tables.inc
 │   ├── gen-sprites.py     ASCII art → C64 sprite sheets (assets/sprites/*.txt → *.spr)
 │   ├── gen-ui.py          ASCII art → grpaint's UI band (assets/ui/gpui.txt → *.bin)
 │   ├── shots.py           Screenshots — drives VICE's binary monitor to type, push a stick
 │   │                      and shoot the display (docs/img/)
+│   ├── vice-drive.py      The VICE driver to copy: launch/type/key/fb/text, all
+│   │                      through the binary monitor
+│   ├── vsf-pool-audit.py  Read the pool's state out of a VICE save-state
 │   ├── build-assets.ps1   Re-runs every asset generator whose source is in the tree,
 │   │                      in front of the seeding: the fresh-REU flow calls it
 │   ├── seed-font.ps1      PET/C64 chargen ROMs → charsets/*.fnt
@@ -720,22 +766,29 @@ gordon-os/
 │   ├── gen-anim.py        Frames → .anm chunks + the film manifest (pic-format.md
 │   │                      has the recipe: colour, greyscale, and the tone curve)
 │   ├── scan-history.py    Lint — history-flavoured content in code comments (Rule 14)
+│   ├── audit-clobbers.py  Audit — the kernel's documented register contracts
 │   ├── dis6502.py         Recursive 6502 disassembler + hardware-touch report (--entry XXXX)
 │   ├── dis6502-linear.py  py65 linear sweep — the cross-check on dis6502.py's opcode table
 │   ├── scan-prg.py        Byte-pattern scan of a C64 PRG: address usage + ASCII strings
 │   ├── toolpaths.ps1      Tool paths, read from .vscode/settings.json
+│   ├── host.ps1           Host facts, so one script set runs on Windows and Unix
 │   ├── launch-vice.ps1    VICE launcher (existing or fresh REU)
-│   ├── vice-step.ps1      VICE automation helper — stepwise driver (launch / send keys / Enter / screenshot / menu / click). Windows only
-│   ├── vice-test.ps1      VICE automation helper — boot + drive BASIC via SendKeys + screenshots. Windows only
-│   ├── drive-string-tests.ps1 VICE automation helper — string-domain regression suite in BASIC. Windows only
 │   ├── publish-binaries.ps1 Publish PRG + REU image to the binaries repo
 │   ├── publish.py         F5 "Publish binaries" debug target (forwards to publish-binaries.ps1)
 │   ├── README.binaries.md Published README for the binaries repo
 │   └── quickstart.binaries.md Published quick-start for the binaries repo
-├── project-config.json
-├── NOTICE
+├── project-config.json    The VS64 project: the sources array that drives the kernel rebuild
+├── NOTICE                 Third-Party Notices — every vendored source and its licence
+├── LICENSE                GPL v2 (the full text)
+├── CONTRIBUTING.md        How to contribute, and what a change has to pass
+├── CODE_OF_CONDUCT.md     The community's expectations
+├── SECURITY.md            How to report a vulnerability
 ├── .github/
-│   └── copilot-instructions.md
+│   ├── copilot-instructions.md The rules the code follows (ZP, clobbers, pool, ASCII)
+│   ├── workflows/gates.yml CI — the source-only gates, on every push and PR
+│   ├── ISSUE_TEMPLATE/    Bug and feature-request templates
+│   ├── pull_request_template.md What a PR body has to say
+│   └── dependabot.yml     Action and dependency updates
 └── .vscode/
     ├── tasks.json        Build + VICE launch tasks
     ├── extensions.json   Recommended extensions (VS64, KickAss, PowerShell)
@@ -771,6 +824,7 @@ gordon-os/
 | [docs/gordonpaint.md](docs/gordonpaint.md) | Use GordonPaint — the 1351 paint program: the band, the tiles, the undo ring, and how it works |
 | [docs/gortris.md](docs/gortris.md) | Play Tetris — the screens and controls, the scoring and level tables, the hi-score editor, and the port's provenance |
 | [docs/grknoid.md](docs/grknoid.md) | Play Gorkanoid — the wall, the paddle, the bounce rule, lives and levels, and the tunes |
+| [docs/musedit.md](docs/musedit.md) | Use the tune editor — every key, every command the format has, playing and saving tunes |
 | [docs/dynamic-libraries.md](docs/dynamic-libraries.md) | Dynamic `.lib` mechanism — load policy, libMask, refcounting |
 | [docs/lib-time.md](docs/lib-time.md) | `time.lib` call reference — `kGetTime` / `kSetTime` / `kPrintTime` |
 | [docs/lib-filesys.md](docs/lib-filesys.md) | `filesys.lib` call reference — `kReuFormat` / `kReuSave` / `kReuDelete` / `kReuRename` / `kReuDirEntry` / `kReuCreate` / `kReuOpen` / `kReuReadAt` / `kReuWriteAt` |
@@ -784,6 +838,7 @@ gordon-os/
 | [docs/pic-format.md](docs/pic-format.md) | The `.pic` picture format — the 10,032-byte layout, both modes, the label, and the host tool that writes one |
 | [docs/c64_1750_REU_programming_guide.md](docs/c64_1750_REU_programming_guide.md) | Work against the REU itself — the 1750 DMA and banking reference |
 | [docs/future-improvements.md](docs/future-improvements.md) | Planned features and roadmap |
+| [docs/bugs.md](docs/bugs.md) | Look up a bug by its symptom — the mechanism, the fix, and why it was needed |
 
 ---
 

@@ -1,0 +1,19 @@
+    ATK 1       ATK 1       ATK 0
+    DCY 9       DCY 8       DCY 10
+    SUS 12      SUS 11      SUS 10
+    DCY 1       DCY 1       DCY 1
+    P-S 15      P-S 5       P-S 20
+    P-W 1850    P-W 1500    P-W 1800
+    VDP 6       VDP 6       VDP 12
+    VRT 2       VRT 2       VRT 2
+    TEM 128     HED 7       HED 15
+                            DEF 0
+ 01 ... 1       ... 1       F#2 8
+ 02
+ 03
+ 04
+ 05
+ 06
+ 07
+ 08
+ 09                         F#2 16

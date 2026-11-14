@@ -54,7 +54,11 @@
         "src/tasks/dynamic/grknoid.asm",
         "src/tasks/dynamic/grknoid.inc",
         "src/tasks/dynamic/granim.asm",
-        "src/tasks/dynamic/granim.inc"
+        "src/tasks/dynamic/granim.inc",
+        "src/tasks/dynamic/musedit.asm",
+        "src/tasks/dynamic/musedit.inc",
+        "src/tasks/dynamic/musedit-glyphs.inc",
+        "src/tasks/dynamic/musedit-msgs.inc"
     ],
     "build": "debug",
     "definitions": [],

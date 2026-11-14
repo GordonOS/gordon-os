@@ -14,7 +14,7 @@ fixups**.
 | Call indices | 33–34 (jump entries patched via `libJumpLo/Hi` + `libInitLo/Hi`) |
 | Kernel entry points | `kSidPlay` (`$FF7E`), `kSidHush` (`$FF81`) |
 | Source | `src/libs/sid.asm` (player body: `src/libs/sidplay.inc`) |
-| Pool footprint | 14 pages (3,538 bytes of code, 537 fixups) |
+| Pool footprint | 15 pages (3,623 bytes of code, 552 fixups) |
 
 > The two entry points are **not** in the `$E000` jump table — that table is
 > full (its only free byte is `$E119`). They are ordinary 3-byte stubs in the
@@ -25,6 +25,12 @@ fixups**.
 room for a third: `A` says where the tune comes from (0 = RAM, 1 = a file in the
 REU filesystem). Everything else — the delay, the repeats, the transposes,
 blocking, ownership — is identical, and so is the sound.
+
+**Only an exact `1` asks for the REU**; every other value takes the RAM path. Set `A` on
+every call and do not rely on that: a wrong mode is not a quiet failure. Mode 1 reads the
+first nine bytes of whatever `kPtr` points at as a config block — so a caller that handed
+it a tune image turns the image's three size words into window pointers and DMA's 256 bytes
+from a garbage filesystem offset into them.
 
 ## Before you call
 
@@ -56,6 +62,15 @@ blocking, ownership — is identical, and so is the sound.
   those two bytes for you — do not pre-adjust the pointer.
 - **One player at a time.** The SID is a single chip and the player's state
   lives in one copy of the library's data, so the second caller is refused.
+  `libStartPage` for `LIB_SID` is `$FF` until the library is really loaded, so a
+  page there means a player owns the chip — the shell reads that byte (with the
+  target's `libMask`) and refuses `run` of any task that declares `sid.lib` while
+  it is loaded, with `? sid.lib in use`.
+  That check needs the target's `libMask`, which is in the binary's header, so
+  `run` of a task that declares any library opens the file **twice**: once to read
+  the header and once to load it. It is the right trade — a load that fails on the
+  pool never returns to the shell — but it is why a run costs two FS opens, and
+  the header read leaves `kArg` alone precisely so the load can follow it.
 
 ## `kSidPlay` — play a tune at a given speed
 
@@ -77,11 +92,24 @@ blocking, ownership — is identical, and so is the sound.
   wrong pitch.
   **Set both on every call** — they are read at the call, and an unset
   byte is whatever the last task left in the `kArg` block.
+  `kArg+4`/`kArg+5` = **the jiffies to play silently first**, little-endian,
+  `0` = start at the tune's first row. This is how a caller starts part-way through
+  the tune: the format has no seek, so the pass runs from the first row with the
+  volume nibble masked, one jiffy after another as fast as the CPU allows, until it
+  has played that many — every command takes effect, so the sound state is the tune's
+  own and the published jiffy count (`SID_POS_TICK`) is already at the start row. Only
+  the SID's own envelope generators run at the compressed speed, so a note already
+  sounding when the mask lifts is caught earlier in its envelope than a real-time pass
+  would leave it. **Latched at the call**, before any DMA can walk over the block's
+  tail, but still caller-owned: set them on every call.
 - **Output:** `C=0` — the tune played and the SID was hushed. `C=1` — refused,
   another task is already playing.
 - **Clobbers:** A, X, Y, `kArg`+0/+1 (the sleep uses `kArg+1`).
 - **Blocks** (politely): the task sleeps `delay` ticks per jiffy, so it yields
-  the CPU and the 60 Hz scheduler tick is the player's jiffy clock. The call
+  the CPU and the 60 Hz scheduler tick is the player's jiffy clock. A **fast-forward**
+  (`kArg+4`/`kArg+5` non-zero) is the exception: it ticks without sleeping, silently,
+  and is preempted like any other work, so it costs the pass's own cycle count rather
+  than its playing time. The call
   returns when the repeats are done — or earlier if `kSidHush` asks it to stop.
 - **Returns with the SID silent** and the owner released.
 
@@ -122,11 +150,11 @@ clear cannot wipe them.
 
 ## Streaming a tune from the REU
 
-A buffer costs `ceil(size/256)` pool pages, so a tune's length used to be a
-memory question — the largest bundled tune is 18 pages, and anything bigger
-could not be played at all. Mode 1 removes it: the file stays in the REU and the
-player pages it in, so the RAM cost is **three fixed 256-byte windows** however
-long the tune is (the filesystem's 16-bit size field is the only ceiling, 64 KB).
+A buffer costs `ceil(size/256)` pool pages, so playing from RAM makes a tune's length a
+memory question — the largest bundled tune is 18 pages, and a bigger one does not fit at
+all. Mode 1 removes it: the file stays in the REU and the player pages it in, so the RAM
+cost is **three fixed 256-byte windows** however long the tune is (the filesystem's 16-bit
+size field is the only ceiling, 64 KB).
 
 The player addresses a command by **file offset**, and turns an offset into an
 address two ways:
@@ -272,7 +300,7 @@ counts for the video standard.
   claim the player while the current one is still inside its loop. The owner is
   released by the player itself, or reclaimed by liveness (below).
 - ⚠️ `sidrst.com` deliberately keeps its own direct register pokes: loading a
-  13-page library to zero 25 registers would be absurd, and the "stop a running
+  14-page library to zero 25 registers would be absurd, and the "stop a running
   player" half is only wanted while a player is alive. `kill.com` pokes the very
   same 25 registers for the same reason — see "Cleaning up after a kill".
 
@@ -295,7 +323,7 @@ A killed player never runs its own hush, so `kill.com` clears the chip itself
 when the task it is killing — **or the task that spawned it** — declared
 `sid.lib`. It asks `dynTaskLibMaskLo` (bit 5) **before** the kill, because
 `sysKill` frees the victim's dyn entry, then zeroes `$D400-$D418` with the same
-write set as `sidrst` (no library call, so no 13 pages are loaded to do it).
+write set as `sidrst` (no library call, so none of the library's pages are loaded to do it).
 
 Why the declaration and not the owner: `sidOwner` lives in this library's own
 data — relocated into pool pages — so no task can address it, and the library
@@ -409,6 +437,34 @@ A direct caller is expected to work like the wrapper: load (or embed) the tune,
 set `kPtr`/`kArg`/`kArg+1`, call `kSidPlay`, then free. Note that `kMalloc` and
 `kReuLoad` both clobber `kPtr`, which is why the wrapper stashes the buffer
 pointer in its instance data before it calls them.
+
+### Editing a tune on the machine
+
+`gen-mus.py` is how this repository authors a tune, but it is not the only way:
+**`musedit` is a full editor for the same files** and runs on the C64 — see
+[musedit.md](musedit.md). It opens a tune from the REU filesystem as a three-voice
+grid, plays it through this library, and writes it back with `SHIFT`+`S`.
+
+Twelve tunes ship in the image, and four of them are the archive's own worked
+examples of the parts of the player that are hardest to learn from prose:
+
+| Tune | What it demonstrates |
+|---|---|
+| `ringmod` | ring modulation — voice 1 modulated by voice 3, the modulator hidden with `3-O` |
+| `syncmod` | oscillator sync — one melody in two voices, the second synced and re-voiced section by section |
+| `layla` | the **software oscillator**: `LFO 1` with `MAX`/`SCA` rewritten note by note |
+| `daytrip` | a voice modulated from **another voice's envelope** (`SRC 2`) rather than from the oscillator |
+
+`run musedit <name>` opens any of them; `run sidplay <name>` just plays it. The
+sources are credited in `NOTICE`.
+
+The player reads its three modulation sources through an indexed load
+(`lda WorkLFO,y` with Y = `SRC`), so the neighbours of the software oscillator are
+part of that command's API: `SRC 0` is the software oscillator, `SRC 1` the sampled
+`$D41B` (oscillator 3, or its noise register) and `SRC 2` the sampled `$D41C`
+(envelope 3). Both are re-read once per jiffy in the tick, before the voices are
+processed. A larger `SRC` reads further into the player's work bytes, which hold
+values of 0-3 — a fixed small offset rather than a moving waveform.
 
 ## See also
 

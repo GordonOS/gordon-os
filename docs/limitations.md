@@ -16,7 +16,7 @@
 
 | | |
 |---|---|
-| Free space in the kernel's address space | **125 bytes across 22 pockets** |
+| Free space in the kernel's address space | **116 bytes across 21 pockets** |
 | The kernel core's growth headroom | **15 bytes** (`$13C5-$13D3`, `kernelCoreEnd` to `reuDirBuf`) |
 | Largest free pocket that can hold kernel code | **9 bytes**. The two larger runs (31 B at `$02A1`, 18 B at `$020D`) are below `$0801` and can never be used at all (VICE autostart takes the PRG's first block as the file start), and the 15-byte run after `kernelCoreEnd` is the core's own growth headroom, reserved for core changes |
 | The `$ECDC-$FC3E` code chain's growth room | **5 bytes** |
@@ -75,7 +75,10 @@ So it cannot simply be made bigger. What that means in practice:
   banks, **eight slots**. Each of those slots caps at **64 pages (16 KB) of
   `kMalloc`** plus 16 KB of program RAM: half the shadow each.
 - **The big tasks dominate.** `basic` needs roughly 65 pages of the 109 and only
-  loads after the shell is evicted; `edit` holds 36 pages for its whole life.
+  loads after the shell is evicted; `edit` holds 36 pages for its whole life, and
+  `musedit` needs **104 of the 109** — 70 pages of code plus the libraries it
+  declares and its REU read windows — which is why it is pinned and refused while
+  the pool cannot hold it.
 - **`? already running` is per-task, and a second copy costs the full
   footprint** unless the task is *reentrant*, in which case several instances
   share one set of code pages and only the instance data is per-copy.
@@ -438,7 +441,7 @@ These are designed or planned, not present. Each is documented in
 | **REU IPC shared buffer** (§8) | no large shared-memory channel; IPC is 128 bytes per channel |
 | **RAM disk / sector cache** (§9) | depends on the disk filesystem |
 | **Char cache for text surfaces** (§10) | bulk output and background scrollback pay full glyph cost |
-| **Editor undo/redo** (§11) | `edit` has no undo ([edit.md](edit.md) → *Limits*) |
+| **Editor undo/redo** (§11) | `edit` has no undo ([edit.md](edit.md) → *Limits*); `musedit` has undo and redo, but `edit` does not |
 | **REU FS directories** (§12) | one flat namespace of 512 entries |
 
 ---
@@ -447,7 +450,7 @@ These are designed or planned, not present. Each is documented in
 
 | Limitation | The way around it |
 |---|---|
-| Kernel address space full (127B / 22 pockets) | put new capability in a library; reuse the 102 calls that exist; a resident addition is a planned relocation |
+| Kernel address space full (116B / 21 pockets) | put new capability in a library; reuse the 102 calls that exist; a resident addition is a planned relocation |
 | Pool is 27.25 KB, page-granular | reentrant tasks share code; data goes to the REU; single-shot tasks that exit; pin only what must not move |
 | Pool needs *adjacent* pages | treat `? no space in pool` as placement — kill what you do not need, or reboot; prefer small re-runnable tasks |
 | `pool` cannot show fragmentation | read the `pg` column against a fresh boot |

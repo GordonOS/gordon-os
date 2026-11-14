@@ -8,6 +8,8 @@
 #   charsets/*.fnt        <- the chargen ROMs in charsets/    tools/seed-font.ps1
 #   assets/sprites/*.spr  <- the ASCII art *.txt beside them  tools/gen-sprites.py
 #   assets/ui/gpui.bin    <- assets/ui/gpui.txt               tools/gen-ui.py
+#   assets/ui/musedit-msgs.bin <- assets/ui/musedit-msgs.txt,
+#                                 assets/ui/musedit-mnems.txt  tools/gen-musedit-msgs.py
 #   assets/pics/*.pic     <- assets/pics/*-src.png            tools/img2pic.py
 #   src/corpus/*.bas      <- the program text inside gen-corpus.py
 #
@@ -88,6 +90,15 @@ if (-not $havePy) {
     & $py "tools/gen-corpus.py"
     if ($LASTEXITCODE -eq 0) { $done += "src/corpus/*.bas" }
     else { $failed += "gen-corpus.py (src/corpus/*.bas)" }
+
+    # --- musedit's printed text: assets/ui/musedit-msgs.txt and
+    #  assets/ui/musedit-mnems.txt -> the REU file `msgs`, and the .inc beside the
+    #  task, which holds one index per message and one id per mnemonic ---
+    if (Test-Path "assets/ui/musedit-msgs.txt") {
+        & $py "tools/gen-musedit-msgs.py"
+        if ($LASTEXITCODE -eq 0) { $done += "assets/ui/musedit-msgs.bin" }
+        else { $failed += "gen-musedit-msgs.py (assets/ui/musedit-msgs.bin)" }
+    }
 
     # --- pictures: assets/pics/*-src.png -> the .pic beside each ---
     $picSrcs = @(Get-ChildItem "assets/pics/*-src.png" -ErrorAction SilentlyContinue | Sort-Object Name)

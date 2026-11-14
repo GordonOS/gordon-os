@@ -58,7 +58,7 @@ splits a block further where it is useful (the per-file split comes from
 | `$53F2-$5456` | 101B | `pool-top.inc` | library pool placement (`dlLibCore`, `allocFromPoolTop`, `dlAllocCode`) + caller-eviction accounting (`dlCallerAddLibs`, `dlCallerLibPages`) |
 | `$5457-$5481` | 43B | `cursor-helpers.inc` | `dlFindMaster` (`$5457`) + `dlInstallCursor` (`$546F`) — the four loader-band helpers share one `.pc` chain |
 | `$5482-$54A1` | 32B | `kernel/slot-shadow.inc` | `clearSlotShadows` — zeroes a new task's ZP shadow when its slot is reused |
-| `$54A2-$54AA` | 9B | — | free |
+| `$54A2-$54AA` | 9B | `sid.asm` + `slot-shadow.inc` | `SID_POS_BLOCK` (`$54A2-$54A7` next-command offsets, `$54A8-$54A9` song jiffies) then `tickCount` at `$54AA` |
 | `$54AB-$567C` | 466B | `scroll-slot.inc` | `scrollScreenSlot` |
 | `$567D-$56FA` | 126B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembly, sprite pointers, collision latch, `sprPubMask` gate, deadline guard and the `frameCount` increment |
 | `$56FB-$56FF` | 5B | — | free |
