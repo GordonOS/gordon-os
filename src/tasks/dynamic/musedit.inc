@@ -41,9 +41,9 @@
 .label muNumSquash  = MU_ZP_BASE+18
 .label muTmpL       = MU_ZP_BASE+19
 .label muTmpH       = MU_ZP_BASE+20
-.label muHeadRowCol = MU_ZP_BASE+21  // the head's row number, for the row-only update
+.label muRow        = MU_ZP_BASE+21  // the cursor's screen row, MU_GRID_TOP..MU_GRID_BOT
 .label muHeadEnd    = MU_ZP_BASE+22  // ...and the column just past its last digit
-.label muHeadTem    = MU_ZP_BASE+23  // the tempo the head's TEM field is showing
+.label muVoice      = MU_ZP_BASE+23  // the lane the cursor acts on, 0-2
 .label muNeedPage   = MU_ZP_BASE+24
 .label muClrRow     = MU_ZP_BASE+25
 .label muTempo      = MU_ZP_BASE+26  // the tempo in force at the first note
@@ -52,7 +52,7 @@
 .label muDotMask    = MU_ZP_BASE+29  // the enable mask the dots last asked for
 .label muDotV       = MU_ZP_BASE+30
 .label muDotOpt     = MU_ZP_BASE+31
-.label muDotSem     = MU_ZP_BASE+32
+.label muCurCol     = MU_ZP_BASE+32  // the text cursor's column
 .label muDurByte    = MU_ZP_BASE+33
 .label muJifCls     = MU_ZP_BASE+34
 .label muJifBase    = MU_ZP_BASE+35
@@ -227,9 +227,7 @@
 // --- instance data: offsets into the 53-byte instance buffer ---
 //  Offsets 0-11 keep the loader's argument bytes; the name is copied out into
 //  the code image at entry, so state starts at 12.
-.const MU_ROW       = 12      // cursor row (a screen row, 2..19)
-.const MU_VOICE     = 13
-.const MU_CURCOL    = 14      // text cursor column (transient)
+.const MU_STATE_BOT = 12      // where the instance state starts
 .const MU_CURROW    = 15      // text cursor row (transient)
 .const MU_TMPIDX    = 16      // string walker (transient)
 .const MU_STRLO     = 18      // the string muTextAt is printing: muMsgBuf, or
@@ -247,6 +245,14 @@
 .const MU_FLEN      = 43      // the on-disk size kReuOpen reported
 .const MU_FREC      = 45      // 5-byte file record: size lo/hi, base lo/mid/hi
 .const MU_STATE_TOP = MU_DATA_SIZE-1  // the highest state byte: the zero loop starts here
+
+// --- instance data: the three scalars that gave up their zero page ---
+//  muRow, muVoice and muCurCol are read on every key and on every line of a repaint,
+//  so they hold the zero page, and these three -- each touched two or three times in
+//  one drawing pass -- hold the bytes they vacated.
+.const MU_HEADROWCOL = 245    // the head's row number, for the row-only update
+.const MU_DOTSEM     = 246    // the semitone the dot's pitch split landed on
+.const MU_HEADTEM    = 247    // the tempo the head's TEM field is showing
 
 // --- instance data: the row's logged commands, one block per voice and class ---
 //  These are the largest arrays the editor holds and the least often touched, so
@@ -408,8 +414,12 @@
     lda #value
     sta (dataPtr),y
 }
+.macro muSetZ(field, value) {    // a field that lives in zero page
+    lda #value
+    sta field
+}
 .macro muAt(col, row) {
-    muSet(MU_CURCOL, col)
+    muSetZ(muCurCol, col)
     muSet(MU_CURROW, row)
 }
 
@@ -512,9 +522,9 @@ muScrOk:
 muScrZero:
     sta (dataPtr),y
     dey
-    cpy #MU_ROW-1
+    cpy #MU_STATE_BOT-1
     bne muScrZero
-    muSet(MU_ROW, MU_GRID_TOP)
+    muSetZ(muRow, MU_GRID_TOP)
     rts
 
 // --- muParseName -- copy the base name out of the argument area ---
@@ -2825,15 +2835,16 @@ muDrawHead:
     lda #M_TEM2
     jsr muMsg
     jsr muCurTem               // the tempo in force at the cursor's own row: a tune
-    sta muHeadTem               //   that changes tempo says so here
+    ldy #MU_HEADTEM             //   that changes tempo says so here
+    sta (dataPtr),y
     ldx #0
     jsr muNum16
-    ldy #MU_CURCOL              // the tail -- BAR, the bar, R, the row -- starts here,
-    lda (dataPtr),y             //   and a cursor move or the playhead rewrites it
+    lda muCurCol                // the tail -- BAR, the bar, R, the row -- starts here,
+                                //   and a cursor move or the playhead rewrites it
     sta muHeadBarCol            //   from here with muHeadTail
     jsr muHeadBarRow
-    ldy #MU_CURCOL              // where the row number ends: a shorter one blanks
-    lda (dataPtr),y             //   the cells back to here
+    lda muCurCol                // where the row number ends: a shorter one blanks
+                                //   the cells back to here
     sta muHeadEnd
     muSet(MU_HOV, $ff)          // no pitch yet: three blanks, until a hover says otherwise
     jmp muHovDraw
@@ -2852,9 +2863,9 @@ muHeadBarRow:
     jsr muNum16
     lda #M_ROW2
     jsr muMsg
-    ldy #MU_CURCOL
-    lda (dataPtr),y
-    sta muHeadRowCol
+    lda muCurCol
+    ldy #MU_HEADROWCOL          // the head's row number
+    sta (dataPtr),y
     jsr muCursorAbs
     jmp muNum16
 
@@ -2869,16 +2880,16 @@ muHeadTail:
     lda muStatT                 // a status owns row 0 until it retires: it is not
     bne muDrawHead              //   ours to write into, so the whole row comes back
     jsr muCurTem
-    cmp muHeadTem
+    ldy #MU_HEADTEM
+    cmp (dataPtr),y
     beq mhtTail
     jmp muDrawHead
 mhtTail:
     ldy #MU_CURROW
     lda #0
     sta (dataPtr),y
-    ldy #MU_CURCOL
     lda muHeadBarCol
-    sta (dataPtr),y
+    sta muCurCol
     jsr muHeadBarRow
 
 // --- muHeadPad -- blank the head from the text cursor to the old field end ---
@@ -2887,8 +2898,7 @@ mhtTail:
 //  to where the field ended last time are blanked, and the end that results is
 //  recorded -- a field that gained a digit moves it.
 muHeadPad:
-    ldy #MU_CURCOL
-    lda (dataPtr),y
+    lda muCurCol
     cmp muHeadEnd
     bcs muHpStore
     lda #MU_SPACE
@@ -2905,9 +2915,9 @@ muDrawHeadRow:
     ldy #MU_CURROW
     lda #0
     sta (dataPtr),y
-    ldy #MU_CURCOL
-    lda muHeadRowCol
-    sta (dataPtr),y
+    ldy #MU_HEADROWCOL
+    lda (dataPtr),y
+    sta muCurCol
     jsr muCursorAbs
     jsr muNum16
     jmp muHeadPad
@@ -2918,7 +2928,8 @@ muDrawHeadRow:
 //  together when it does: the row field's column follows the bar's width.
 muPhHead:
     jsr muCurTem
-    cmp muHeadTem
+    ldy #MU_HEADTEM
+    cmp (dataPtr),y
     bne muPhFull                // the tempo changed: the whole row comes back
     jsr muBarOf
     cmp muHeadBar
@@ -2934,8 +2945,7 @@ muPhFull:
 //  Out: A = MU_ROW - MU_GRID_TOP, the index muLnTb*, muLnKind and the rest are read
 //  with. The row itself stays in the instance; this is only where it points.
 muCursorIdx:
-    ldy #MU_ROW
-    lda (dataPtr),y
+    lda muRow
     sec
     sbc #MU_GRID_TOP
     rts
@@ -3237,8 +3247,7 @@ mbfTake:
     sta muFndRow+1
     lda muLogLns                // the group's command lines come first, so the row's
     sta muFndLine               //   own line is the one after all of them
-    ldy #MU_VOICE               // the jump keeps the cursor's voice
-    lda (dataPtr),y
+    lda muVoice                 // the jump keeps the cursor's voice
     sta muFndVoice
     clc
     rts
@@ -3359,8 +3368,7 @@ muPhWatch:
     cmp #MU_GRID_ROWS
     bcs muPwRts                 // below the band: no line was recorded there
     tax                         // X = the line's index
-    ldy #MU_VOICE
-    lda (dataPtr),y
+    lda muVoice
     tay
     txa
     clc
@@ -3633,8 +3641,7 @@ mchDepth:
     sec
     sbc #1
     sta muCmdK
-    ldy #MU_VOICE               // the lane the cursor stands in
-    lda (dataPtr),y
+    lda muVoice                 // the lane the cursor stands in
     asl                         // block = voice * 2 + class
     sta muTmpL
     lda muCmdK
@@ -3733,9 +3740,8 @@ mlkJump:
     sta muTop+1
     lda #0                      // the search names a row, so the band starts at its
     sta muToff                  //   first line and the cursor brings the line in
-    ldy #MU_VOICE               // the cursor follows the command into its lane
     lda muFndVoice
-    sta (dataPtr),y
+    sta muVoice                 // the cursor follows the command into its lane
     lda muFndLine               // the line carrying the command, clamped to the band
     clc
     adc #MU_GRID_TOP
@@ -3743,8 +3749,7 @@ mlkJump:
     bcc mlkSet
     lda #MU_GRID_BOT
 mlkSet:
-    ldy #MU_ROW
-    sta (dataPtr),y
+    sta muRow
     jmp muCurRedraw
 
 // --- muWalkToTop -- the producer at the line the window's top row starts at ---
@@ -3970,14 +3975,12 @@ mcsFound:
     clc
     adc #MU_GRID_TOP
     sta muTmpL
-    ldy #MU_ROW
-    lda (dataPtr),y
+    lda muRow
     cmp muTmpL
     beq mcsRts
     jsr muCursorHide
     lda muTmpL
-    ldy #MU_ROW
-    sta (dataPtr),y
+    sta muRow
     jsr muHeadTail              // the head's BAR and R follow the cursor
     jmp muCursorShow
 
@@ -4138,8 +4141,7 @@ muGdAtCell:
     ldy #MU_CURROW
     sta (dataPtr),y
     lda muGdCol
-    ldy #MU_CURCOL
-    sta (dataPtr),y
+    sta muCurCol
     rts
 
 // --- muPitchSplit -- an option byte -> the pitch it sounds ---
@@ -4457,8 +4459,7 @@ muDrawRefuse:
 //  paper nibble it finds, so a cleared bar would stay a solid block of colour.
 muPutC:
     pha
-    ldy #MU_CURCOL
-    lda (dataPtr),y
+    lda muCurCol
     tax
     ldy #MU_CURROW
     lda (dataPtr),y
@@ -4479,8 +4480,7 @@ muPcSlot:
     pla
     jsr kPrintCharAt
 muPcAdv:
-    ldy #MU_CURCOL
-    lda (dataPtr),y
+    lda muCurCol
     clc
     adc #1
     sta (dataPtr),y
@@ -4688,7 +4688,7 @@ muClrKeep:
     lda muClrRow
     ldy #MU_CURROW
     sta (dataPtr),y
-    muSet(MU_CURCOL, 0)
+    muSetZ(muCurCol, 0)
     ldx #MU_SCREEN_COLS
 muClrLp:
     txa
@@ -4699,7 +4699,7 @@ muClrLp:
     tax
     dex
     bne muClrLp
-    muSet(MU_CURCOL, 0)
+    muSetZ(muCurCol, 0)
     rts
 
 // --- muStatus -- a message on the head row for a moment ---
@@ -4749,11 +4749,10 @@ muStatTickRts:
 //  whichever return address happens to be on top -- the caller's, or an earlier
 //  jsr's -- which is a stack walk, not a call.
 muCursorShow:
-    ldy #MU_ROW
-    lda (dataPtr),y
+    lda muRow
     sta muCurScr
-    ldy #MU_VOICE               // X = the column the glyph goes in: the free cell left
-    lda (dataPtr),y             //   of the cursor's lane, so it says which voice the
+    lda muVoice                 // X = the column the glyph goes in: the free cell left
+                                //   of the cursor's lane, so it says which voice the
     tax                         //   cursor will act on as well as which line it is on.
     lda muLaneCol,x             //   Each lane starts two cells past the previous one's
     tax                         //   last, so that gap holds nothing else
@@ -5030,8 +5029,7 @@ muCurDown:
 // --- muCurDownGo -- one line down, scrolling the band when the cursor is at the
 //  bottom. The key handler and insert mode's cursor step both walk through this.
 muCurDownGo:
-    ldy #MU_ROW
-    lda (dataPtr),y
+    lda muRow
     cmp #MU_GRID_BOT
     bne muCdgIn
     //  at the bottom: the window moves instead of the cursor, the band shifts up
@@ -5045,8 +5043,7 @@ muCurDownGo:
     jmp muCursorShow
 muCdgIn:
     jsr muCursorHide
-    ldy #MU_ROW
-    lda (dataPtr),y
+    lda muRow
     clc
     adc #1
     sta (dataPtr),y
@@ -5054,8 +5051,7 @@ muCdgIn:
     jmp muHeadTail
 
 muCurUp:
-    ldy #MU_ROW
-    lda (dataPtr),y
+    lda muRow
     cmp #MU_GRID_TOP
     bne muCurUpIn
     lda muTop
@@ -5090,8 +5086,7 @@ muCurUpSet:
                                 //   the tune's first line, not a page below it
 muCurUpIn:
     jsr muCursorHide
-    ldy #MU_ROW
-    lda (dataPtr),y
+    lda muRow
     sec
     sbc #1
     sta (dataPtr),y
@@ -5118,13 +5113,11 @@ muRedrawNoHead:
     jmp muCursorShow
 
 muCurRight:
-    ldy #MU_VOICE
-    lda (dataPtr),y
+    lda muVoice
     cmp #2
     beq muCurDone
     jsr muCursorHide            // out of the lane it is leaving, in the new one
-    ldy #MU_VOICE
-    lda (dataPtr),y
+    lda muVoice
     clc
     adc #1
     sta (dataPtr),y
@@ -5132,12 +5125,10 @@ muCurRight:
     jmp muKeyIdle
 
 muCurLeft:
-    ldy #MU_VOICE
-    lda (dataPtr),y
+    lda muVoice
     beq muCurDone
     jsr muCursorHide
-    ldy #MU_VOICE
-    lda (dataPtr),y
+    lda muVoice
     sec
     sbc #1
     sta (dataPtr),y
@@ -5159,8 +5150,7 @@ muCurDone:
 //  so an empty voice reports every row as a gap measured from row 0 and the
 //  fill inserts at the voice's first pair.
 muSeek:
-    ldy #MU_VOICE
-    lda (dataPtr),y
+    lda muVoice
     sta muSkV
     jsr muCursorAbs
     sta muTgtLo
@@ -5983,8 +5973,7 @@ muNoteInsMode:
 muNimSet:
     lda muDurJif
     sta muInsJif
-    ldy #MU_VOICE
-    lda (dataPtr),y
+    lda muVoice
     sta muInsNoteV
     jsr muInsLoop
     lda muInsFrom               // the first row the splice touched, which for a fill is
@@ -8219,7 +8208,8 @@ muDvFound:
     beq muDvNext                // a rest: no dot
     lda muDotOpt
     jsr muPitchSplit            // A = the semitone, X = the octave, C = 1 if rolled
-    sta muDotSem
+    ldy #MU_DOTSEM              // the semitone the split landed on
+    sta (dataPtr),y
     bcs muDvNatKey              // a rolled pitch is the neighbouring octave's natural
     lda muDotOpt
     and #$c0
@@ -8237,7 +8227,8 @@ muDvOct:
     asl
     asl                         // ... x 4 = x 12, the table's row
     clc
-    adc muDotSem
+    ldy #MU_DOTSEM
+    adc (dataPtr),y
     tay
     lda muDotTabHi,y            // the ninth bit: a dot above x 255 is real
     sta muDotXHi
@@ -8321,13 +8312,11 @@ muHdGone:
 muHdKey:
     cmp muHdOld                 // the same key on the same voice: nothing to redo
     bne muHdNew
-    ldy #MU_VOICE
-    lda (dataPtr),y
+    lda muVoice
     cmp muHdOldV
     beq muHdRts
 muHdNew:
-    ldy #MU_VOICE               // the voice the cursor acts on
-    lda (dataPtr),y
+    lda muVoice                 // the voice the cursor acts on
     sta muHdV
     ldy #MU_HOV
     lda (dataPtr),y
@@ -8840,7 +8829,7 @@ muHovDone:
 muHovDraw:
     lda #MU_C_TEXT
     jsr kSetTextColor           // clobbers X and Y, so before the indexing
-    muSet(MU_CURCOL, MU_READOUT_COL)
+    muSetZ(muCurCol, MU_READOUT_COL)
     muSet(MU_CURROW, 0)
     ldy #MU_HOV
     lda (dataPtr),y
@@ -8987,12 +8976,10 @@ muClkV1:
 muClkV2:
     lda #2
 muClkSetVoice:
-    ldy #MU_VOICE
-    sta (dataPtr),y
+    sta muVoice
     jsr muCursorHide
     lda muRowNew
-    ldy #MU_ROW
-    sta (dataPtr),y
+    sta muRow
     jsr muHeadTail              // the click moved the cursor: its BAR and R follow
     jmp muCursorShow
 muClkLow:
@@ -9253,7 +9240,7 @@ muRewindView:
     sta muHistN
     sta muHistN+1
     sta muHistN+2
-    muSet(MU_ROW, MU_GRID_TOP)  // the cursor, and with it the head's BAR and R
+    muSetZ(muRow, MU_GRID_TOP)  // the cursor, and with it the head's BAR and R
     jsr muDotsOff
     jmp muRedrawAll             // grid, head and cursor, in that order
 
@@ -9440,8 +9427,7 @@ muPhCursor:
     txa
     clc
     adc #MU_GRID_TOP
-    ldy #MU_ROW
-    sta (dataPtr),y
+    sta muRow
     jsr muCursorShow
     jmp muPhHead                // the bar and the row both follow the playhead
 muPcGone:
@@ -9968,8 +9954,7 @@ muLnNum:
     ldy #MU_CURROW
     sta (dataPtr),y
     lda #1
-    ldy #MU_CURCOL
-    sta (dataPtr),y
+    sta muCurCol
     lda muDecLo
     clc
     adc #1
@@ -10005,8 +9990,7 @@ mlrHNext:
 mlrHDone:
     stx muTmp                   // the hundreds digit, as muPutC owns A, X and Y
     lda #0                      // column 0, so three digits end at column 2 and the
-    ldy #MU_CURCOL              //   cursor's own cell at column 3 stays free
-    sta (dataPtr),y
+    sta muCurCol                //   cursor's own cell at column 3 stays free
     lda muTmp
     clc
     adc #'0'

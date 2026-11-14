@@ -10,7 +10,7 @@
 
 // The instance buffer's size. Declared here because the header needs it before
 // the body is imported; musedit.inc's zero loop uses the same constant.
-.const MU_DATA_SIZE = 245
+.const MU_DATA_SIZE = 255
 
 // The zero page window this task keeps across a switch: $0b-$ea, leaving $02-$0a
 // to sid.lib's scratch (the parent's hush uses it, and the music child declares it
