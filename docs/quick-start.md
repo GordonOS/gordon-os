@@ -1217,6 +1217,40 @@ exit
 
 ---
 
+## Getting a file out of the image (and back in)
+
+Everything GordonOS saves — a tune, a BASIC program, a picture — lives **inside
+the REU image**, so it leaves the machine by leaving the image. There is no
+disk and no serial link; the image file *is* the disk.
+
+Two host programs do the moving, and they need nothing but Python 3 (no
+packages):
+
+```
+python tools/reufs-gui.py            ← a two-pane window: host left, image right
+python tools/reufs.py ls             ← the same thing as a command line
+python tools/reufs.py get immig.wrk ./immig.wrk
+python tools/reufs.py put ./mytune.mus --name mytune.mus
+```
+
+In the window: click a host file on the left and press **Put into image →**,
+or select rows on the right and press **← Get from image**. `Delete` tombstones
+an entry; `Export all` / `Import all` move a whole directory.
+
+**Close VICE first** for anything that changes the image. The emulator holds the
+image mapped, and on Linux and macOS a write would succeed and leave the
+emulator running on the old copy — so both tools refuse, and the window says so
+in a red banner and disables its buttons. Reading is always allowed, so a file
+can be pulled out of a session that is still running (even a wedged one).
+
+Three rules come from the filesystem itself: a name is **1–11 characters
+including the extension** (`musedit.tsk` is exactly eleven), a **zero-length
+file cannot exist**, and **deleted files keep their space until `compact` runs
+on the machine** — so run `compact` at the shell before copying a large file in
+if the image has had a lot of deletes.
+
+---
+
 ## Example Session
 
 ```

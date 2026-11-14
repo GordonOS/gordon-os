@@ -145,6 +145,25 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "REU filesystem manager",
+			"type": "shell",
+			"command": "python",
+			"windows": { "command": "python" },
+			"linux": { "command": "python3" },
+			"osx": { "command": "python3" },
+			"args": [
+				"tools/reufs-gui.py"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}"
+			},
+			"problemMatcher": [],
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated"
+			}
+		},
+		{
 			"label": "Build dynamic tasks + REU",
 			"dependsOn": [
 				"Build dynamic tasks",

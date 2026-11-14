@@ -146,7 +146,7 @@ All kernel output routines (`printChar`, `printString`, `newline`, `scrollScreen
 
 - **A growth pocket is not storage (see `docs/bugs.md` #93).** The kernel core's growth headroom is the run immediately after `kernelCoreEnd` — `$13C5-$13D3` (**15B**), pinned by `tools/verify-map.ps1`. Parking a routine at the bottom of that pocket leaves the whole core band without room, and the next core change fails the build with a block overlap. A routine reached by a re-pointed `jmp` is an ideal tenant for a free *run* elsewhere (`warmBootReset` sits at `$181D`, 26B of a 35B run) — put it there, not in the headroom the next change needs. `main.asm`'s `kernelCoreEnd <= $13D4` assert is the guard that fires when it runs out.
 
-- **The binaries repo gets the FIVE APPLICATION GUIDES and nothing else from `docs/`, and every link in the published tree is verified.** `publish-binaries.ps1` copies the kernel PRG, the two REU images, `tools/README.binaries.md` (as `README.md`), `tools/quickstart.binaries.md`, `NOTICE`, `docs/LICENSE.md` (as `LICENSE.md`), `docs/img/`, and `$guides` — `edit.md`, `gordonpaint.md`, `gortris.md`, `grknoid.md`, `gordonbasic.md`. **A new guide MUST be added to `$guides` or it will not ship** (the rest of `docs/` is developer material and stays private; `docs/` is replaced on every publish, never merged). Each copied guide has its `*.md` links filtered: a target outside the shipped set becomes a bare `` `name.md` `` in code font, which is why **a guide must never rely on a link to `kernel.md`, `memory-map.md`, `lib-*.md`, `quick-start.md` or any other developer doc — state the fact inline instead** (the filter keeps the sentence readable, it does not make the document available). The publish then resolves every link in every published `.md` and **throws before committing** if one is left, so a dead link cannot reach the binaries repo; the neutralised names are printed as it goes. The screenshots are published under `docs/img/` because that is where BOTH spellings resolve — root-level files reach them as `docs/img/<name>` and a guide under `docs/` as `img/<name>` (the spelling its source already uses). The deployed set is listed in `docs/development.md` → *What the binaries repo receives*.
+- **The binaries repo gets the SEVEN GUIDES and nothing else from `docs/`, and every link in the published tree is verified.** `publish-binaries.ps1` copies the kernel PRG, the two REU images, `tools/README.binaries.md` (as `README.md`), `tools/quickstart.binaries.md`, `NOTICE`, `docs/LICENSE.md` (as `LICENSE.md`), `docs/img/`, and `$guides` — `edit.md`, `gordonpaint.md`, `gortris.md`, `grknoid.md`, `gordonbasic.md`. **A new guide MUST be added to `$guides` or it will not ship** (the rest of `docs/` is developer material and stays private; `docs/` is replaced on every publish, never merged). Each copied guide has its `*.md` links filtered: a target outside the shipped set becomes a bare `` `name.md` `` in code font, which is why **a guide must never rely on a link to `kernel.md`, `memory-map.md`, `lib-*.md`, `quick-start.md` or any other developer doc — state the fact inline instead** (the filter keeps the sentence readable, it does not make the document available). The publish then resolves every link in every published `.md` and **throws before committing** if one is left, so a dead link cannot reach the binaries repo; the neutralised names are printed as it goes. The screenshots are published under `docs/img/` because that is where BOTH spellings resolve — root-level files reach them as `docs/img/<name>` and a guide under `docs/` as `img/<name>` (the spelling its source already uses). The deployed set is listed in `docs/development.md` → *What the binaries repo receives*.
 
 - **A task that takes the display with `kSwitchView` must un-draw the live blink block first, SEI-wrapped (see `docs/bugs.md` #83).** The block cursor is drawn into the framebuffer pixels, and `surfSave` copies the framebuffer verbatim into the outgoing surface's REU slot, so a block drawn at that instant is baked in and `dgsDone` then clears `cursorVisible` — the cell can never be restored and returns as a phantom cursor where the previous owner's cursor was. Only a pixel write removes it. Recipe: `php / sei / txa; pha / jsr kBlinkReset / pla; tax / jsr kSwitchView / plp` — no syscall inside the window (the dispatcher re-enables IRQs), and `kBlinkReset` clobbers A, X, Y, `kPtr`, `kArg+7`. The kernel's own switch paths (`doGfxSwitch`'s callers) still have this exposure.
 
@@ -377,6 +377,20 @@ Strings with `.text` use `.encoding "screencode_mixed"`. Character literals like
 - **One pool.** `POOL_BASE = $5700`, `POOL_END = $C400`, page-granular. Tasks, program RAM
   and `kMalloc` allocate upward from the bottom; libraries come down from the top, so a
   library can never split the task region.
+
+- **The filesystem inside the image is changed only through `tools/reufs.py` (or
+  `tools/reufs-gui.py`, which is the same library).** Never hand-edit `reu/REU.bin`, and
+  never write a one-off script that pokes the directory: `reufs.py` mirrors `fsxSave` and
+  `fsxDelete` rule for rule — screen-code names, 1-11 characters with the extension
+  counted, no zero-length file (size 0 *is* an empty slot), append at `nextFreeOffset`,
+  a tombstone kept for `compact` — and it saves atomically through a temp file and a
+  rename. `tools/check-reu-fs.ps1` is the oracle: it decodes the same directory and
+  requires `nextFreeOffset` to equal the highest extent of *any* entry, tombstones
+  included. Two consequences that catch people out: a change is refused while a VICE
+  process runs (on Linux and macOS the write would otherwise succeed and leave the
+  emulator on the old copy), and `git checkout -- reu/REU.bin` is how a session played
+  with through the GUI is discarded — an image left dirty ships verbatim, because
+  `publish-binaries.ps1` copies it as-is.
 
 ## Task build pipeline
 

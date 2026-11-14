@@ -286,9 +286,15 @@ you look at any task's surface without changing its code.
 - **There is no directory handle.** `kReuDirEntry` reads entry *n* by index and
   every consumer loops `n = 1, 2, …` until it returns `C=1`, which makes every
   caller a directory scanner.
-- **It is an REU image.** Files live in the image, and the host-side
-  `tools/build-reu.ps1` formats a *fresh* one — there is no host tool that adds a
-  single file to an existing image.
+- **It is an REU image.** Files live in the image, so moving one to another
+  machine means moving bytes in or out of it. `tools/reufs.py` does that from the
+  host (`ls`/`get`/`put`/`rm`/`export`/`import`, exact-name, atomic) and
+  `tools/reufs-gui.py` is a two-pane file manager over the same library.
+  `tools/build-reu.ps1` is the other shape: it formats a *fresh* image from the
+  tree. A change is refused while a VICE process is running, because the
+  emulator memory-maps the image on every platform and, on Linux and macOS, a
+  write would succeed and leave the emulator on the old copy — a file a task
+  saved is recovered by reading the image, which needs no lock.
 - **The FS is the only filesystem.** There is no IEC/disk support; the KERNAL ROM
   is banked out, so a 1541 or 1581 implementation would be from scratch
   ([future-improvements.md](future-improvements.md) §5).

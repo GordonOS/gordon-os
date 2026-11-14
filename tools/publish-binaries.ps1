@@ -138,14 +138,24 @@ try {
     Copy-Item (Join-Path $root "NOTICE") (Join-Path $BinDir "NOTICE") -Force
     Copy-Item (Join-Path $root "docs/LICENSE.md") (Join-Path $BinDir "LICENSE.md") -Force
 
+    # --- the host-side file transfer -----------------------------------------
+    #  These two travel with the IMAGE, not with the build: a file a task saves
+    #  lives in the REU image, and they are the only way to get one out of it or
+    #  put one into it from a machine that does not run GordonOS. Flat beside the
+    #  images on purpose -- reufs.py looks for the image next to itself as well as
+    #  in ../reu/, so the same pair works in both trees.
+    Copy-Item (Join-Path $root "tools/reufs.py") (Join-Path $BinDir "reufs.py") -Force
+    Copy-Item (Join-Path $root "tools/reufs-gui.py") (Join-Path $BinDir "reufs-gui.py") -Force
+
     # --- the documentation ---------------------------------------------------
-    #  The six application guides are the documentation that ships; the rest of docs/
+    #  The application guides are the documentation that ships; the rest of docs/
     #  (the kernel reference, the memory map, the build notes, the tutorial) is developer
     #  material and stays in the source repo. A guide's link to a doc that does not ship is
     #  NEUTRALISED rather than copied -- the target stays in the text as a bare name in
     #  code font, and the copied guides are then resolved link by link, so a guide that
     #  gains a link to a developer doc cannot publish it dead.
-    $guides = @('edit.md', 'gordonpaint.md', 'gortris.md', 'grknoid.md', 'gordonbasic.md', 'musedit.md')
+    $guides = @('edit.md', 'gordonpaint.md', 'gortris.md', 'grknoid.md', 'gordonbasic.md',
+                'musedit.md', 'reufs.md')
     $docDir = Join-Path $root "docs"
     $docsOut = Join-Path $BinDir "docs"
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false

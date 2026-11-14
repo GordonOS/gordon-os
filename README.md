@@ -68,7 +68,7 @@ the picture viewers in [pic-format.md](docs/pic-format.md), the tune editor in
 - **Per-task ZP preservation** — tasks declare a ZP region; scheduler DMAs it to/from REU on every switch (zero overhead for non-declaring tasks)
 - **Counting semaphores** — 4 semaphores with yield-based blocking (tasks yield instead of spinning)
 - **Thread support** — `threadSpawn` creates child tasks that share the parent's memory space; child names are auto-generated as `parent.N`
-- **REU filesystem** — flat named-block storage on the REU: format, save, load, delete, rename, dir commands; multi-bank data region (24KB minimum, up to ~64KB-1); 256-entry root directory; data persists across reboots; task and command binaries are pre-seeded by `tools/build-reu.ps1` (`basic.tsk`, `maze.tsk`, `clock.tsk`, `gfxdemo.tsk`, `fpdemo.tsk`, `spirog.tsk`, `sprdemo.tsk`, `godzi.tsk`, `gortris.tsk`, `grknoid.tsk`, `grpaint.tsk`, `grview.tsk`, `granim.tsk`, `shell.tsk`, `edit.tsk`, `sidplay.tsk`, plus the `.com` commands, the REU fonts, the banner, the sprite sheets, bundled `.mus` songs, and the animation chunks under `assets/anim/`)
+- **REU filesystem** — flat named-block storage on the REU: format, save, load, delete, rename, dir commands; a **512-entry** directory (`$9000`, 32 bytes an entry) and a multi-bank data region (`$3000` in bank 5 plus `$10000` per bank above it — 15.3 MB on a 16 MB REU, and one file is at most 65,535 bytes); data persists across reboots; task and command binaries are pre-seeded by `tools/build-reu.ps1` (`basic.tsk`, `maze.tsk`, `clock.tsk`, `gfxdemo.tsk`, `fpdemo.tsk`, `spirog.tsk`, `sprdemo.tsk`, `godzi.tsk`, `gortris.tsk`, `grknoid.tsk`, `grpaint.tsk`, `grview.tsk`, `granim.tsk`, `shell.tsk`, `edit.tsk`, `sidplay.tsk`, plus the `.com` commands, the REU fonts, the banner, the sprite sheets, bundled `.mus` songs, and the animation chunks under `assets/anim/`). **Files cross to the host**: `tools/reufs-gui.py` (a two-pane window) and `tools/reufs.py` (a command line) list, copy out and copy in from Windows, Linux or macOS, so a tune written on the machine can reach another computer that does not run GordonOS — see [lib-filesys.md](docs/lib-filesys.md)
 - **Generic kernel heap (`kMalloc`/`kFree`)** — page-granular task-owned blocks allocated from the task pool, preserved across pool eviction via per-slot REU shadows (32 KB/slot), freed automatically on `exit`/`kill`; `pool` prints the live pool map
 - **Interactive shell** — command dispatch (help, ps, kill, pause, resume, prio, view, run, runbatch, time, clear, exit, print, format, fsinfo, dir, type, save, load, del, rename, copy, setfont, banner, speed, blink, keyrpt, sidrst, compact, pool, ver, me, wait), line-buffered with cursor keys, mid-line editing, backspace, and blinking cursor
 - **IRQ-driven keyboard** — 16-byte ring buffer with configurable key repeat, F-key screen switching, blinking cursor
@@ -564,7 +564,7 @@ gordon-os/
 │                          lib-*.md call references), the call inventories
 │                          (kernel-call-inventory.md, library-call-inventory.md),
 │                          application guides (gordonbasic.md, gordonpaint.md,
-│                          edit.md, gortris.md, grknoid.md, musedit.md), then
+│                          edit.md, gortris.md, grknoid.md, musedit.md, reufs.md), then
 │                          bugs.md (bug history, symptom and fix), features.md,
 │                          limitations.md, future-improvements.md and LICENSE.md
 │                          (img/ holds the screenshots the README and these docs embed)
@@ -722,8 +722,13 @@ gordon-os/
 │   │                      (layout, trailer, fixup table, sentinel, page count)
 │   ├── probes/            Test fixtures — header-offsets-probe.inc is the
 │   │                      negative test for check-header-offsets.ps1
-│   ├── check-reu-fs.ps1   Layout gate — decode the FS directory from reu/REU.bin
+│   ├── check-reu-fs.ps1   Layout gate — decode the FS directory from reu/REU.bin;
+│   │                      `-Extract` pulls one file out of the image
 │   ├── check-reu-current.ps1 Currency check — tasks-out/*.bin vs reu/REU.bin
+│   ├── reufs.py           The REU filesystem from the host — ls/get/put/rm/
+│   │                      export/import on any image, and the library the GUI uses
+│   ├── reufs-gui.py       Two-pane file manager over it: host left, image right,
+│   │                      Put/Get/Delete — tkinter, so Windows, Linux and macOS
 │   ├── check-pool-budget.ps1 Gate — a task's live pool footprint (its code + the
 │   │                      libraries it holds) vs the 109-page pool
 │   ├── check-links.py     Lint — relative links in the tracked Markdown resolve
@@ -825,6 +830,7 @@ gordon-os/
 | [docs/gortris.md](docs/gortris.md) | Play Tetris — the screens and controls, the scoring and level tables, the hi-score editor, and the port's provenance |
 | [docs/grknoid.md](docs/grknoid.md) | Play Gorkanoid — the wall, the paddle, the bounce rule, lives and levels, and the tunes |
 | [docs/musedit.md](docs/musedit.md) | Use the tune editor — every key, every command the format has, playing and saving tunes |
+| [docs/reufs.md](docs/reufs.md) | Move files between your computer and the image — the window, the command line, and every rule the filesystem imposes |
 | [docs/dynamic-libraries.md](docs/dynamic-libraries.md) | Dynamic `.lib` mechanism — load policy, libMask, refcounting |
 | [docs/lib-time.md](docs/lib-time.md) | `time.lib` call reference — `kGetTime` / `kSetTime` / `kPrintTime` |
 | [docs/lib-filesys.md](docs/lib-filesys.md) | `filesys.lib` call reference — `kReuFormat` / `kReuSave` / `kReuDelete` / `kReuRename` / `kReuDirEntry` / `kReuCreate` / `kReuOpen` / `kReuReadAt` / `kReuWriteAt` |

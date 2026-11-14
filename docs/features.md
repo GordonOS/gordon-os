@@ -198,6 +198,13 @@ See [lib-gfx.md](lib-gfx.md).
   documents, the games' hi-score tables and BASIC's working file.
 - **`format` gives you an empty one, `compact` reclaims the holes, `fstest` proves the
   bank boundary.** See [lib-filesys.md](lib-filesys.md).
+- **Files cross to the host through the image.** `tools/reufs.py` (command line) and
+  `tools/reufs-gui.py` (a two-pane window) read and write the filesystem **inside the
+  image** from Windows, Linux or macOS — so a tune written on the C64 can reach another
+  machine, and a file can be dropped in without rebuilding the image. Both mirror the
+  kernel's own rules (screen-code names, 1–11 characters, no zero-length file, appends
+  at `nextFreeOffset`, tombstones kept until `compact`), and both refuse to write while
+  a VICE process holds the image.
 
 ## 11. The shell and the commands
 

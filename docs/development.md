@@ -381,8 +381,10 @@ show up on the machine as a wrong number, a stale binary or a garbled screen.
 | `verify-jumptable-docs.ps1` | two things: every address in `kernel.md`'s section headings against `jumptable.inc`, and that every entry is headable in **some** doc — `kernel.md`, its owning `lib-*.md`, or an inventory. An entry no document heads is a gap and fails the gate; an entry documented outside `kernel.md` is reported, not failed |
 | `verify-inventory-docs.ps1` | every address quoted in `kernel-call-inventory.md` and `library-call-inventory.md` against `jumptable.inc`, and — through `gen-call-inventory.ps1 -Check` — every call count in them against the tree |
 | `gen-call-inventory.ps1` | the **numbers** in those two documents: totals, per-file breakdowns and the summary figures. `-Check` reports drift and writes nothing; a rewrite touches no prose and no address, and refuses to write if the result is a different shape |
-| `check-reu-fs.ps1` | the image is internally consistent — entries packed, data ending exactly at the allocator's `nextFreeOffset`, no overlap. `-Strict` also forbids gaps (`fscross.bin`'s placement is one). `-Extract <fsName> -Out <path>` writes one file's bytes out of the image, which is how a file a task *saved* is hashed against the source it came from (file offsets are stored relative to the image's data base, so the extract adds it) |
+| `check-reu-fs.ps1` | the image is internally consistent — entries packed, data ending exactly at the allocator's `nextFreeOffset`, no overlap. `-Strict` also forbids gaps (`fscross.bin`'s placement is one). `-Extract <fsName> -Out <path>` writes one file's bytes out of the image, which is how a file a task *saved* is hashed against the source it came from (file offsets are stored relative to the image's data base, so the extract adds it). The name is the one the FS holds, extension included (`musedit.tsk`), `-Out` may be absolute or project-relative, and the extract runs on its own — one line of output, no layout report, so it also works on an image the gate would reject |
 | `check-reu-current.ps1` | every `tasks-out/*.bin` is present and byte-identical **inside the image** — the answer to "why is my change not there?". It checks `reu/REU.bin`; pass `-Image reu\REU-C64U.bin` for the other image. It also fails when `tasks-out/` was built from sources that have since changed, which no image comparison can see |
+| `reufs.py` | the REU filesystem from the **host**: `ls`, `get`, `put`, `rm`, `export`, `import` against any image, plus `selftest`. It mirrors what the OS does (`fsxSave`/`fsxDelete`), so a change leaves an image the machine would have produced: a name is 1-11 characters stored in screen codes, a live duplicate is refused, a zero-length file cannot exist, the first slot whose size is 0 is used and a TOMBSTONE is not reused, data is appended at `nextFreeOffset` which then advances, and writes are atomic (temp file + rename). It refuses to change an image while a VICE process runs -- Windows would refuse the write itself, but Linux and macOS would accept it and leave the emulator on the old copy |
+| `reufs-gui.py` | the same library as a two-pane file manager: the host on the left, the image on the right, with Put/Get/Delete, Export all/Import all and a log. tkinter only, so it runs on Windows, Linux and macOS with no extra package; a VICE process is detected and the editing buttons are disabled, with a box to override when the emulator is only sitting at a prompt |
 | `scan-history.py` | history-flavoured comment content in code files: bug numbers, dates, phase markers, change narration (Rule 14 categories). It reports per category and skips `docs/`, `reference/`, the generated folders and the vendored ports (`ehbasic.asm`, `sidplay.inc`, `basicedit.inc`, `filesys.asm`), whose comments are their upstream author's. Its report files (`tools/hist_*.txt`) are gitignored |
 | `check-ascii.py` | any non-ASCII byte in a code file (Rule 19 — the toolchain is CP1252-hostile, and a non-ASCII character inside a `.text` string emits a wrong screen code). Data files (`src/corpus/*.bas`, `charsets/*`, `src/banners/*`, `music/*`, `reference/**/*.md`) are exempt |
 | `check-links.py` | that every relative link in the tracked Markdown resolves. Fenced and inline code are skipped, so a syntax example is not read as a link; the two binaries-repo templates are excluded and are checked by `publish-binaries.ps1` in their published layout |
@@ -470,7 +472,7 @@ GitHub write access is the enforcement, and `-SkipPush` still allows a local com
 testing.
 
 `publish-binaries.ps1` copies the artifacts, the two text files that describe them, and the
-six application guides.
+seven guides (the six application guides plus the file-transfer reference).
 
 | In the binaries repo | Copied from | Note |
 |---|---|---|
@@ -482,6 +484,14 @@ six application guides.
 | `LICENSE.md` | `docs/LICENSE.md` | moved to the root |
 | `docs/*.md` | `docs/` | the six application guides, and nothing else — see below |
 | `docs/img/` | `docs/img/` | the screenshots — addressed as `docs/img/<name>` by the two root-level files and as `img/<name>` by a guide under `docs/` |
+| `reufs.py` | `tools/reufs.py` | the host-side file transfer, at the root beside the images it edits |
+| `reufs-gui.py` | `tools/reufs-gui.py` | its two-pane window; finds `reufs.py` and the image beside itself |
+
+The two `reufs` programs ship because they belong to the **image**, not to the build: a file
+a task saves lives inside `REU.bin`, and they are the only way to take one out or put one in
+from a machine that does not run GordonOS. They are copied flat next to the images, and
+`reufs.py`'s `default_image()` looks for `REU.bin` beside itself as well as in `../reu/`, so
+the same pair works in either tree.
 
 The screenshots go to `docs/img/` rather than the root because that is the one place where
 **both** spellings resolve: the published `README.md` and `quickstart.binaries.md` sit at
@@ -493,7 +503,7 @@ The PRG and the two REU images are written with `Split-Path -Leaf`, so all three
 the binaries repo's **root** — the `build/` and `reu/` directories exist only in the source
 repo, and the published text names them without a directory for that reason.
 
-**The shipped guides are listed; the rest of `docs/` stays private.** `$guides` names the six
+**The shipped guides are listed; the rest of `docs/` stays private.** `$guides` names the seven
 (`edit`, `gordonpaint`, `gortris`, `grknoid`, `gordonbasic`, `musedit`) — the programs this image
 carries plus the language reference. The kernel reference, `memory-map.md`, `syscall.md`, the build
 notes and the tutorial are developer material and do not travel. `docs/` is *replaced* on each

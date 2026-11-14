@@ -22,7 +22,10 @@
 # -Extract <fsName> -Out <path> writes one file's bytes out of the image, so a
 # file a task SAVED can be hashed against the source it came from (the round trip
 # tools/check-reu-current.ps1 cannot answer: that one only compares the binaries
-# the build produced).
+# the build produced). It takes the name as the FS stores it, extension included:
+# `musedit.tsk`, not `musedit`. -Out may be absolute or relative to the project
+# root. It prints one line and exits; it does not run -- or depend on -- the
+# layout checks below, so it also works on an image the gate would reject.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-reu-fs.ps1 `
 #       -Extract commodo.mus -Out temp/x.mus
@@ -64,6 +67,35 @@ function Decode-Name([int]$e) {
     return $s
 }
 
+# --- -Extract: one file out of the image, on its own -------------------------
+#  This runs BEFORE the layout report and independently of it: the main use is
+#  forensic (pulling a file out of a wedged run, or out of an image the gate
+#  would reject), so it must neither print the report nor depend on its verdict.
+#  -Out may be absolute or relative to the project root.
+if ($Extract) {
+    if (-not $Out) { throw "-Extract needs -Out <path>" }
+    $dest = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Out)
+    for ($slot = 1; $slot -lt 512; $slot++) {
+        $e = $DirBase + $slot * $entrySize
+        if ($img[$e] -band 0x80) { continue }              # deleted
+        if ((Decode-Name $e) -ne $Extract) { continue }
+        $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
+        $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
+        if ($DataBase + $off + $size -gt $img.Length) {
+            throw "$Extract says $size bytes at $off, which runs past the end of $image"
+        }
+        $bytes = New-Object byte[] $size
+        [Array]::Copy($img, $DataBase + $off, $bytes, 0, $size)
+        $dir = Split-Path -Parent $dest
+        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+        [IO.File]::WriteAllBytes($dest, $bytes)
+        "extracted $Extract ($size bytes) to $dest"
+        exit 0
+    }
+    Write-Error "no such file in the image: $Extract"
+    exit 1
+}
+
 $sig = $img[$DirBase + 1]
 $next = [int]$img[$DirBase + 17] + ([int]$img[$DirBase + 18] -shl 8) + ([int]$img[$DirBase + 19] -shl 16)
 $cap = [int]$img[$DirBase + 20] + ([int]$img[$DirBase + 21] -shl 8) + ([int]$img[$DirBase + 22] -shl 16)
@@ -71,16 +103,23 @@ $cap = [int]$img[$DirBase + 20] + ([int]$img[$DirBase + 21] -shl 8) + ([int]$img
 
 $count = 0
 $lastEnd = 0
+$extentEnd = 0
 $bad = 0
 $gaps = 0
 $gapBytes = 0
 for ($slot = 1; $slot -lt 512; $slot++) {
     $e = $DirBase + $slot * $entrySize
+    # A tombstone still owns its extent until `compact` repacks it, and delete
+    # keeps the entry's offset and size for exactly that reason. nextFreeOffset
+    # is the append point, so it must equal the highest end over ALL entries --
+    # comparing it with the live ones alone rejects the image `del` leaves when
+    # the file deleted was the newest.
+    $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
+    $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
+    if ($size -ne 0 -and ($off + $size) -gt $extentEnd) { $extentEnd = $off + $size }
     if ($img[$e] -band 0x80) { continue }              # deleted
     $name = Decode-Name $e
     if ($name.Length -eq 0) { continue }
-    $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
-    $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
     $count++
     if ($off -lt $lastEnd) {
         $bad++
@@ -104,33 +143,13 @@ if ($gaps -gt 0) {
     if ($Strict) { Write-Error $note; exit 1 }
     Write-Host "note: $note"
 }
-if ($lastEnd -ne $next) {
-    Write-Error "data ends at $lastEnd but nextFreeOffset says $next"
+if ($extentEnd -ne $next) {
+    Write-Error "the highest entry ends at $extentEnd but nextFreeOffset says $next"
     exit 1
 }
 if ($bad -gt 0) {
     Write-Error "$bad overlapping entr(y/ies)"
     exit 1
 }
-"layout OK: $count entries, data ends at $lastEnd (== nextFreeOffset)"
-
-if ($Extract) {
-    if (-not $Out) { throw "-Extract needs -Out <path>" }
-    for ($slot = 1; $slot -lt 512; $slot++) {
-        $e = $DirBase + $slot * $entrySize
-        if ($img[$e] -band 0x80) { continue }
-        if ((Decode-Name $e) -ne $Extract) { continue }
-        $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
-        $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
-        $bytes = New-Object byte[] $size
-        [Array]::Copy($img, $DataBase + $off, $bytes, 0, $size)
-        $dest = Join-Path (Get-Location) $Out
-        $dir = Split-Path -Parent $dest
-        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
-        [IO.File]::WriteAllBytes($dest, $bytes)
-        "extracted $Extract ($size bytes) to $Out"
-        exit 0
-    }
-    Write-Error "no such file in the image: $Extract"
-    exit 1
-}
+"layout OK: $count entries, highest extent ends at $extentEnd (== nextFreeOffset)"
+exit 0
