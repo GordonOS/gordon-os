@@ -4554,8 +4554,8 @@ muTextDone:
 //  where the cursor is, exactly as muTextAt would put it.
 .const MU_MSG_BUF = 41        // a message and its terminator. The records in the file
                               //   are MU_MSG_SLOT apart, but no message is longer than
-                              //   M_BAR's 40 characters, so a read stops at this and
-                              //   never brings a record's tail in
+                              //   MU_MSG_MAX_LEN, so a read stops at this and never
+                              //   brings a record's tail in
 muMsg:
     jsr muMsgSet
     jmp muTextAt
@@ -4570,7 +4570,7 @@ muMsgGo:
 // --- muMsgSet -- load one message and point MU_STR at it, without printing ---
 //  In: A = a M_* index. The file is one MU_MSG_SLOT-byte record per index, so the
 //  offset is index * 64 and needs no table. The read is MU_MSG_BUF bytes, not the
-//  whole record: the longest message is M_BAR's 40 characters, and the assert beside
+//  whole record: the longest message is MU_MSG_MAX_LEN, and the assert beside
 //  the buffer is what holds the two together. MU_STR points at that buffer -- the text
 //  is never copied -- and the buffer holds the message until the next one is read, so
 //  a caller prints before it reports another message.
@@ -10403,7 +10403,7 @@ muMsgName:  .text "msgs"
             .byte 0
 muMsgRec:   .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
 muMsgBuf:   .fill MU_MSG_BUF, 0   // one message, printed before the next is read
-.assert "the message buffer holds the longest message", (MU_MSG_BUF > M_BAR_LEN) ? 1 : 0, 1
+.assert "the message buffer holds the longest message", (MU_MSG_BUF > MU_MSG_MAX_LEN) ? 1 : 0, 1
 // One mnemonic field, straight out of the same file: the grid indexes it, so it is
 // an absolute address rather than an instance offset. It starts as spaces, so a read
 // that returns nothing prints no field rather than four cells of the '@' glyph.

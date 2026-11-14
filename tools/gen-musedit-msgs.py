@@ -149,9 +149,12 @@ def build_inc(msgs, mnems, mn_base):
         out.append(".const %-12s = %d" % (name, i))
     out.append("")
     out.append("// The length of each message, for a layout that depends on it: the bar's")
-    out.append("// labels sit in fixed cells, so their width is not decoration.")
+    out.append("// labels sit in fixed cells, so their width is not decoration. The longest")
+    out.append("// of them follows, asserted against the buffer in musedit.inc, so a message")
+    out.append("// can never grow past what the editor reads.")
     for name, text in msgs:
         out.append(".const %-12s = %d" % (name + "_LEN", len(text)))
+    out.append(".const MU_MSG_MAX_LEN = %d" % max(len(t) for _, t in msgs))
     out.append("")
     out.append("// The command mnemonics, appended to the same file after the slots and on a")
     out.append("// page boundary: a field is MU_MN_FIELD bytes and id N sits at (N - 1) * 4,")

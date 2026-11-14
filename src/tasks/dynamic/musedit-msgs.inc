@@ -50,7 +50,9 @@
 .const M_BAD_TEMPO  = 37
 
 // The length of each message, for a layout that depends on it: the bar's
-// labels sit in fixed cells, so their width is not decoration.
+// labels sit in fixed cells, so their width is not decoration. The longest
+// of them follows, asserted against the buffer in musedit.inc, so a message
+// can never grow past what the editor reads.
 .const M_LANES_LEN  = 35
 .const M_TEM2_LEN   = 5
 .const M_BAR2_LEN   = 5
@@ -89,6 +91,7 @@
 .const M_NO_CMD_LEN = 25
 .const M_UNDONE_LEN = 27
 .const M_BAD_TEMPO_LEN = 15
+.const MU_MSG_MAX_LEN = 40
 
 // The command mnemonics, appended to the same file after the slots and on a
 // page boundary: a field is MU_MN_FIELD bytes and id N sits at (N - 1) * 4,
