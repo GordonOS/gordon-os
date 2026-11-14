@@ -117,9 +117,10 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-tables.py') -Check
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# musedit's printed strings: the .inc holds the indices and the REU file `msgs` holds
-# the text, both from assets/ui/musedit-msgs.txt. A stale pair would print one
-# message where another was meant.
+# musedit's printed strings and mnemonics: the .inc holds the indices and the ids,
+# the REU file `msgs` holds the text, both from assets/ui/musedit-msgs.txt and
+# assets/ui/musedit-mnems.txt. A stale pair would print one message -- or one
+# mnemonic -- where another was meant.
 & $PythonExe (Join-Path $PSScriptRoot 'gen-musedit-msgs.py') -Check
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

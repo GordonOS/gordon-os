@@ -331,57 +331,17 @@
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
 .const MU_LOG_SLOTS = 16      // command pairs one voice may log for one row: the
                               //   longest run a bundled tune has is twelve
-.const MU_MN_TEM    = 1       // ids 1..9 are the structural commands, 10..46 the
-.const MU_MN_UTL    = 2       //   sound ones and 47..49 the player's own three. The
-.const MU_MN_UTV    = 3       //   mnemonic table is one five-character field per id,
-.const MU_MN_HED    = 4       //   in this order; TAL, HLT and END take no operand and
-.const MU_MN_DEF    = 5       //   print no value.
-.const MU_MN_CALL   = 6
-.const MU_MN_TAL    = 7
-.const MU_MN_HLT    = 8
-.const MU_MN_END    = 9
-.const MU_MN_FC     = 10      // filter cutoff
-.const MU_MN_PNT    = 11      // release point
-.const MU_MN_RTP    = 12      // relative transpose
-.const MU_MN_HLD    = 13      // hold time
-.const MU_MN_PS     = 14      // pulse sweep
-.const MU_MN_FS     = 15      // filter sweep
-.const MU_MN_SCA    = 16      // modulation scale
-.const MU_MN_VDP    = 17      // vibrato depth
-.const MU_MN_VRT    = 18      // vibrato rate
-.const MU_MN_AUT    = 19      // auto filter
-.const MU_MN_TPS    = 20      // transpose
-.const MU_MN_PVD    = 21      // pulse-width vibrato depth
-.const MU_MN_PVR    = 22      // pulse-width vibrato rate
-.const MU_MN_MAX    = 23      // modulation maximum
-.const MU_MN_PW     = 24      // pulse width
-.const MU_MN_DTN    = 25      // detune
-.const MU_MN_POR    = 26      // portamento
-.const MU_MN_ATK    = 27
-.const MU_MN_DCY    = 28
-.const MU_MN_SUS    = 29
-.const MU_MN_VOL    = 31
-.const MU_MN_RES    = 32
-.const MU_MN_WAV    = 33
-.const MU_MN_FM     = 34      // filter mode
-.const MU_MN_BMP    = 35      // bump volume
-.const MU_MN_FLT    = 36      // filter through
-.const MU_MN_RNG    = 37      // ring modulation
-.const MU_MN_SNC    = 38      // oscillator sync
-.const MU_MN_FX     = 39      // filter external
-.const MU_MN_3O     = 40      // voice 3 off
-.const MU_MN_LFO    = 41
-.const MU_MN_PNV    = 42      // portamento + vibrato
-.const MU_MN_RUP    = 43      // LFO ramp up
-.const MU_MN_RDN    = 44      // LFO ramp down
-.const MU_MN_SRC    = 45      // modulation source
-.const MU_MN_DST    = 46      // modulation destination
-.const MU_MN_MS     = 47      // measure number, 0-999: the command byte's top two
-                              //   bits are its high byte
-.const MU_MN_FLG    = 48      // the player's flag byte
-.const MU_MN_AUX    = 49      // reserved: the player has no hook to run
+// --- the command ids ---
+//  Ids 1..9 are the structural commands, 10..46 the sound ones and 47..49 the
+//  player's own three. The ids and their mnemonics are one list --
+//  assets/ui/musedit-mnems.txt, which musedit-msgs.inc turns into these constants
+//  and the REU file `msgs` turns into the text the grid prints -- so the numbering
+//  and the printed word cannot drift apart. TAL, HLT and END take no operand and
+//  print no value.
 .const MU_MN_LAST   = MU_MN_AUX // the last id the picker offers
-.const MQ_WIDE      = 49      // where mqOptB's second block starts: one per id
+.const MQ_WIDE      = MU_MN_COUNT // where mqOptB's second block starts: one per id
+.assert "every id has a menu entry", MU_MN_LAST == MU_MN_COUNT ? 1 : 0, 1
+.assert "the mnemonic block fits one page of the file", (MU_MN_COUNT * MU_MN_FIELD) <= 256 ? 1 : 0, 1
 .const MU_WIN_PAGES  = 6       // the window service: SIX 256-byte, page-aligned
                                //   windows -- 0-2 are the editor's, one per voice, and
                                //   3-5 are the player's, handed over in kSidPlay's
@@ -6967,30 +6927,49 @@ mqfNo:
     rts
 
 // --- muMnPrint -- print the mnemonic of command id A ---
-//  A field is four bytes: three characters and a space, except CALL, which fills it
-//  -- so the print stops at that space or at the fourth cell, and the padding is
-//  never drawn. The space between the mnemonic and its operand is the caller's.
-//  MU_REVTEXT is left at 0. Clobbers A, X and Y (muPutC).
+//  The text is the REU file `msgs`, in the block after its message slots: one
+//  MU_MN_FIELD-byte field per id (musedit-mnems.txt), so the field's offset is
+//  (id - 1) * 4 and its page is M_MN_BASE's. ONE kReuReadAt brings the field in; the
+//  grid draws one of these per command line, and nothing on the walk's own path
+//  reads it.
+//  A field is three characters and a space, except CALL, which fills it -- so the
+//  print stops at that space or at the fourth cell, and the padding is never drawn.
+//  The space between the mnemonic and its operand is the caller's. MU_REVTEXT is
+//  left at 0.
+//  Clobbers A, X and Y (muPutC), kArg..kArg+7, kPtr and srcPtr (kReuReadAt), so it
+//  must not be called where a kernel argument is already in hand.
 muMnPrint:
     sec
     sbc #1
     asl
     asl
-    sta muTmpL                  // (id - 1) * 4
+    sta kArg+2                  // (id - 1) * 4: the field's offset inside the page
+    lda #>M_MN_BASE
+    sta kArg+3
+    ldx #<muMsgRec
+    ldy #>muMsgRec
+    stx kArg
+    sty kArg+1
+    ldx #<muMnBuf
+    ldy #>muMnBuf
+    stx kPtr
+    sty kPtr+1
+    lda #MU_MN_FIELD
+    sta kArg+6
+    lda #0
+    sta kArg+7                  // len = one field
+    jsr kReuReadAt
     lda #0
     sta muTmpH
 mqMnLp:
-    lda muTmpL
-    clc
-    adc muTmpH
-    tay
-    lda muMnTab,y
+    ldy muTmpH
+    lda muMnBuf,y
     cmp #' '
     beq mqMnEnd
     jsr muPutC
     inc muTmpH
     lda muTmpH
-    cmp #4
+    cmp #MU_MN_FIELD
     bcc mqMnLp
 mqMnEnd:
     lda #0
@@ -10408,11 +10387,16 @@ muGdRts:
 //  pointed MU_STR at a literal cost twelve code bytes. The file holds fixed
 //  MU_MSG_SLOT-byte records, one per M_* index (musedit-msgs.inc, generated from
 //  assets/ui/musedit-msgs.txt), so a message's offset is index * 64 and one read
-//  brings the whole message in.
+//  brings the whole message in. The command mnemonics follow the slots in the same
+//  file, one MU_MN_FIELD-byte field per id (assets/ui/musedit-mnems.txt).
 muMsgName:  .text "msgs"
             .byte 0
 muMsgRec:   .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
 muMsgBuf:   .fill MU_MSG_SLOT, 0  // one message, printed before the next is read
+// One mnemonic field, straight out of the same file: the grid indexes it, so it is
+// an absolute address rather than an instance offset. It starts as spaces, so a read
+// that returns nothing prints no field rather than four cells of the '@' glyph.
+muMnBuf:    .fill MU_MN_FIELD, ' '
 // The one string that cannot move: with no file there is nothing to print, not even
 // an error, so this is what the editor leaves on the screen.
 muSFallback: .text "? no msgs"
@@ -10551,17 +10535,6 @@ muDotX:     .byte 0
 muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
 muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a utility, then whole..32nd
 muGlyBuf:   .fill 8, 0          // one keyboard cell, expanded to the 8 bytes a blit reads
-//  One four-byte field per mnemonic id, so the id indexes the table with a shift by
-//  two and a command line prints exactly one field: three characters and a space,
-//  except CALL, which fills the field. The order is MU_MN_TEM..MU_MN_AUX; ids 1..9
-//  are the structural nine.
-muMnTab:    .text "TEM UTL UTV HED DEF CALLTAL HLT END F-C "
-            .text "PNT RTP HLD P-S F-S SCA VDP VRT AUT TPS "
-            .text "PVD PVR MAX P-W DTN POR ATK DCY SUS REL "
-            .text "VOL RES WAV F-M BMP FLT RNG SNC F-X 3-O "
-            .text "LFO P&V RUP RDN SRC DST MS# FLG AUX "
-muMnEnd:
-.assert "the mnemonic table is four bytes per id", (muMnEnd - muMnTab) == 49*4 ? 1 : 0, 1
 //  The commands with a fixed command byte, indexed by command byte / 8. A zero is
 //  a value of that eight that names no command, or one the grid does not draw. MS#
 //  takes four indices, one per value of its high byte; JIF takes none, because its

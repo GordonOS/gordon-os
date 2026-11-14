@@ -136,7 +136,9 @@ $assets = @(
     @{ name = "gpui_mc.bin"; file = "assets/ui/gpui_mc.bin" },
     # musedit's printed text, written by tools/gen-musedit-msgs.py from
     # assets/ui/musedit-msgs.txt: one 64-byte record per message, so the task reads
-    # a string instead of holding it, and its messages cost it no code page.
+    # a string instead of holding it, and its messages cost it no code page. The
+    # command mnemonics follow the slots in a four-byte-field block of their own
+    # (assets/ui/musedit-mnems.txt), with the same effect on the grid.
     @{ name = "msgs";        file = "assets/ui/musedit-msgs.bin" }
 )
 

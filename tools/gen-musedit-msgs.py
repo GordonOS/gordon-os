@@ -13,16 +13,22 @@ message's offset is `index * 64` and there is no offset table to read first.
 `muMsg` reads one whole slot in a single DMA and points MU_STR at the buffer, so a
 message needs no copy and no terminator hunt beyond the NUL the slot carries.
 
+The same file carries the command mnemonics, in a block of their own after the
+slots (assets/ui/musedit-mnems.txt): 49 fields of four bytes, one per muMnPrint id,
+at a 256-byte boundary so a field's offset is `(id - 1) * 4` and its page is a
+constant. The grid draws one field per command line, so the 196 bytes of text cost
+the task nothing but a read it already knows how to make.
+
 The .bin holds SCREEN CODES, not ASCII -- the editor prints it straight to the
 screen, and the two differ for every letter. A lower-case letter is $01-$1A; an
 upper-case one is its ASCII code ($41-$5A); everything else passes through. That is
-exactly what `.text` under `.encoding "screencode_mixed"` emits, so a message reads
+exactly what `.text` under `.encoding "screencode_mixed"` emits, so a string reads
 the same whether it is assembled into the task or loaded from the image.
 
-Output, both from assets/ui/musedit-msgs.txt:
+Output, from assets/ui/musedit-msgs.txt and assets/ui/musedit-mnems.txt:
 
-    assets/ui/musedit-msgs.bin      the slots, shipped in the REU image as `msgs`
-    src/tasks/dynamic/musedit-msgs.inc   one M_* index per message
+    assets/ui/musedit-msgs.bin      the slots and the mnemonics, shipped as `msgs`
+    src/tasks/dynamic/musedit-msgs.inc   one M_* index and one MU_MN_* id each
 
 Usage:
     python tools/gen-musedit-msgs.py            write both files
@@ -35,12 +41,15 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, "assets", "ui", "musedit-msgs.txt")
+MN_SRC = os.path.join(ROOT, "assets", "ui", "musedit-mnems.txt")
 BIN = os.path.join(ROOT, "assets", "ui", "musedit-msgs.bin")
 INC = os.path.join(ROOT, "src", "tasks", "dynamic", "musedit-msgs.inc")
 
 SLOT = 64                       # bytes per message: longest is 38 + NUL
+FIELD = 4                       # bytes per mnemonic: three characters and a space
 
 LINE = re.compile(r'^([A-Z][A-Z0-9_]*)\s+"(.*)"$')
+MN_LINE = re.compile(r'^([A-Z][A-Z0-9_]*)\s+"([^"]*)"\s*(?://.*)?$')
 
 
 def screencode(text):
@@ -88,11 +97,44 @@ def parse():
     return out
 
 
-def build_inc(msgs):
+def parse_mnems():
+    """[(name, text)] in id order, id 1 first. `//` comments are skipped."""
+    out = []
+    seen = set()
+    with open(MN_SRC, encoding="ascii", newline="\n") as fh:
+        for n, line in enumerate(fh, 1):
+            s = line.strip()
+            if not s or s.startswith("//"):
+                continue
+            m = MN_LINE.match(s)
+            if not m:
+                raise SystemExit("%s:%d: not 'NAME \"text\"': %s" % (MN_SRC, n, s))
+            name, text = m.group(1), m.group(2)
+            if not name.startswith("MU_MN_"):
+                raise SystemExit("%s:%d: %s is not an MU_MN_* id" % (MN_SRC, n, name))
+            if name in seen:
+                raise SystemExit("%s:%d: %s is declared twice" % (MN_SRC, n, name))
+            # A space ends the printed field, so it cannot be part of the text.
+            if not text or len(text) > FIELD or " " in text:
+                raise SystemExit("%s:%d: %s is '%s', a field is 1-%d characters with no space"
+                                 % (MN_SRC, n, name, text, FIELD))
+            try:
+                text.encode("ascii")
+            except UnicodeEncodeError:
+                raise SystemExit("%s:%d: %s is not ASCII" % (MN_SRC, n, name))
+            seen.add(name)
+            out.append((name, text))
+    if not out:
+        raise SystemExit("%s: no mnemonics" % MN_SRC)
+    return out
+
+
+def build_inc(msgs, mnems, mn_base):
     out = []
     out.append("// ==========================================")
     out.append("//  musedit-msgs.inc -- GENERATED, do not edit by hand.")
-    out.append("//  Source: assets/ui/musedit-msgs.txt   (tools/gen-musedit-msgs.py)")
+    out.append("//  Sources: assets/ui/musedit-msgs.txt, assets/ui/musedit-mnems.txt")
+    out.append("//           (tools/gen-musedit-msgs.py)")
     out.append("// ==========================================")
     out.append("//  One index per string musedit prints. The text is not here: the REU image")
     out.append("//  holds it as `msgs`, one MU_MSG_SLOT-byte record per index, in this order,")
@@ -108,22 +150,42 @@ def build_inc(msgs):
     for name, text in msgs:
         out.append(".const %-12s = %d" % (name + "_LEN", len(text)))
     out.append("")
+    out.append("// The command mnemonics, appended to the same file after the slots and on a")
+    out.append("// page boundary: a field is MU_MN_FIELD bytes and id N sits at (N - 1) * 4,")
+    out.append("// so the read's offset is that and its page is M_MN_BASE's own.")
+    out.append(".const M_MN_BASE = %d" % mn_base)
+    out.append(".const MU_MN_COUNT = %d" % len(mnems))
+    out.append(".const MU_MN_FIELD = %d" % FIELD)
+    for i, (name, text) in enumerate(mnems):
+        out.append(".const %-12s = %d" % (name, i + 1))
+    out.append("")
     return "\n".join(out)
 
 
-def build(msgs):
-    """The 64-byte records, each message in screen codes, NUL padded."""
+def build(msgs, mnems):
+    """(the file, the mnemonic block's offset): 64-byte slots, then the mnemonics.
+
+    The block starts on the next 256-byte boundary so muMnPrint's offset high byte
+    is a constant -- the low byte alone is `(id - 1) * 4`, which is 256 bytes of
+    fields: four to a page.
+    """
     blob = bytearray()
     for _, text in msgs:
         rec = screencode(text) + b"\0"
         blob += rec + b"\0" * (SLOT - len(rec))
-    return bytes(blob)
+    base = (len(blob) + 255) & ~255
+    blob += b"\0" * (base - len(blob))
+    for _, text in mnems:
+        field = screencode(text)
+        blob += field + b" " * (FIELD - len(field))
+    return bytes(blob), base
 
 
 def main():
     msgs = parse()
-    inc = build_inc(msgs)
-    blob = build(msgs)
+    mnems = parse_mnems()
+    blob, mn_base = build(msgs, mnems)
+    inc = build_inc(msgs, mnems, mn_base)
 
     check = "-Check" in sys.argv
     if check:
@@ -141,15 +203,16 @@ def main():
                 bad = True
         if bad:
             return 1
-        print("gen-musedit-msgs: OK (%d messages, %d bytes)" % (len(msgs), len(blob)))
+        print("gen-musedit-msgs: OK (%d messages, %d mnemonics, %d bytes)"
+              % (len(msgs), len(mnems), len(blob)))
         return 0
 
     with open(INC, "w", encoding="ascii", newline="\n") as fh:
         fh.write(inc)
     with open(BIN, "wb") as fh:
         fh.write(blob)
-    print("gen-musedit-msgs: wrote %d messages, %d bytes (longest %d)"
-          % (len(msgs), len(blob), max(len(t) for _, t in msgs)))
+    print("gen-musedit-msgs: wrote %d messages, %d mnemonics, %d bytes"
+          % (len(msgs), len(mnems), len(blob)))
     return 0
 
 

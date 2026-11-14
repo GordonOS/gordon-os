@@ -17,7 +17,9 @@ Usage
 
 The tables are read from src/tasks/dynamic/musedit.inc, so a row added for
 another command is checked with no change here -- the only thing that has to be
-kept up to date is REF, which says how the FORMAT encodes each mnemonic.
+kept up to date is REF, which says how the FORMAT encodes each mnemonic. The
+mnemonics themselves come from assets/ui/musedit-mnems.txt, which is also what the
+grid prints (their id is the line number).
 """
 
 import importlib.util
@@ -27,6 +29,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EDITOR = os.path.join(ROOT, "src", "tasks", "dynamic", "musedit.inc")
+MNEMS = os.path.join(ROOT, "assets", "ui", "musedit-mnems.txt")
 GEN = os.path.join(ROOT, "tools", "gen-mus.py")
 
 
@@ -118,31 +121,36 @@ def EXACT_CMD(gen):
 
 
 def read_const(lines, name, default):
-    """A .const NAME = 123 (decimal) from the sources, or a default."""
+    """A numeric .const NAME = 123 from the sources, or a default.
+
+    A symbolic value (`.const MQ_WIDE = MU_MN_COUNT`, where the count lives in
+    another file) is the caller's default: the caller is the one that can count.
+    """
     for line in lines:
         m = re.match(r"^\.const\s+%s\s*=\s*(\S+)" % re.escape(name), strip(line).strip())
         if m:
-            return int(m.group(1), 0)
+            try:
+                return int(m.group(1), 0)
+            except ValueError:
+                return default
     return default
 
 
-def read_mnemonics(lines):
-    """muMnTab -- four characters per mnemonic id, in id order (1-based)."""
-    for i, line in enumerate(lines):
-        if strip(line).startswith("muMnTab:"):
-            text = []
-            j = i
-            while j < len(lines):
-                body = strip(lines[j])
-                found = re.findall(r'"([^"]*)"', body)
-                if not found:
-                    break
-                text.extend(found)
-                j += 1
-            joined = "".join(text)
-            table = [joined[k:k + 4].strip() for k in range(0, len(joined), 4)]
-            return {n + 1: t for n, t in enumerate(table)}
-    raise SystemExit("check-mus-commands: no muMnTab in %s" % EDITOR)
+def read_mnemonics():
+    """{id: mnemonic} in file order, id 1 first -- assets/ui/musedit-mnems.txt."""
+    table = {}
+    with open(MNEMS, encoding="ascii", newline="\n") as fh:
+        for n, line in enumerate(fh, 1):
+            s = strip(line).strip()
+            if not s or s.startswith("//"):
+                continue
+            m = re.match(r'^[A-Z][A-Z0-9_]*\s+"([^"]*)"', s)
+            if not m:
+                raise SystemExit("%s:%d: not 'NAME \"text\"': %s" % (MNEMS, n, s))
+            table[len(table) + 1] = m.group(1)
+    if not table:
+        raise SystemExit("check-mus-commands: no mnemonics in %s" % MNEMS)
+    return table
 
 
 def editor_pair(cmd_b, opt_b, max_v, value, is_phrase, wide_b,
@@ -259,7 +267,7 @@ def main():
     cmd_b = read_table(lines, "mqCmdB")
     opt_b = read_table(lines, "mqOptB")
     max_v = read_table(lines, "mqMax")
-    names = read_mnemonics(lines)
+    names = read_mnemonics()
     shape = read_table(lines, "mqShape")
     sh_mask = read_table(lines, "mqShMask")
     sh_shift = read_table(lines, "mqShShift")
@@ -271,7 +279,7 @@ def main():
     if len(max_v) != len(cmd_b):
         raise SystemExit("check-mus-commands: mqMax holds %d bytes, mqCmdB %d"
                          % (len(max_v), len(cmd_b)))
-    wide_at = read_const(lines, "MQ_WIDE", len(cmd_b))
+    wide_at = read_const(lines, "MQ_WIDE", len(names))
     wide = opt_b[wide_at:]
     if len(wide) < 9:
         raise SystemExit("check-mus-commands: the wide phrase block holds %d bytes, "
