@@ -3729,7 +3729,6 @@ mwtSkip:
     lda muGrpRow+1
     adc #0
     sta muTmpH
-    lda muTmpH
     cmp muTop+1
     bne mwtGo
     lda muTmpL
@@ -4164,16 +4163,20 @@ muPsDone:
     rts
 
 // --- muPutNoteName -- the two cells of a semitone's name ("C-", "C#") ---
-//  In: A = the semitone, 0-11. muNoteNames holds two characters per semitone, so the
-//  doubled index picks them. The octave is the caller's: it prints after this.
+//  In: A = the semitone, 0-11. The letter and the accidental are one table lookup
+//  each, so the twelve names are built rather than stored. The octave is the caller's:
+//  it prints after this.
 muPutNoteName:
-    asl                         // two characters per semitone name
-    sta muTmp
-    ldx muTmp
-    lda muNoteNames,x
+    sta muTmp                   // the semitone: both tables are indexed by it
+    tax
+    lda muSemLetter,x           // the letter it is written as, 1-7
+    tay
+    lda muLetterName-1,y
     jsr muPutC
     ldx muTmp
-    lda muNoteNames+1,x
+    lda muSemSharp,x            // ...and whether it is the sharp of that letter
+    tay
+    lda muAccChar,y
     jmp muPutC
 
 // --- muGdPitch -- three cells: the note's name and its octave ---
@@ -4549,6 +4552,10 @@ muTextDone:
 // --- muMsg -- load one message and print it at the text cursor ---
 //  In: A = a M_* index (musedit-msgs.inc). What most sites want: the message goes
 //  where the cursor is, exactly as muTextAt would put it.
+.const MU_MSG_BUF = 41        // a message and its terminator. The records in the file
+                              //   are MU_MSG_SLOT apart, but no message is longer than
+                              //   M_BAR's 40 characters, so a read stops at this and
+                              //   never brings a record's tail in
 muMsg:
     jsr muMsgSet
     jmp muTextAt
@@ -4562,10 +4569,11 @@ muMsgGo:
 
 // --- muMsgSet -- load one message and point MU_STR at it, without printing ---
 //  In: A = a M_* index. The file is one MU_MSG_SLOT-byte record per index, so the
-//  offset is index * 64 and needs no table; ONE kReuReadAt brings the whole message
-//  in, and MU_STR points at that buffer -- the text is never copied. The buffer holds
-//  the message until the next one is read, so a caller prints before it reports
-//  another message.
+//  offset is index * 64 and needs no table. The read is MU_MSG_BUF bytes, not the
+//  whole record: the longest message is M_BAR's 40 characters, and the assert beside
+//  the buffer is what holds the two together. MU_STR points at that buffer -- the text
+//  is never copied -- and the buffer holds the message until the next one is read, so
+//  a caller prints before it reports another message.
 //  Clobbers kArg..kArg+7, kPtr and srcPtr (kReuReadAt), so it must not be called
 //  where a kernel argument is already in hand.
 muMsgSet:
@@ -4590,13 +4598,13 @@ muMsgSet:
     ldy #>muMsgBuf
     stx kPtr
     sty kPtr+1
-    lda #MU_MSG_SLOT
+    lda #MU_MSG_BUF
     sta kArg+6
     lda #0
-    sta kArg+7                  // len = one record
+    sta kArg+7                  // len = the buffer, not the whole record
     jsr kReuReadAt
     lda #0
-    sta muMsgBuf+MU_MSG_SLOT-1  // a read clamped by the end of the file must still
+    sta muMsgBuf+MU_MSG_BUF-1   // a read clamped by the end of the file must still
                                 //   terminate the message
     muSet(MU_STRLO, <muMsgBuf)
     muSet(MU_STRHI, >muMsgBuf)
@@ -5247,6 +5255,23 @@ muSeekKPtr:
 //  playing and the audition stays silent rather than fighting it.
 //  A player that is mid-tick when we look can still be interrupted once; it
 //  rewrites its voice controls every tick, so the loss is one tick of one voice.
+
+// --- muDiv12 -- A / 12 -> A = the remainder, X = the quotient ---
+//  A linear note 0-95 split into the semitone inside its octave and the octave: the
+//  audition, the option encoder and two readouts all need it. CMP leaves C set when
+//  the subtraction is legal, so the loop needs no SEC.
+//  Clobbers A and X.
+muDiv12:
+    ldx #0
+muD12Lp:
+    cmp #12
+    bcc muD12Rts
+    sbc #12
+    inx
+    bne muD12Lp
+muD12Rts:
+    rts
+
 // --- muAudFreq -- A = the linear note (0-95) -> muAudLo/muAudHi, the SID frequency ---
 //  The table is the player's PAL one, an octave down: octave 7 doubles it (B clamps
 //  at $ffff) and every octave below halves it once per step.
@@ -5256,15 +5281,7 @@ muSeekKPtr:
 //  image's boot.bat declares the emulator's speed, so an audition written without this
 //  term is one octave high on every machine that declares anything but 100%.
 muAudFreq:
-    ldx #0
-muAfDiv:
-    cmp #12
-    bcc muAfDivDone
-    sec
-    sbc #12
-    inx
-    jmp muAfDiv
-muAfDivDone:
+    jsr muDiv12
     sta muTmp                   // the semitone inside the octave
     stx muTmp2                  // ...and the octave
     lda #7
@@ -7543,15 +7560,7 @@ muUxDone:
 //  at octave 7 and is halved once per octave field, so field = 7 - octave. A black
 //  key is written as the sharp of the letter below it.
 muNoteOpt:
-    ldx #0
-muNoDiv:
-    cmp #12
-    bcc muNoDivDone
-    sec
-    sbc #12
-    inx
-    jmp muNoDiv
-muNoDivDone:
+    jsr muDiv12
     sta muTmp                   // the semitone inside the octave
     stx muTmp2                  // ...and the octave
     ldx muTmp
@@ -7741,7 +7750,6 @@ muImgRoom:
     lda (dataPtr),y
     adc #0
     sta muNeedHi
-    lda muNeedHi
     cmp #MU_SCR_PAGES
     bcc muIrOk
     bne muIrBad
@@ -8829,18 +8837,8 @@ muHovDraw:
     lda (dataPtr),y
     cmp #$ff
     beq muHovBlank
-    ldx #0                      // note / 12 -> octave, note % 12 -> semitone
-muHovD12:
-    cmp #12
-    bcc muHovD12d
-    sec
-    sbc #12
-    inx
-    jmp muHovD12
-muHovD12d:
-    sta muSem
-    stx muOct
-    lda muSem                   // two characters per semitone name
+    jsr muDiv12                 // note / 12 -> octave, note % 12 -> semitone
+    stx muOct                   // the octave waits; A is the semitone for the name
     jsr muPutNoteName
     lda muOct
     clc
@@ -9546,7 +9544,6 @@ muGrpBar:
     lda muGrpRow+1
     sbc muBarStart+1
     sta muValHi
-    lda muValHi
     cmp muSegBar+1
     bcc mgbRts
     bne mgbStep
@@ -9929,11 +9926,10 @@ mlrNext:
     cpx #3
     bcc mlrVoices
     jsr muLnQmark
-    jmp muLnNum                 // the number belongs to the row's own line, every
-                                //   time: a row's command lines sit above it and are
-                                //   not points in time, so they never carry one
 
 // --- muLnNum -- the row's number in its own column, bar-relative ---
+//  The number belongs to the row's own line, every time: a row's command lines sit
+//  above it and are not points in time, so they never carry one.
 //  The bar's first row is the walk's, not a multiple of one bar size: a tempo
 //  change starts a bar wherever it lands, so the count is a subtraction.
 muLnNum:
@@ -9955,10 +9951,9 @@ muLnNum:
     sta muDecLo                 // the row within the bar, one-based
     lda muDecHi
     adc #0
-    sta muDecHi
-    lda muDecHi                 // a bar of a refined grid can hold 100 rows or more,
-    bne mlrThree                //   and muNum2 prints exactly TWO: ten tens would print
-    lda muDecLo                 //   a colon. So the width is decided first, in 16 bits
+    sta muDecHi                 // a bar of a refined grid can hold 100 rows or more, and
+    bne mlrThree                //   muNum2 prints exactly TWO: ten tens would print a
+    lda muDecLo                 //   colon. So the width is decided first, in 16 bits
     cmp #100
     bcs mlrThree
     lda muDecLo
@@ -10098,7 +10093,7 @@ mlnMark:
     bne mlnDone                 // a whole row or more: nothing is squeezed
     lda muLaneCol,x
     clc
-    adc muLaneW,x
+    adc #MU_LANE_W
     sec
     sbc #1
     sta muGdCol
@@ -10407,7 +10402,8 @@ muGdRts:
 muMsgName:  .text "msgs"
             .byte 0
 muMsgRec:   .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
-muMsgBuf:   .fill MU_MSG_SLOT, 0  // one message, printed before the next is read
+muMsgBuf:   .fill MU_MSG_BUF, 0   // one message, printed before the next is read
+.assert "the message buffer holds the longest message", (MU_MSG_BUF > M_BAR_LEN) ? 1 : 0, 1
 // One mnemonic field, straight out of the same file: the grid indexes it, so it is
 // an absolute address rather than an instance offset. It starts as spaces, so a read
 // that returns nothing prints no field rather than four cells of the '@' glyph.
@@ -10439,12 +10435,16 @@ muDotOctXEnd:
 .assert "the dot has one step per octave", (muDotOctXHi - muDotOctXLo) == 8 ? 1 : 0, 1
 .assert "both octave rows are eight long", (muDotOctXEnd - muDotOctXHi) == 8 ? 1 : 0, 1
 muLaneCol:  .byte MU_LANE1_COL, MU_LANE1_COL+MU_LANE_STEP, MU_LANE1_COL+2*MU_LANE_STEP
-muLaneW:    .byte MU_LANE_W, MU_LANE_W, MU_LANE_W
 muVoiceCol: .byte 2, 7, 3       // red, yellow, cyan -- the dot colours, voice 1..3
 // A black key is written as the sharp of the letter below it: one letter and a
-// sharp flag per semitone, indexed by the semitone inside the octave.
+// sharp flag per semitone, indexed by the semitone inside the octave. The two tables
+// below turn those into the two cells of the name, so the twelve names are not stored.
 muSemLetter: .byte 1, 1, 2, 2, 3, 4, 4, 5, 5, 6, 6, 7
 muSemSharp:  .byte 0, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0
+muLetterName: .text "CDEFGAB"
+muLetterNameEnd:
+.assert "the letter names cover the seven letters", (muLetterNameEnd - muLetterName) == 7 ? 1 : 0, 1
+muAccChar:  .byte '-', '#'      // the second cell: a natural, or the sharp
 
 // The image a name with no file stands for: load address, the three voice
 // lengths, three one-event streams (HLT each) and an empty description.
@@ -10516,8 +10516,6 @@ muSDot:     .text "dot.spr"
     .byte 0
 muSPointer: .text "pointer.spr"
             .byte 0
-// Two characters per semitone, C- .. B-: the readout appends the octave digit.
-muNoteNames: .text "C-C#D-D#E-F-F#G-G#A-A#B-"
 // The clamp bounds, x then y: 320 x 200.
 muBoundLo:  .byte <320, <200
 muBoundHi:  .byte >320, >200
