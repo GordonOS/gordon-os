@@ -321,7 +321,13 @@ class ReuImage:
 
         `overwrite` deletes the live entry of that name first, which is what a
         file manager's "replace" means; the old bytes stay as a hole until
-        `compact` runs on the machine, exactly as delete + save would leave."""
+        `compact` runs on the machine, exactly as delete + save would leave.
+
+        Every check that can refuse runs BEFORE anything is changed, and the
+        delete is the last thing before the write. A refused replacement must
+        leave the old file where it was: deleting first and then discovering
+        there is no room would report "not enough room" and destroy the file the
+        caller was trying to replace."""
         check_name(name)
         if not blob:
             raise FsError("a zero-length file cannot be stored -- the "
@@ -330,12 +336,12 @@ class ReuImage:
             raise FsError("%d bytes is over the 16-bit size field's %d"
                           % (len(blob), MAX_FILE))
         existing = self.find(name)
-        if existing is not None:
-            if not overwrite:
-                raise FsError("'%s' is already in the image (slot %d); delete "
-                              "it first, or use overwrite" % (name, existing.slot), 0)
-            self.delete(name)
+        if existing is not None and not overwrite:
+            raise FsError("'%s' is already in the image (slot %d); delete "
+                          "it first, or use overwrite" % (name, existing.slot), 0)
 
+        # The slot search comes before the delete: a tombstone keeps its extent,
+        # so deleting does NOT free a slot and cannot make room here.
         slot = None
         for s in range(1, SLOT_COUNT):
             base = self._slot_base(s)
@@ -359,6 +365,9 @@ class ReuImage:
             raise FsError("the image is smaller than the filesystem's capacity: "
                           "writing to %d would run past its %d bytes"
                           % (stop, len(self.data)))
+
+        if existing is not None:
+            self.delete(name)          # nothing below this line can refuse
 
         self.data[start:stop] = blob
         base = self._slot_base(slot)
@@ -522,6 +531,16 @@ def _selftest():
     ok("overwrite reads back", fs.get("a.bin") == b"NEW")
     ok("the old extent is a hole, not a reuse",
        fs.find("a.bin").offset == 300 and fs.find("b.bin").offset == 100)
+
+    # A refused replacement must leave the file it was going to replace: the
+    # delete has to happen after every check that can refuse, or "not enough
+    # room" is reported by destroying the file.
+    refuses("a replacement that does not fit",
+            lambda: fs.put("a.bin", b"x" * 3800, overwrite=True), 1)
+    ok("...and the file it would have replaced is still there",
+       fs.find("a.bin") is not None and fs.get("a.bin") == b"NEW")
+    refuses("a replacement whose name is too long",
+            lambda: fs.put("abcdefghijkl", b"x", overwrite=True), 3)
 
     done = fs.delete("b.bin")
     ok("delete tombstones", done.name == "b.bin" and fs.find("b.bin") is None)

@@ -76,7 +76,10 @@ Double-clicking an image file is a shortcut for **Get**.
 
 Overwriting always asks first (on both sides), and it says what it costs: a
 replaced image file leaves its old bytes as a hole until `compact` runs on the
-machine.
+machine. If the replacement does not fit, it is refused and the file you were
+replacing is left exactly as it was — and so is everything else in the image: a
+refused action reloads it from disk, so a batch that stopped part way through
+cannot leave half of its work staged.
 
 ## The command line
 
@@ -164,7 +167,7 @@ cannot leave a half-written directory.
 | `a zero-length file cannot be stored` | Size 0 is the empty-slot marker | Nothing to copy — skip it |
 | `... is over the 16-bit size field's 65535` | One file cannot exceed 64 KB | Split it |
 | `the directory is full (all 511 slots are live or tombstoned)` | The directory is out of entries | `compact` on the machine reclaims the deleted ones |
-| `not enough room: N bytes needed from offset O` | Capacity reached | `compact`, delete something, or use a bigger image |
+| `not enough room: N bytes needed from offset O` | Capacity reached | `compact`, delete something, or use a bigger image. A refused **replacement** leaves the file it was going to replace untouched |
 | `a VICE emulator is running (...)` | The image is mapped by the emulator | Close VICE, or `--force` |
 
 ## Knowing it worked

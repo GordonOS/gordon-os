@@ -233,17 +233,24 @@ class App:
         self.log("image written%s" % (" (forced while VICE runs)" if force else ""))
 
     def _run(self, action):
-        """Run an edit, reporting every refusal in the log and the banner."""
+        """Run an edit, reporting every refusal in the log and the banner.
+
+        A refusal reloads the image. The library holds changes in memory until a
+        save, so a batch that failed part way through -- Import all, where the
+        fifth file does not fit -- would otherwise leave the first four staged,
+        and the next successful action would write them out."""
         if not self.fs:
             return
         try:
             action()
         except reufs.FsError as exc:
             self.log("refused: %s" % exc)
+            self.reload_image()
             messagebox.showwarning("Not done", str(exc), parent=self.root)
             return
         except OSError as exc:
             self.log("error: %s" % exc)
+            self.reload_image()
             messagebox.showerror("Error", str(exc), parent=self.root)
             return
         self.refresh_fs()
