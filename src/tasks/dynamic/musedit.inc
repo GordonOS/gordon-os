@@ -4483,7 +4483,7 @@ muPcAdv:
     lda muCurCol
     clc
     adc #1
-    sta (dataPtr),y
+    sta muCurCol
     rts
 
 // --- muNum2 -- print A as two decimal digits and advance ---
@@ -5046,7 +5046,7 @@ muCdgIn:
     lda muRow
     clc
     adc #1
-    sta (dataPtr),y
+    sta muRow
     jsr muCursorShow
     jmp muHeadTail
 
@@ -5089,7 +5089,7 @@ muCurUpIn:
     lda muRow
     sec
     sbc #1
-    sta (dataPtr),y
+    sta muRow
     jsr muCursorShow
     jsr muHeadTail
     jmp muKeyIdle
@@ -5120,7 +5120,7 @@ muCurRight:
     lda muVoice
     clc
     adc #1
-    sta (dataPtr),y
+    sta muVoice
     jsr muCursorShow
     jmp muKeyIdle
 
@@ -5131,7 +5131,7 @@ muCurLeft:
     lda muVoice
     sec
     sbc #1
-    sta (dataPtr),y
+    sta muVoice
     jsr muCursorShow
 muCurDone:
     jmp muKeyIdle
