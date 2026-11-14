@@ -117,9 +117,7 @@ as the file itself credits it.
 `music/daytrip.mus` is `Misc/D/Day_Tripper_A.mus`, the archive's example of a voice that
 modulates from *another voice's envelope* (`SRC 2`) rather than from the software
 oscillator; the guide points at it for that. Its description reads "DAY TRIPPER WRITTEN BY
-LENNON/MC CARTNEY AS PERFORMED BY THE BEATLES SID BY DEEJAY MAS JULY, 1991". The archive
-also carries a `Day_Tripper_B`, in a faster tempo whose 64th notes this player cannot
-express, so it is not the one shipped.
+LENNON/MC CARTNEY AS PERFORMED BY THE BEATLES SID BY DEEJAY MAS JULY, 1991".
 
 Other Sidplayer-era tunes
 -------------------------
