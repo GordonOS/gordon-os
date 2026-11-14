@@ -47,16 +47,19 @@ PATTERNS = [
     # ("step 4.14") from an algorithm label ("Step 0.5: DMA the header"), and a
     # lint that reports the second is a lint people stop reading.
     ('phase', re.compile(r'\bPhase\s*\d|\bScope\s*\d|\bdecision\s+\d+')),
-    # Change narration about THIS code. "used to" and "has been moved" are not
-    # here: both read as ordinary English in a hardware or algorithm note ("the
-    # ROM is used to select the bank", "the position has been moved by every
-    # delta"), and a hit must mean a war story, not a sentence.
-    ('narrate', re.compile(r'\bno longer\b|\bwas moved\b|\bmoved from\b|'
+    # Change narration about THIS code. A present-tense passive is ordinary
+    # English -- "the ROM is used to select the bank", "the position has been
+    # moved by every delta", "the page is only moved from the gap's low byte
+    # onwards", "the sign is reverted before the store" -- so the words for
+    # moving, renaming and reverting are matched ONLY as a past tense with its
+    # subject ("was/were moved"), which a note about what the code does now
+    # cannot say. A hit must mean a war story, not a sentence.
+    ('narrate', re.compile(r'\bno longer\b|'
+                           r'\b(?:was|were)\s+moved\b|\b(?:was|were)\s+renamed\b|'
+                           r'\b(?:was|were|had been)\s+reverted\b|\btried and reverted\b|'
                            r'\bpreviously\b|\boriginally\b|\bretired\b|\blegacy\b|'
-                           r'\btried and reverted\b|\breverted\b|\bfirst version\b|'
-                           r'\bformerly\b|\bwas added\b|\bnow sits\b|'
-                           r'\brenamed from\b|\bwas called\b|'
-                           r'\bused to be\b|\bwhich used to\b', re.I)),
+                           r'\bfirst version\b|\bformerly\b|\bwas added\b|\bnow sits\b|'
+                           r'\bwas called\b|\bused to be\b|\bwhich used to\b', re.I)),
 ]
 
 files = {}
