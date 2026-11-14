@@ -103,16 +103,23 @@ $cap = [int]$img[$DirBase + 20] + ([int]$img[$DirBase + 21] -shl 8) + ([int]$img
 
 $count = 0
 $lastEnd = 0
+$extentEnd = 0
 $bad = 0
 $gaps = 0
 $gapBytes = 0
 for ($slot = 1; $slot -lt 512; $slot++) {
     $e = $DirBase + $slot * $entrySize
+    # A tombstone still owns its extent until `compact` repacks it, and delete
+    # keeps the entry's offset and size for exactly that reason. nextFreeOffset
+    # is the append point, so it must equal the highest end over ALL entries --
+    # comparing it with the live ones alone rejects the image `del` leaves when
+    # the file deleted was the newest.
+    $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
+    $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
+    if ($size -ne 0 -and ($off + $size) -gt $extentEnd) { $extentEnd = $off + $size }
     if ($img[$e] -band 0x80) { continue }              # deleted
     $name = Decode-Name $e
     if ($name.Length -eq 0) { continue }
-    $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
-    $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
     $count++
     if ($off -lt $lastEnd) {
         $bad++
@@ -136,13 +143,13 @@ if ($gaps -gt 0) {
     if ($Strict) { Write-Error $note; exit 1 }
     Write-Host "note: $note"
 }
-if ($lastEnd -ne $next) {
-    Write-Error "data ends at $lastEnd but nextFreeOffset says $next"
+if ($extentEnd -ne $next) {
+    Write-Error "the highest entry ends at $extentEnd but nextFreeOffset says $next"
     exit 1
 }
 if ($bad -gt 0) {
     Write-Error "$bad overlapping entr(y/ies)"
     exit 1
 }
-"layout OK: $count entries, data ends at $lastEnd (== nextFreeOffset)"
+"layout OK: $count entries, highest extent ends at $extentEnd (== nextFreeOffset)"
 exit 0
