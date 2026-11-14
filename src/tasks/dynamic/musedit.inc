@@ -653,8 +653,7 @@ muRecArg:
 muImgSeat:
     lda #0
     sta muWinOfs
-    jsr muWinSeat0
-    rts
+    jmp muWinSeat0
 
 // ==========================================
 //  The window service
@@ -1053,7 +1052,6 @@ muLdNewZ:
     sta (dataPtr),y
     ldy #MU_FLEN+1
     sta (dataPtr),y
-    jmp muLdCheck
 
 // --- muLdCheck -- the image has to be a tune before anything reads it ---
 //  A voice is a stream of two byte commands ended by the pair 01 4F. A voice whose
@@ -2814,8 +2812,7 @@ muDrawAll:
     jsr muDrawMode
     jsr muDrawPiano
     jsr muBarPaint
-    jsr muCursorShow
-    rts
+    jmp muCursorShow
 
 // --- muDrawHead -- the name, the tempo, the bar and the cursor's row ---
 //  BAR is the bar the cursor is in and R its row, both counted in the unit the
@@ -2883,7 +2880,6 @@ mhtTail:
     lda muHeadBarCol
     sta (dataPtr),y
     jsr muHeadBarRow
-    jmp muHeadPad
 
 // --- muHeadPad -- blank the head from the text cursor to the old field end ---
 //  A number that lost a digit would leave the old one behind (the cursor moving
@@ -3019,7 +3015,6 @@ muInsToggle:
     lda muInsMode
     eor #1
     sta muInsMode
-    jmp muDrawMode
 
 // --- muDrawMode -- OVR or INS at the right of row 1 (outside the scroll area) ---
 //  The three cells ARE the mode button: the pointer reverses them and a click there
@@ -3075,14 +3070,12 @@ muModePut:
     ldx muTmpL
     ldy #MU_MODE_ROW
     pla
-    jsr kBlitCharRev
-    rts
+    jmp kBlitCharRev
 muMpPlain:
     ldx muTmpL
     ldy #MU_MODE_ROW
     pla
-    jsr kBlitChar
-    rts
+    jmp kBlitChar
 muMpDrop:
     pla
     rts
@@ -3420,7 +3413,7 @@ muPhNum:
     jsr muPutC
     lda #'x'
     jsr muPutC
-    jmp muPhCount               // A/X = the sites, printed as the last number
+// A/X = the sites, printed as the last number
 
 // --- muPhCount -- A/X = how many CALL sites name the phrase MU_PHBAD is ---
 //  The count is structural, not a tally of the walk: a TAL loop would execute the
@@ -3925,11 +3918,8 @@ muRedrawRows:
     sta muGdHi
     lda muLnTbHi,y
     sta muGdHi+1
-    lda muGdHi                  // one past, 16-bit
-    clc
-    adc #1
-    sta muGdHi
-    bcc muRrClr
+    inc muGdHi                  // one past, 16-bit: the low byte's wrap is the carry
+    bne muRrClr
     inc muGdHi+1
     jmp muRrClr
 muRrNoEnd:
@@ -4440,8 +4430,7 @@ muDaC1:
     lda muDotCh,x
     ldx #6
     ldy #MU_BAR_ROW
-    jsr kPrintCharAt
-    rts
+    jmp kPrintCharAt
 
 muDrawRefuse:
     muAt(0, 0)
@@ -4781,8 +4770,7 @@ muCursorShow:
                                 //   may have changed by the time it runs
     lda #'>'
     ldy muCurScr
-    jsr kPrintCharAt
-    rts
+    jmp kPrintCharAt
 
 muCursorHide:
     lda muCurScr
@@ -6013,7 +6001,6 @@ muNimSet:
     lda muInsT0                 // then put the cursor on the row the note starts on
     ldx muInsT0+1
     jsr muCurSettle
-    jmp muInsGoStep
 
 // --- muInsGoStep -- leave the cursor on the row the new note starts on ---
 //  A LINE at a time, because one row can hold command lines of its own, and the
@@ -6236,8 +6223,7 @@ muIvsWrite:
     adc muItN2
     asl
     sta muRecNewN
-    jsr muInsPush
-    rts
+    jmp muInsPush
 
 
 //  Only an onset answers. The duration byte stays, so the length -- and the dots
@@ -6537,7 +6523,6 @@ mqHave:
     jsr muObjFind               // its offset, by mnemonic and operand
     bcc mqPick
 mqGone:
-    jmp mqRefuse
 mqRefuse:
     jsr muBandRebuild
     lda #M_NO_EVENT
@@ -6575,7 +6560,6 @@ mqDraw:
 mqDrawEnd:
     lda muObjPhase
     bne mqValKey
-    jmp mqIdKey
 
 // --- the mnemonic step: CRSR up and down walk the nine, RETURN takes one ---
 mqIdKey:
@@ -7683,7 +7667,6 @@ muLenOne:
     sta muLenJ
     lda #0
     sta muLenJ+1
-    jmp muLenEmit
 
 // --- muLenEmit -- turn MU_LENJ jiffies into events ---
 //  Greedy over muDurTab, longest first; every entry is a power of two, so any
@@ -8641,7 +8624,6 @@ muClamp:
     jsr muClamp1
     ldy #MU_POS+3
     ldx #1
-    jmp muClamp1
 
 muClamp1:
     lda (dataPtr),y
@@ -8696,7 +8678,6 @@ muPlace:
     ldx #0
     jsr muPut
     ldx #1
-    jmp muPut
 
 // --- muPut -- one sprite at (MU_WX/MU_WY, bit 8 in MU_XH) ---
 muPut:
@@ -8976,8 +8957,7 @@ muClkNotDel:
     bne muClkRts                // a code with no handler: MU_BAR_INS is the last
     jmp muBarIns                //   live one, and the hover lights no other
 muBarSave:
-    jsr muSaveTry
-    rts
+    jmp muSaveTry
 muBarPlay:
     jmp muPlayToggle
 muBarCmd:
@@ -9272,7 +9252,6 @@ muPlayRewind:
     lda #0
     sta muPhCurLo
     sta muPhCurLo+1
-    jmp muRewindView
 
 // --- muRewindView -- the score and the cursor go back to the first row ---
 //  The player always begins a pass at the tune's first row, so the view has to
