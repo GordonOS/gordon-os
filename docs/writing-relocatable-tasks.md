@@ -630,7 +630,9 @@ fixed 64-byte record per message, so the offset is `index * 64`, one `kReuReadAt
 brings a message in and the code holds nothing but the index
 (`docs/development.md`, and `tools/gen-musedit-msgs.py` which emits both the file
 and the `.inc` of indices). A caller needs no copy: point the printer at the
-read buffer, and remember that the buffer holds one message at a time. The same
+read buffer, and remember that the buffer holds one message at a time -- and that
+it reads only the FRONT of the record, its own buffer's width, so a message has to
+fit that buffer as well as its slot. The same
 file carries the editor's 49 command mnemonics in a block of four-byte fields
 after the slots, on a page boundary so a field's offset is `(id - 1) * 4` with the
 page in the high byte -- a table of short, fixed-width words is the other shape

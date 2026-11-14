@@ -7,7 +7,9 @@
 //
 //  The text is quoted so a trailing space survives an editor. The line order
 //  IS the slot order: a message sits at offset index*64 in the .bin, NUL
-//  terminated, so a slot is 63 characters at most.
+//  terminated. The editor reads only the FRONT of that slot -- MU_MSG_BUF
+//  bytes, its longest message plus the NUL, which musedit.inc asserts -- so
+//  the slot's own 63-character capacity is not the limit a line has to meet.
 
 M_LANES        "ROW VOICE 1     VOICE 2     VOICE 3"
 M_TEM2         " TEM "

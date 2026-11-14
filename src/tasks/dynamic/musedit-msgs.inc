@@ -5,8 +5,9 @@
 // ==========================================
 //  One index per string musedit prints. The text is not here: the REU image
 //  holds it as `msgs`, one MU_MSG_SLOT-byte record per index, in this order,
-//  each NUL terminated. muMsg DMAs a record into its buffer and points the
-//  text at it, so a string costs no code page at all.
+//  each NUL terminated. muMsg DMAs the front of a record (MU_MSG_BUF
+//  bytes, in musedit.inc) into its buffer and points the text at it, so a
+//  string costs no code page at all.
 .const MU_MSG_COUNT = 38
 .const MU_MSG_SLOT = 64
 .const M_LANES      = 0

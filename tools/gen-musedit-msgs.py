@@ -8,10 +8,11 @@ slot at a time, which shrinks the code by more than the whole text ever cost: a
 `muStr(label)` site is 12 bytes of code (two absolute-address stores) and a
 `muMsg(index)` site is 5.
 
-One file, fixed 64-byte slots: a slot is longer than the longest string (38), so a
+One file, fixed 64-byte slots: a slot is longer than the longest string, so a
 message's offset is `index * 64` and there is no offset table to read first.
-`muMsg` reads one whole slot in a single DMA and points MU_STR at the buffer, so a
-message needs no copy and no terminator hunt beyond the NUL the slot carries.
+`muMsg` DMAs the front of a slot -- MU_MSG_BUF bytes, the longest message plus
+its NUL -- into its buffer and points MU_STR at it, so a message needs no copy
+and the record's padding is never read.
 
 The same file carries the command mnemonics, in a block of their own after the
 slots (assets/ui/musedit-mnems.txt): 49 fields of four bytes, one per muMnPrint id,
@@ -45,7 +46,8 @@ MN_SRC = os.path.join(ROOT, "assets", "ui", "musedit-mnems.txt")
 BIN = os.path.join(ROOT, "assets", "ui", "musedit-msgs.bin")
 INC = os.path.join(ROOT, "src", "tasks", "dynamic", "musedit-msgs.inc")
 
-SLOT = 64                       # bytes per message: longest is 38 + NUL
+SLOT = 64                       # bytes per message slot -- a message must fit
+                                #   with its NUL (checked in build())
 FIELD = 4                       # bytes per mnemonic: three characters and a space
 
 LINE = re.compile(r'^([A-Z][A-Z0-9_]*)\s+"(.*)"$')
@@ -138,8 +140,9 @@ def build_inc(msgs, mnems, mn_base):
     out.append("// ==========================================")
     out.append("//  One index per string musedit prints. The text is not here: the REU image")
     out.append("//  holds it as `msgs`, one MU_MSG_SLOT-byte record per index, in this order,")
-    out.append("//  each NUL terminated. muMsg DMAs a record into its buffer and points the")
-    out.append("//  text at it, so a string costs no code page at all.")
+    out.append("//  each NUL terminated. muMsg DMAs the front of a record (MU_MSG_BUF")
+    out.append("//  bytes, in musedit.inc) into its buffer and points the text at it, so a")
+    out.append("//  string costs no code page at all.")
     out.append(".const MU_MSG_COUNT = %d" % len(msgs))
     out.append(".const MU_MSG_SLOT = %d" % SLOT)
     for i, (name, text) in enumerate(msgs):
@@ -170,8 +173,11 @@ def build(msgs, mnems):
     fields: four to a page.
     """
     blob = bytearray()
-    for _, text in msgs:
+    for name, text in msgs:
         rec = screencode(text) + b"\0"
+        if len(rec) > SLOT:
+            raise SystemExit("%s: %s is %d characters and does not fit a %d-byte slot"
+                             % (SRC, name, len(text), SLOT))
         blob += rec + b"\0" * (SLOT - len(rec))
     base = (len(blob) + 255) & ~255
     blob += b"\0" * (base - len(blob))
