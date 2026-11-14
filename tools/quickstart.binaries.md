@@ -202,3 +202,23 @@ in its header):
 
 Screen switching: F1/F3/F5/F7 and Shift+F1/F3/F5/F7 cycle the 8 virtual
 screens. Files in the REU filesystem persist across reboots.
+
+## Taking a file out of the image
+
+Everything GordonOS saves lives **inside `REU.bin`** — there is no disk and no
+serial link, so the image is the disk. `reufs-gui.py` (a window) and `reufs.py`
+(a command line) move files in and out of it from Windows, Linux or macOS. Both
+need Python 3 and nothing else, and both find `REU.bin` beside themselves:
+
+```
+python3 reufs.py ls
+python3 reufs.py get immig.wrk ./immig.wrk
+python3 reufs.py put ./mytune.mus --name mytune.mus
+python3 reufs-gui.py
+```
+
+Names are 1–11 characters **including the extension**; a zero-length file cannot
+be stored; and a deleted file keeps its space until `compact` runs on the
+machine. **Close VICE before changing the image** — the emulator holds it
+mapped, so both tools refuse rather than let the emulator and the file diverge.
+The [README](README.md) has the whole of it, with the GUI walk-through.

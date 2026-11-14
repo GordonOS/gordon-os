@@ -484,6 +484,14 @@ six application guides.
 | `LICENSE.md` | `docs/LICENSE.md` | moved to the root |
 | `docs/*.md` | `docs/` | the six application guides, and nothing else — see below |
 | `docs/img/` | `docs/img/` | the screenshots — addressed as `docs/img/<name>` by the two root-level files and as `img/<name>` by a guide under `docs/` |
+| `reufs.py` | `tools/reufs.py` | the host-side file transfer, at the root beside the images it edits |
+| `reufs-gui.py` | `tools/reufs-gui.py` | its two-pane window; finds `reufs.py` and the image beside itself |
+
+The two `reufs` programs ship because they belong to the **image**, not to the build: a file
+a task saves lives inside `REU.bin`, and they are the only way to take one out or put one in
+from a machine that does not run GordonOS. They are copied flat next to the images, and
+`reufs.py`'s `default_image()` looks for `REU.bin` beside itself as well as in `../reu/`, so
+the same pair works in either tree.
 
 The screenshots go to `docs/img/` rather than the root because that is the one place where
 **both** spellings resolve: the published `README.md` and `quickstart.binaries.md` sit at

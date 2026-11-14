@@ -181,9 +181,23 @@ def running_vice():
 
 
 def default_image():
-    """This repo's reu/REU.bin, found from this file so any cwd works."""
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(root, "reu", "REU.bin")
+    """The image to work on when none was given.
+
+    Two layouts have to work: this repo, where the script is in tools/ and the
+    image is in reu/, and the published package, where the scripts and the
+    images sit side by side and there is no reu/ directory."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(here, os.pardir, "reu", "REU.bin"),   # this repo
+        os.path.join(here, "REU.bin"),                     # published, flat
+        os.path.join(here, os.pardir, "REU.bin"),          # published, in tools/
+        os.path.join(os.getcwd(), "reu", "REU.bin"),
+        os.path.join(os.getcwd(), "REU.bin"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return os.path.normpath(path)
+    return os.path.normpath(candidates[0])                 # the path to complain about
 
 
 # --- the image --------------------------------------------------------------

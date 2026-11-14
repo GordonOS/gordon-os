@@ -219,3 +219,79 @@ is scanned **only at open** — reads/writes do no directory DMA.
 
 - **Clobbers:** A, X, Y, `kArg`+0…+7, `srcPtr`; `reuFs*` state.
 - **Notes:** all-or-nothing — a rejected write leaves the file untouched.
+
+## Moving files between the host and the image
+
+A file lives **inside the REU image**, so it leaves the machine by leaving the
+image. Nothing in the kernel does that: the filesystem is only addressable from
+the 6510, through the REU's DMA registers. Two host programs close the gap, and
+they are the only part of the filesystem that is not 6502 code:
+
+| Program | What it is |
+|---|---|
+| `tools/reufs.py` | the library, plus a command line: `ls`, `get`, `put`, `rm`, `export`, `import`, `selftest` |
+| `tools/reufs-gui.py` | a two-pane file manager over that library — host on the left, image on the right, Put / Get / Delete / Export all / Import all |
+
+Both are plain Python 3 with no packages (`tkinter` for the window), so they run
+on Windows, Linux and macOS. Either takes any image: the VICE one, the C64
+Ultimate one, or a copy somebody sent you.
+
+```
+python tools/reufs.py ls
+python tools/reufs.py get immig.wrk ./immig.wrk
+python tools/reufs.py put ./mytune.mus --name mytune.mus
+python tools/reufs-gui.py                 # the window, on reu/REU.bin
+```
+
+### What it reproduces, and why that matters
+
+The tools mirror what `kReuSave` and `kReuDelete` do, rather than inventing a
+layout of their own, so an image they have written is one the machine could
+have written itself:
+
+- **A name is 1–11 characters, extension included.** `musedit.tsk` is exactly
+  eleven. The kernel stores the name in **screen codes**, not ASCII — `a`–`z`
+  are `$01`–`$1A` and every other character is its own byte — which is why the
+  entry for `musedit.tsk` reads `0d 15 13 05 04 09 14 2e 14 13 0b`. A longer
+  name is refused, because the kernel would store it and then never find it.
+- **A zero-length file cannot exist.** The kernel reads *size 0* as an **empty
+  slot**, so `kReuSave` refuses a zero-length block and so does `put`.
+- **A live duplicate is refused.** Replace means delete-then-add, which is what
+  the tools do when you confirm an overwrite.
+- **Data is appended at `nextFreeOffset`**, which then advances by the file's
+  size; the space check is `nextFreeOffset + size <= capacity`, an exact fit
+  allowed. The first slot whose two size bytes are both 0 is used.
+- **A tombstone is not reused.** `kReuDelete` sets bit 7 and blanks the name but
+  keeps the entry's offset and size, because `compact` needs the extent to
+  repack it. Space therefore comes back only when `compact` runs **on the
+  machine** — the host tools never compact, and a `put` onto a full directory
+  says so.
+
+Writes are atomic: the image is changed in memory and written to a sibling
+temporary file that is then renamed over the original, so a failed write cannot
+leave a half-written directory behind.
+
+### The one rule that is not about the format: VICE
+
+The emulator memory-maps the image, and it keeps the mapping for the whole
+session. On **Windows** a second writer is refused outright; on **Linux and
+macOS** it is not, and the emulator would carry on with the old copy while the
+file on disk changed underneath it — the two diverge with no error at all.
+
+So the tools **refuse to change an image while a VICE process is running**, on
+every platform, found by process name. Reading is always allowed, which is the
+useful half: a file a task saved can be pulled out of a session that is still
+running, including one that has wedged. Close the emulator to copy files in, or
+force it when the emulator is only sitting at a prompt — its next write-back
+would then overwrite the change. The GUI shows this as a banner and disables
+its editing buttons; the command line has `--force`.
+
+### Where the format is defined
+
+The directory is 512 × 32-byte entries at REU bank 5 + `$9000`; slot 0 is the
+header (`$A5` signature at +1, `nextFreeOffset` at +17, capacity at +20). File
+data starts at bank 5 + `$D000`, and an entry's 24-bit offset is **relative to
+that base**, so an image byte is `offset + $5D000` and a bank wraps at offsets
+ending `$3000`, not `$0000`. `tools/check-reu-fs.ps1` decodes the same
+directory and checks the image is internally consistent — `nextFreeOffset` equal
+to the highest extent of any entry, tombstones included.
