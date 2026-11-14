@@ -564,7 +564,7 @@ gordon-os/
 │                          lib-*.md call references), the call inventories
 │                          (kernel-call-inventory.md, library-call-inventory.md),
 │                          application guides (gordonbasic.md, gordonpaint.md,
-│                          edit.md, gortris.md, grknoid.md, musedit.md), then
+│                          edit.md, gortris.md, grknoid.md, musedit.md, reufs.md), then
 │                          bugs.md (bug history, symptom and fix), features.md,
 │                          limitations.md, future-improvements.md and LICENSE.md
 │                          (img/ holds the screenshots the README and these docs embed)
@@ -830,6 +830,7 @@ gordon-os/
 | [docs/gortris.md](docs/gortris.md) | Play Tetris — the screens and controls, the scoring and level tables, the hi-score editor, and the port's provenance |
 | [docs/grknoid.md](docs/grknoid.md) | Play Gorkanoid — the wall, the paddle, the bounce rule, lives and levels, and the tunes |
 | [docs/musedit.md](docs/musedit.md) | Use the tune editor — every key, every command the format has, playing and saving tunes |
+| [docs/reufs.md](docs/reufs.md) | Move files between your computer and the image — the window, the command line, and every rule the filesystem imposes |
 | [docs/dynamic-libraries.md](docs/dynamic-libraries.md) | Dynamic `.lib` mechanism — load policy, libMask, refcounting |
 | [docs/lib-time.md](docs/lib-time.md) | `time.lib` call reference — `kGetTime` / `kSetTime` / `kPrintTime` |
 | [docs/lib-filesys.md](docs/lib-filesys.md) | `filesys.lib` call reference — `kReuFormat` / `kReuSave` / `kReuDelete` / `kReuRename` / `kReuDirEntry` / `kReuCreate` / `kReuOpen` / `kReuReadAt` / `kReuWriteAt` |

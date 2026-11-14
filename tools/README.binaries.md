@@ -47,6 +47,7 @@ carries, plus the language reference:
 | [docs/grknoid.md](docs/grknoid.md) | Gorkanoid: the wall, the paddle, the bounce rule, lives and levels |
 | [docs/musedit.md](docs/musedit.md) | The tune editor: every key, every command the format has, playing and saving tunes |
 | [docs/gordonbasic.md](docs/gordonbasic.md) | Gordon Basic: the language, the filesystem and the graphics commands |
+| [docs/reufs.md](docs/reufs.md) | Moving files between your computer and the image: the window, the command line, and every rule the filesystem imposes |
 
 ## The files
 

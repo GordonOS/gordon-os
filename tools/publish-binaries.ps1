@@ -148,13 +148,14 @@ try {
     Copy-Item (Join-Path $root "tools/reufs-gui.py") (Join-Path $BinDir "reufs-gui.py") -Force
 
     # --- the documentation ---------------------------------------------------
-    #  The six application guides are the documentation that ships; the rest of docs/
+    #  The application guides are the documentation that ships; the rest of docs/
     #  (the kernel reference, the memory map, the build notes, the tutorial) is developer
     #  material and stays in the source repo. A guide's link to a doc that does not ship is
     #  NEUTRALISED rather than copied -- the target stays in the text as a bare name in
     #  code font, and the copied guides are then resolved link by link, so a guide that
     #  gains a link to a developer doc cannot publish it dead.
-    $guides = @('edit.md', 'gordonpaint.md', 'gortris.md', 'grknoid.md', 'gordonbasic.md', 'musedit.md')
+    $guides = @('edit.md', 'gordonpaint.md', 'gortris.md', 'grknoid.md', 'gordonbasic.md',
+                'musedit.md', 'reufs.md')
     $docDir = Join-Path $root "docs"
     $docsOut = Join-Path $BinDir "docs"
     $utf8NoBom = New-Object System.Text.UTF8Encoding $false
