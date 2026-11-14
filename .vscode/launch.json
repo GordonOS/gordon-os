@@ -43,6 +43,15 @@
             "program": "${workspaceFolder}/tools/publish.py",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
+        },
+
+        {
+            "type": "debugpy",
+            "request": "launch",
+            "name": "REU filesystem manager",
+            "program": "${workspaceFolder}/tools/reufs-gui.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
         }
     ]
 }
