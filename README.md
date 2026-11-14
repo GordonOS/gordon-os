@@ -532,7 +532,10 @@ gordon-os/
 ├── assets/ui/             UI band sources: gpui.txt (ASCII-art tool pictures, the
 │                          source of truth) next to the gpui.bin and gpui_mc.bin
 │                          that grpaint reads into its palette band (one file per
-│                          mode); shipped by the same $assets array
+│                          mode); shipped by the same $assets array. musedit's text
+│                          lives here too: musedit-msgs.txt (every string it prints)
+│                          and musedit-mnems.txt (the 49 command mnemonics) generate
+│                          musedit-msgs.bin, shipped as the REU file `msgs`
 ├── assets/pics/           Picture samples: hires.pic, mc.pic, alf.pic and
 │                          alfgs.pic (a photograph, colour and greyscale) -- the
 │                          .pic format, docs/pic-format.md -- shipped by the same
@@ -687,6 +690,16 @@ gordon-os/
 │           ├── granim.asm   animation player — task wrapper (imports granim.inc)
 │           ├── granim.inc   player body: manifest, chunk seam, six paced reads a
 │           │                frame, speed-shifted clock, pause if display is lost
+│           ├── musedit.asm  the tune editor — task wrapper (imports musedit.inc and
+│           │                its three generated includes), pinned
+│           ├── musedit.inc  editor body: the grid, the playhead, the piano, the
+│           │                command panel, undo/redo, the .mus reader and writer
+│           ├── musedit-msgs.inc generated — one M_* id per string in the REU file
+│           │                `msgs`, the mnemonic ids, and every message's length
+│           ├── musedit-glyphs.inc generated — the piano's glyphs and hit tables,
+│           │                from one geometry
+│           ├── musedit-tables.inc generated — the editor's copy of the player's
+│           │                tempo table, checked against sidplay.inc
 │           ├── spirog.asm   spirograph demo — task wrapper (imports spirog.inc)
 │           └── spirog.inc   demo body: hypotrochoid from a sine table, presets
 ├── tasks-out/             Built task binaries (*.bin) + temp/ (assemble → shift → check scratch; gitignored)
@@ -701,6 +714,8 @@ gordon-os/
 │   ├── gen-fixups.asm     Fixup table generator (generated)
 │   ├── check-fs-offsets.ps1 Lint — 24-bit REU FS offset arithmetic
 │   ├── check-lib-ids.ps1  Lint — LIB_* ids vs the lib descriptor tables
+│   ├── check-zp-indirect.ps1 Lint — an indirect operand must be zero page
+│   ├── check-zp-map.py    Gate — no two zero-page labels share a byte
 │   ├── check-header-offsets.ps1 Lint — task/lib header fields read by bare offset
 │   │                      instead of an HDR_* constant
 │   ├── check-task-headers.py Gate — every built task/lib header vs task-header.inc
@@ -712,6 +727,14 @@ gordon-os/
 │   ├── check-pool-budget.ps1 Gate — a task's live pool footprint (its code + the
 │   │                      libraries it holds) vs the 109-page pool
 │   ├── check-links.py     Lint — relative links in the tracked Markdown resolve
+│   ├── check-ascii.py     Lint — every code file is plain 7-bit ASCII (Rule 19)
+│   ├── check-mus-commands.py Gate — musedit's encoder tables vs gen-mus.py's
+│   │                      decoder, over every command the format can hold
+│   ├── check-mus-pitch.py Gate — the editor's pitch split vs the host model
+│   ├── check-mus-timing.py Gate — the duration arithmetic vs the player
+│   ├── check-musedit-index.py Gate — every `(dataPtr),y` access sets its own Y
+│   ├── check-musedit-walk.py Gate — the host walk model vs a captured screen
+│   ├── fixtures/          The captured walks check-musedit-walk.py compares against
 │   ├── tasks-stamp.ps1    The task build's input hash — proves tasks-out was
 │   │                      built from the src/ on disk
 │   ├── verify-map.ps1     Layout gate — the kernel build map vs the free-run totals docs/memory-map.md publishes
@@ -723,10 +746,18 @@ gordon-os/
 │   ├── gen-mus.py         Write/read COMPUTE!'s Enhanced Sidplayer .mus tunes
 │   │                      (--from-midi <file> --bars 16 writes the shipped tune;
 │   │                       --build <file> = the hand-written score; --decode lists one)
+│   ├── mus-sim.py         The Sidplayer's control flow, modelled on the host
+│   │                      (--walk prints the editor's own line list)
+│   ├── gen-musedit-msgs.py musedit-msgs.txt + -mnems.txt → `msgs` and its .inc
+│   ├── gen-musedit-glyphs.py The piano's geometry → glyphs + hit tables (an .inc)
+│   ├── gen-musedit-tables.py The player's tempo table → musedit-tables.inc
 │   ├── gen-sprites.py     ASCII art → C64 sprite sheets (assets/sprites/*.txt → *.spr)
 │   ├── gen-ui.py          ASCII art → grpaint's UI band (assets/ui/gpui.txt → *.bin)
 │   ├── shots.py           Screenshots — drives VICE's binary monitor to type, push a stick
 │   │                      and shoot the display (docs/img/)
+│   ├── vice-drive.py      The VICE driver to copy: launch/type/key/fb/text, all
+│   │                      through the binary monitor
+│   ├── vsf-pool-audit.py  Read the pool's state out of a VICE save-state
 │   ├── build-assets.ps1   Re-runs every asset generator whose source is in the tree,
 │   │                      in front of the seeding: the fresh-REU flow calls it
 │   ├── seed-font.ps1      PET/C64 chargen ROMs → charsets/*.fnt
@@ -735,19 +766,29 @@ gordon-os/
 │   ├── gen-anim.py        Frames → .anm chunks + the film manifest (pic-format.md
 │   │                      has the recipe: colour, greyscale, and the tone curve)
 │   ├── scan-history.py    Lint — history-flavoured content in code comments (Rule 14)
+│   ├── audit-clobbers.py  Audit — the kernel's documented register contracts
 │   ├── dis6502.py         Recursive 6502 disassembler + hardware-touch report (--entry XXXX)
 │   ├── dis6502-linear.py  py65 linear sweep — the cross-check on dis6502.py's opcode table
 │   ├── scan-prg.py        Byte-pattern scan of a C64 PRG: address usage + ASCII strings
 │   ├── toolpaths.ps1      Tool paths, read from .vscode/settings.json
+│   ├── host.ps1           Host facts, so one script set runs on Windows and Unix
 │   ├── launch-vice.ps1    VICE launcher (existing or fresh REU)
 │   ├── publish-binaries.ps1 Publish PRG + REU image to the binaries repo
 │   ├── publish.py         F5 "Publish binaries" debug target (forwards to publish-binaries.ps1)
 │   ├── README.binaries.md Published README for the binaries repo
 │   └── quickstart.binaries.md Published quick-start for the binaries repo
-├── project-config.json
-├── NOTICE
+├── project-config.json    The VS64 project: the sources array that drives the kernel rebuild
+├── NOTICE                 Third-Party Notices — every vendored source and its licence
+├── LICENSE                GPL v2 (the full text)
+├── CONTRIBUTING.md        How to contribute, and what a change has to pass
+├── CODE_OF_CONDUCT.md     The community's expectations
+├── SECURITY.md            How to report a vulnerability
 ├── .github/
-│   └── copilot-instructions.md
+│   ├── copilot-instructions.md The rules the code follows (ZP, clobbers, pool, ASCII)
+│   ├── workflows/gates.yml CI — the source-only gates, on every push and PR
+│   ├── ISSUE_TEMPLATE/    Bug and feature-request templates
+│   ├── pull_request_template.md What a PR body has to say
+│   └── dependabot.yml     Action and dependency updates
 └── .vscode/
     ├── tasks.json        Build + VICE launch tasks
     ├── extensions.json   Recommended extensions (VS64, KickAss, PowerShell)
@@ -797,6 +838,7 @@ gordon-os/
 | [docs/pic-format.md](docs/pic-format.md) | The `.pic` picture format — the 10,032-byte layout, both modes, the label, and the host tool that writes one |
 | [docs/c64_1750_REU_programming_guide.md](docs/c64_1750_REU_programming_guide.md) | Work against the REU itself — the 1750 DMA and banking reference |
 | [docs/future-improvements.md](docs/future-improvements.md) | Planned features and roadmap |
+| [docs/bugs.md](docs/bugs.md) | Look up a bug by its symptom — the mechanism, the fix, and why it was needed |
 
 ---
 

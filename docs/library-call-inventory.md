@@ -68,14 +68,14 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
   (`kSidPlay`/`kSidHush`/`kIpcPost`/`kIpcPick`) — the `$E000` table is full.
 - 38 of them have at least one call site in the current source tree; 4 have
   none.
-- **260 total call sites** found across `src/`.
+- **261 total call sites** found across `src/`.
 
 ## By library
 
 | Library | Note | Calls | Total call sites |
 |---|---|---|---:|
 | [`time.lib`](#timelib) | lib 0, eager | 3 | 3 |
-| [`filesys.lib`](#filesyslib) | lib 1, eager | 9 | 108 |
+| [`filesys.lib`](#filesyslib) | lib 1, eager | 9 | 109 |
 | [`gfx.lib`](#gfxlib) | lib 2, lazy | 13 | 38 |
 | [`fp.lib`](#fplib) | lib 3, eager | 1 | 2 |
 | [`string.lib`](#stringlib) | lib 4, lazy | 7 | 26 |
@@ -128,7 +128,7 @@ No call sites in the current source tree.
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
 | [`kReuOpen`](#kreuopen) | `$E0FC` | 28 | 9 | Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`. |
-| [`kReuReadAt`](#kreureadat) | `$E0FF` | 27 | 10 | Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF. |
+| [`kReuReadAt`](#kreureadat) | `$E0FF` | 28 | 10 | Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF. |
 | [`kReuWriteAt`](#kreuwriteat) | `$E102` | 15 | 7 | Write `len` bytes at a 16-bit position into an open fixed-size file; writes past the file end are rejected. |
 | [`kReuDelete`](#kreudelete) | `$E08A` | 12 | 7 | Mark a REU-FS file deleted (name cleared, deleted flag set); its data blocks stay orphaned until `compact.com` packs them away. |
 | [`kReuCreate`](#kreucreate) | `$E0F9` | 9 | 5 | Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below). |
@@ -159,12 +159,12 @@ No call sites in the current source tree.
 
 `$E0FF` — Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF.
 
-**27 calls** across 10 file(s):
+**28 calls** across 10 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/ehbasic.asm` | 8 |
-| `src/tasks/dynamic/musedit.inc` | 6 |
+| `src/tasks/dynamic/musedit.inc` | 7 |
 | `src/tasks/dynamic/grpaint.inc` | 4 |
 | `src/tasks/dynamic/granim.inc` | 2 |
 | `src/tasks/dynamic/grview.inc` | 2 |
