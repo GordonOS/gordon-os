@@ -22,7 +22,10 @@
 # -Extract <fsName> -Out <path> writes one file's bytes out of the image, so a
 # file a task SAVED can be hashed against the source it came from (the round trip
 # tools/check-reu-current.ps1 cannot answer: that one only compares the binaries
-# the build produced).
+# the build produced). It takes the name as the FS stores it, extension included:
+# `musedit.tsk`, not `musedit`. -Out may be absolute or relative to the project
+# root. It prints one line and exits; it does not run -- or depend on -- the
+# layout checks below, so it also works on an image the gate would reject.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-reu-fs.ps1 `
 #       -Extract commodo.mus -Out temp/x.mus
@@ -62,6 +65,35 @@ function Decode-Name([int]$e) {
         else { $s += [char]$c }
     }
     return $s
+}
+
+# --- -Extract: one file out of the image, on its own -------------------------
+#  This runs BEFORE the layout report and independently of it: the main use is
+#  forensic (pulling a file out of a wedged run, or out of an image the gate
+#  would reject), so it must neither print the report nor depend on its verdict.
+#  -Out may be absolute or relative to the project root.
+if ($Extract) {
+    if (-not $Out) { throw "-Extract needs -Out <path>" }
+    $dest = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Out)
+    for ($slot = 1; $slot -lt 512; $slot++) {
+        $e = $DirBase + $slot * $entrySize
+        if ($img[$e] -band 0x80) { continue }              # deleted
+        if ((Decode-Name $e) -ne $Extract) { continue }
+        $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
+        $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
+        if ($DataBase + $off + $size -gt $img.Length) {
+            throw "$Extract says $size bytes at $off, which runs past the end of $image"
+        }
+        $bytes = New-Object byte[] $size
+        [Array]::Copy($img, $DataBase + $off, $bytes, 0, $size)
+        $dir = Split-Path -Parent $dest
+        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
+        [IO.File]::WriteAllBytes($dest, $bytes)
+        "extracted $Extract ($size bytes) to $dest"
+        exit 0
+    }
+    Write-Error "no such file in the image: $Extract"
+    exit 1
 }
 
 $sig = $img[$DirBase + 1]
@@ -113,24 +145,4 @@ if ($bad -gt 0) {
     exit 1
 }
 "layout OK: $count entries, data ends at $lastEnd (== nextFreeOffset)"
-
-if ($Extract) {
-    if (-not $Out) { throw "-Extract needs -Out <path>" }
-    for ($slot = 1; $slot -lt 512; $slot++) {
-        $e = $DirBase + $slot * $entrySize
-        if ($img[$e] -band 0x80) { continue }
-        if ((Decode-Name $e) -ne $Extract) { continue }
-        $off = [int]$img[$e + 17] + ([int]$img[$e + 18] -shl 8) + ([int]$img[$e + 19] -shl 16)
-        $size = [int]$img[$e + 20] + ([int]$img[$e + 21] -shl 8)
-        $bytes = New-Object byte[] $size
-        [Array]::Copy($img, $DataBase + $off, $bytes, 0, $size)
-        $dest = Join-Path (Get-Location) $Out
-        $dir = Split-Path -Parent $dest
-        if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
-        [IO.File]::WriteAllBytes($dest, $bytes)
-        "extracted $Extract ($size bytes) to $Out"
-        exit 0
-    }
-    Write-Error "no such file in the image: $Extract"
-    exit 1
-}
+exit 0
