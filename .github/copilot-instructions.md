@@ -378,6 +378,20 @@ Strings with `.text` use `.encoding "screencode_mixed"`. Character literals like
   and `kMalloc` allocate upward from the bottom; libraries come down from the top, so a
   library can never split the task region.
 
+- **The filesystem inside the image is changed only through `tools/reufs.py` (or
+  `tools/reufs-gui.py`, which is the same library).** Never hand-edit `reu/REU.bin`, and
+  never write a one-off script that pokes the directory: `reufs.py` mirrors `fsxSave` and
+  `fsxDelete` rule for rule — screen-code names, 1-11 characters with the extension
+  counted, no zero-length file (size 0 *is* an empty slot), append at `nextFreeOffset`,
+  a tombstone kept for `compact` — and it saves atomically through a temp file and a
+  rename. `tools/check-reu-fs.ps1` is the oracle: it decodes the same directory and
+  requires `nextFreeOffset` to equal the highest extent of *any* entry, tombstones
+  included. Two consequences that catch people out: a change is refused while a VICE
+  process runs (on Linux and macOS the write would otherwise succeed and leave the
+  emulator on the old copy), and `git checkout -- reu/REU.bin` is how a session played
+  with through the GUI is discarded — an image left dirty ships verbatim, because
+  `publish-binaries.ps1` copies it as-is.
+
 ## Task build pipeline
 
 - **The VS64 build task, not raw Ninja, is the real kernel builder.** `build/build.ninja`
