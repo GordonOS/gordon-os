@@ -35,8 +35,9 @@ what you get by following the [quick start](quickstart.binaries.md).
 
 ## Guides
 
-The application guides ship with these binaries, under `docs/` — the programs this image
-carries, plus the language reference:
+The guides ship with these binaries, under `docs/` — the programs this image
+carries, the language reference, and the reference for moving files in and out of
+the image:
 
 | Guide | Covers |
 |---|---|
