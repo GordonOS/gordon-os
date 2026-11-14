@@ -12,11 +12,12 @@
 # a different instruction with a different meaning.
 #
 # The rule enforced here is the checkable one: every name in an indirect operand
-# must resolve BELOW $100 -- from a zero-page .const in the sources, from an
-# assembled symbol file, or through a .const chain that ends at one of those. A name
-# that cannot be resolved is a FAILURE rather than a warning, because the alternative
-# is a check that goes quiet exactly when someone adds new code, which is when it
-# matters.
+# must resolve BELOW $100 -- from a zero-page .const or .label in the sources, from
+# an assembled symbol file, or through a .const chain that ends at one of those. The
+# sources alone are enough, because a fresh clone has no symbol files: the ones this
+# reads are build output. A name that cannot be resolved is a FAILURE rather than a
+# warning, because the alternative is a check that goes quiet exactly when someone
+# adds new code, which is when it matters.
 #
 # Run from anywhere; it changes to the project root first. Exit 1 on violation.
 # A step of tools/build-tasks.ps1 (before the assembles) and of the CI gates.
@@ -34,6 +35,9 @@ $constDef = [regex]'^\s*\.const\s+(\w+)\s*=\s*(\S+)'
 
 # --- .label NAME=$ADDR, as the symbol files write it ------------------------
 $labelDef = [regex]'^\.label\s+(\w+)=\$([0-9a-fA-F]+)'
+
+# --- .label NAME = $ADDR, as the sources write it (the '=' need not be tight) --
+$labelSrc = [regex]'^\s*\.label\s+(\w+)\s*=\s*\$([0-9a-fA-F]+)'
 
 function Get-Num([string]$Text) {
     if ($Text -match '^\$([0-9a-fA-F]{1,4})$') {
@@ -56,6 +60,13 @@ foreach ($file in Get-ChildItem -Path 'src' -Recurse -Include '*.asm', '*.inc' -
         $m = $constDef.Match($line)
         if ($m.Success -and -not $consts.ContainsKey($m.Groups[1].Value)) {
             $consts[$m.Groups[1].Value] = $m.Groups[2].Value
+        }
+        # A zero-page pointer is usually a .label in the sources (kPtr, srcPtr,
+        # dataPtr, tmpPtr are), and the symbol files that also carry them are
+        # build output that a fresh clone does not have.
+        $lm = $labelSrc.Match($line)
+        if ($lm.Success -and -not $labels.ContainsKey($lm.Groups[1].Value)) {
+            $labels[$lm.Groups[1].Value] = [Convert]::ToInt32($lm.Groups[2].Value, 16)
         }
     }
 }
@@ -106,6 +117,7 @@ function Resolve-Name([string]$Name, [int]$Depth) {
 }
 
 # --- the scan ---------------------------------------------------------------
+$root = (Get-Location).Path + [IO.Path]::DirectorySeparatorChar
 $bad = New-Object System.Collections.ArrayList
 $scanned = 0
 
@@ -122,11 +134,11 @@ foreach ($file in Get-ChildItem -Path 'src' -Recurse -Include '*.asm', '*.inc' -
             $addr = Resolve-Name $name 0
 
             if ($addr -lt 0) {
-                [void]$bad.Add(('{0}:{1}: ({2}) - cannot resolve {2} to an address, so nothing proves it is zero page' -f $file.FullName.Replace((Get-Location).Path + '\', ''), $lineNo, $name))
+                [void]$bad.Add(('{0}:{1}: ({2}) - cannot resolve {2} to an address, so nothing proves it is zero page' -f $file.FullName.Replace($root, ''), $lineNo, $name))
                 continue
             }
             if ($addr -ge 0x100) {
-                [void]$bad.Add(('{0}:{1}: ({2}) - {2} is at ${3:X4}, not zero page; the operand is truncated to ${4:X2}' -f $file.FullName.Replace((Get-Location).Path + '\', ''), $lineNo, $name, $addr, ($addr -band 0xFF)))
+                [void]$bad.Add(('{0}:{1}: ({2}) - {2} is at ${3:X4}, not zero page; the operand is truncated to ${4:X2}' -f $file.FullName.Replace($root, ''), $lineNo, $name, $addr, ($addr -band 0xFF)))
             }
         }
     }
