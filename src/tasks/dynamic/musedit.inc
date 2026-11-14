@@ -4748,24 +4748,16 @@ muStatTickRts:
 //  than one place, and a tail jump into kPrintCharAt would let its `rts` pop
 //  whichever return address happens to be on top -- the caller's, or an earlier
 //  jsr's -- which is a stack walk, not a call.
-// --- muCurCol -- X = the cursor's column: the free cell before its lane ---
-//  The glyph sits in the gap left of the cursor's lane, so it says which voice the
-//  cursor will act on as well as which line it is on. Each lane starts two cells
-//  past the previous one's last, so that gap holds nothing else.
-muCurCol:
-    ldy #MU_VOICE
-    lda (dataPtr),y
-    tax
-    lda muLaneCol,x
-    tax
-    dex
-    rts
-
 muCursorShow:
     ldy #MU_ROW
     lda (dataPtr),y
     sta muCurScr
-    jsr muCurCol                // X = the column the glyph goes in
+    ldy #MU_VOICE               // X = the column the glyph goes in: the free cell left
+    lda (dataPtr),y             //   of the cursor's lane, so it says which voice the
+    tax                         //   cursor will act on as well as which line it is on.
+    lda muLaneCol,x             //   Each lane starts two cells past the previous one's
+    tax                         //   last, so that gap holds nothing else
+    dex
     stx muCurX                  // remembered: a hide blanks THAT cell, and the voice
                                 //   may have changed by the time it runs
     lda #'>'
@@ -7772,7 +7764,15 @@ muLsRts:
 //  image is only a length check: nothing is allocated and nothing moves.
 //  C=1 MU_STR holds the reason.
 muImgRoom:
-    jsr muImgNeed
+    ldy #MU_LEN                 // MU_NEED = MU_LEN + MU_INSN, 16-bit
+    lda (dataPtr),y
+    clc
+    adc muInsN
+    sta muNeedLo
+    ldy #MU_LEN+1
+    lda (dataPtr),y
+    adc #0
+    sta muNeedHi
     lda muNeedHi
     cmp #MU_SCR_PAGES
     bcc muIrOk
@@ -7786,19 +7786,6 @@ muIrBad:
     rts
 muIrOk:
     clc
-    rts
-
-// --- muImgNeed -- MU_NEED = MU_LEN + MU_INSN ---
-muImgNeed:
-    ldy #MU_LEN
-    lda (dataPtr),y
-    clc
-    adc muInsN
-    sta muNeedLo
-    ldy #MU_LEN+1
-    lda (dataPtr),y
-    adc #0
-    sta muNeedHi
     rts
 
 // --- muInsSek2 -- MU_INSLO/HI = the seek's own pair + 2 ---
