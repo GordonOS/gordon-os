@@ -248,7 +248,7 @@ every time, and `commodo` never does.
 
 ---
 
-## Bug #203 — `musedit`'s playhead froze on `immig` at bar 18, because every row inside a note recorded the note's *onset* tick 🟠 ✅ FIXED (2026-11-06)
+## Bug #203 — `musedit`'s playhead froze on `immig` at bar 18, because every row inside a note recorded the note's *onset* tick 🟡 ✅ FIXED (2026-11-06)
 
 **Symptoms.** Playing `immig` in `musedit`, the walk stops dead at bar 18, row 33 (row 1120)
 and never moves again while the tune plays on to its end. Nothing recovers it: `muErr = 0`, all
