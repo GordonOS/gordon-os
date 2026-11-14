@@ -8131,6 +8131,34 @@ muDotInit:
     lda #MU_DOT_SLOT0+2
     jmp kSpriteFrame
 
+// --- muDotPos -- the x a dot sits at for one note ---
+//  In: X = the octave 0-7, Y = the semitone 0-11.
+//  Out: muDotX = the x low byte, muDotXHi = its ninth bit (kSpritePos takes that in C).
+//  The piano is 40 pixels an octave and muDotKeyX is octave 0's twelve key centres, so
+//  the position is a sum, not a 96-entry table: octave 6's two notes pass x 255, which
+//  is what muDotOctXHi carries. Every octave's C sits one pixel left of that step and
+//  octave 0's does not -- it is the leftmost key, where the dot is nudged in.
+//  Clobbers A, X and Y.
+muDotPos:
+    lda muDotKeyX,y             // octave 0's x for this semitone
+    clc
+    adc muDotOctXLo,x           // ...plus this octave's 40 pixels
+    sta muDotX
+    lda muDotOctXHi,x           // 0, or 1 for the octaves that pass x 255
+    adc #0                      // ...and the carry out of the low byte
+    sta muDotXHi
+    cpy #0
+    bne muDxRts
+    cpx #0
+    beq muDxRts
+    lda muDotX
+    bne muDxDec
+    dec muDotXHi
+muDxDec:
+    dec muDotX
+muDxRts:
+    rts
+
 // --- muDots -- one pass: put each sounding voice's dot on its key ---
 //  Called once per displayed frame. kSpritePos writes the shadow only, so the
 //  dots move with the music and the kernel's raster commit publishes them.
@@ -8198,21 +8226,10 @@ muDvNatKey:
     lda #1
     sta muDotNat
 muDvOct:
-    txa
-    sta muDotTmp
-    asl
-    clc
-    adc muDotTmp                // octave x 3 ...
-    asl
-    asl                         // ... x 4 = x 12, the table's row
-    clc
-    ldy #MU_DOTSEM
-    adc (dataPtr),y
+    ldy #MU_DOTSEM              // the semitone the split landed on...
+    lda (dataPtr),y             //   ...and the octave muPitchSplit left in X
     tay
-    lda muDotTabHi,y            // the ninth bit: a dot above x 255 is real
-    sta muDotXHi
-    lda muDotTab,y
-    sta muDotX
+    jsr muDotPos                // muDotX/muDotXHi = the dot's x and its ninth bit
     ldx muDotV                  // this voice's slot bit in the enable mask
     lda muDotBit,x
     ora muDotMask
@@ -8310,19 +8327,17 @@ muHdNat:
     ldy #MU_DOT_YN              // a natural: below the black keys
 muHdHaveY:
     sty muHdY
-    ldy muHdOld
-    lda muDotTabHi,y            // the dot's x, and its ninth bit
-    sta muTmp2
-    lda muDotTab,y
-    sta muTmpL
+    ldy muTmp                   // the semitone, and the octave muAudFreq left in...
+    ldx muTmp2                  //   ...muTmp2
+    jsr muDotPos                // muDotX/muDotXHi = the dot's x and its ninth bit
     lda muHdV
     clc
     adc #MU_DOT_SLOT0
     tax                         // X = that voice's dot slot
     ldy muHdY
-    lda muTmp2
+    lda muDotXHi
     lsr                         // C = the ninth bit of x, which kSpritePos reads
-    lda muTmpL
+    lda muDotX
     jsr kSpritePos
     lda muHdOld
     jsr muAudNote               // it sounds as it comes under the pointer
@@ -10409,29 +10424,20 @@ muAccMod:   .byte 0, 1, 0, -1
     // The piano's geometry: an octave is 40 pixels, and each semitone's key is
     // where the piano drawing puts it (the black keys are offset on purpose).
     muDotBit:   .byte 32, 64, 128 // the dot slots in the $D015 mask
-muDotTab:   // octave x 12 + semitone -> the dot's x LOW byte, in raster
-            // coordinates (key centre + 24 for the window's left edge, less the
-            // 11 pixels the dot sits inside its shape). The window is 320 wide at
-            // raster 24, so its last column is 343 and the dot's own pixels are at
-            // x + 10: the top note's 330 is still on screen, and nothing is clamped.
-    .byte 17, 19, 22, 25, 27, 33, 36, 39, 42, 45, 48, 50
-    .byte 56, 59, 62, 65, 67, 73, 76, 79, 82, 85, 88, 90
-    .byte 96, 99, 102, 105, 107, 113, 116, 119, 122, 125, 128, 130
-    .byte 136, 139, 142, 145, 147, 153, 156, 159, 162, 165, 168, 170
-    .byte 176, 179, 182, 185, 187, 193, 196, 199, 202, 205, 208, 210
-    .byte 216, 219, 222, 225, 227, 233, 236, 239, 242, 245, 248, 250
-    .byte 0, 3, 6, 9, 11, 17, 20, 23, 26, 29, 32, 34
-    .byte 40, 43, 46, 49, 51, 57, 60, 63, 66, 69, 72, 74
-muDotTabHi: // ...and its ninth bit, which kSpritePos takes in C
-    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    .byte 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    .byte 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-    .byte 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1
-.assert "the top octave's dots are not clamped", (muDotTab+95 > muDotTab+90) ? 1 : 0, 1
+//  The dot's x is a SUM, not a table of 96: the piano is 40 pixels an octave and every
+//  semitone's key centre within octave 0 is the same shape an octave higher. A centre is
+//  + 24 for the window's left edge, less the 11 pixels the dot sits inside its shape; the
+//  window is 320 wide at raster 24, so its last column is 343 and the dot's own pixels
+//  are at x + 10. The top note's 330 is still on screen: nothing is clamped, and the
+//  ninth bit is what muDotOctXHi carries into kSpritePos.
+muDotKeyX:  .byte 17, 19, 22, 25, 27, 33, 36, 39, 42, 45, 48, 50
+muDotKeyXEnd:
+.assert "the dot has one x per semitone", (muDotKeyXEnd - muDotKeyX) == 12 ? 1 : 0, 1
+muDotOctXLo: .byte 0, 40, 80, 120, 160, 200, 240, 24   // octave x 40, low byte
+muDotOctXHi: .byte 0, 0, 0, 0, 0, 0, 0, 1              // ...and its ninth bit, octaves 6-7
+muDotOctXEnd:
+.assert "the dot has one step per octave", (muDotOctXHi - muDotOctXLo) == 8 ? 1 : 0, 1
+.assert "both octave rows are eight long", (muDotOctXEnd - muDotOctXHi) == 8 ? 1 : 0, 1
 muLaneCol:  .byte MU_LANE1_COL, MU_LANE1_COL+MU_LANE_STEP, MU_LANE1_COL+2*MU_LANE_STEP
 muLaneW:    .byte MU_LANE_W, MU_LANE_W, MU_LANE_W
 muVoiceCol: .byte 2, 7, 3       // red, yellow, cyan -- the dot colours, voice 1..3
@@ -10527,7 +10533,6 @@ muHeadBarCol: .byte 0           // where the head's BAR field starts, for the pl
 muHeadBar:  .word 0
 muFreeMid:  .byte 0
 muFreeHi:   .byte 0
-muDotTmp:   .byte 0
 muDotC:     .byte 0             // entries left to scan
 muDotBase:  .byte 0
 muDotXHi:   .byte 0             // 1 = the dot's x is 256 or more
