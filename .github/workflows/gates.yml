@@ -84,6 +84,9 @@ jobs:
       - name: musedit's host walk matches the captured screen
         run: python3 tools/check-musedit-walk.py
 
+      - name: musedit's instance accesses each set their own Y
+        run: python3 tools/check-musedit-index.py
+
       - name: musedit's generated includes are current
         run: |
           python3 tools/gen-musedit-glyphs.py -Check

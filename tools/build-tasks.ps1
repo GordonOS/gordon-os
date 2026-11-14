@@ -58,6 +58,13 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & python "$PSScriptRoot/check-musedit-walk.py"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Y is the index for every instance-buffer access, so setting it is half of the
+# access. A field half-converted to zero page -- the read moved, the store left
+# behind -- writes whatever Y happens to hold: the editor's text cursor stopped
+# advancing and the cursor's row byte was overwritten, and every other gate passed.
+& python "$PSScriptRoot/check-musedit-index.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # KickAssembler jar location - see tools/toolpaths.ps1
 . "$PSScriptRoot/toolpaths.ps1"                   # machine paths: $KickAssJar
 $kick = $KickAssJar

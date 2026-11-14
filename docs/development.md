@@ -370,6 +370,7 @@ show up on the machine as a wrong number, a stale binary or a garbled screen.
 | `check-mus-commands.py` | `musedit`'s command encoder tables against `gen-mus.py`'s decoder over every pair the format can hold — 30,695 of them, 49 mnemonics — so the editor and the tool that writes test tunes cannot disagree about which bits carry a value, or about the wide phrase encodings | task build, and CI |
 | `check-mus-timing.py` | `musedit`'s duration, unit and bar model against `sidplay.inc`'s own duration routine: the tempo chart re-derived, the two tables compared byte for byte, an 8,192-case sweep of legal and refused lengths, and every one of the 256 tempos given a row unit | task build, and CI |
 | `check-musedit-walk.py` | the host walk model (`mus-sim.py --walk`) against a screen captured from the running editor, line for line — two captures: `immig`'s opening, one command a line, and `katmand`'s, three on a line plus `FLG` and `TEM`. A capture is the grid's 19 rows from a freshly opened tune, so it starts at walk line 1 (the row column is bar-relative); the playhead, the scroll, the split and undo are behaviour, not grid text, and no capture can see them | task build, and CI |
+| `check-musedit-index.py` | that every `(dataPtr),y` access in `musedit.inc` uses a Y set for it: a plain `ldy` within five statements, a computed index (`tay`/`iny`), or a caller-supplied Y in the three routines that take one. The instance buffer is addressed as `(dataPtr),y`, so Y is the index and setting it is half of the access — a half-converted field is a store into the wrong byte, which compiles, passes every other gate, and only shows as a broken screen | task build, and CI |
 | `gen-musedit-glyphs.py -Check`, `gen-musedit-tables.py -Check`, `gen-musedit-msgs.py -Check` | the three generated includes (`musedit-glyphs.inc`, `musedit-tables.inc`, `musedit-msgs.inc`) and `assets/ui/musedit-msgs.bin` against their sources — `musedit-msgs.txt`, the piano geometry and `sidplay.inc` — so a hand edit is a failure rather than a silent divergence | task build, and CI |
 
 **Run by hand:**
@@ -389,8 +390,8 @@ show up on the machine as a wrong number, a stale binary or a garbled screen.
 **Run by CI, on every push and pull request** (`.github/workflows/gates.yml`): `check-fs-offsets`,
 `check-lib-ids`, `check-zp-indirect`, `check-zp-map.py`, `check-header-offsets`,
 `gen-task-asm -Check`, `verify-jumptable-docs`, `verify-inventory-docs`, `check-ascii.py`,
-`check-links.py`, `check-mus-commands.py`, `check-mus-timing.py`, `check-musedit-walk.py`, the three
-`gen-musedit-* -Check` steps, and `scan-history.py` as a read-out — the half of the build that
+`check-links.py`, `check-mus-commands.py`, `check-mus-timing.py`, `check-musedit-walk.py`,
+`check-musedit-index.py`, the three `gen-musedit-* -Check` steps, and `scan-history.py` as a read-out — the half of the build that
 needs no assembler and no emulator. The rest need built binaries under `tasks-out/` or `build/`,
 so they run locally after a build. A gate that reads the tree only belongs in the workflow as well
 as in the build: a change to `musedit`'s command tables, its duration model or one of its generated
