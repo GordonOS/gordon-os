@@ -33,7 +33,7 @@ splits a block further where it is useful (the per-file split comes from
 | `$0FCC-$13C1` | ~1.0KB | `syscall.inc` | Kernel core part 2 — `spawnCore`'s remainder (its first 132B sit at `$1796`) + the rest of the syscall layer, ending at `kernelCoreEnd` |
 | `$13C4-$13D3` | 16B | — | free — the kernel core's growth headroom (`kernelCoreEnd` is `$13C4`). ⚠️ Never park a routine at the bottom of it: it is the core band's only spare space, and a change larger than it needs a relocation |
 | `$13D4-$14D3` | 256B | `main.asm` | `reuDirBuf` |
-| `$14D4-$1795` | 706B | `reu-fs.inc` | FS code (assembled after `reuDirBuf`) |
+| `$14D4-$176E` | 667B | `reu-fs.inc` | FS code (assembled after `reuDirBuf`); its tail is the 39B run `$176F-$1795` |
 | `$1796-$181C` | 132B | `syscall.inc` | `spawnCore`'s relocated front half + the 3B `jmp` seam into the byte-identical remainder at `$0FCC` |
 | `$181D-$1838` | 28B | `warm-boot-reset.inc` | `warmBootReset` — the warm-reboot entry point: releases every library, drops the sprite intent, then `jmp start` |
 | `$1839-$1843` | 11B | `main.asm` | `sprite.lib`'s name string (`libNameSprite`, `"sprite.lib"`) — the `$FFxx` band has no room for it (`kLibHold` is pinned at `$FFE6`) |
@@ -59,7 +59,8 @@ splits a block further where it is useful (the per-file split comes from
 | `$5457-$5481` | 43B | `cursor-helpers.inc` | `dlFindMaster` (`$5457`) + `dlInstallCursor` (`$546F`) — the four loader-band helpers share one `.pc` chain |
 | `$5482-$54A1` | 32B | `kernel/slot-shadow.inc` | `clearSlotShadows` — zeroes a new task's ZP shadow when its slot is reused |
 | `$54A2-$54AA` | 9B | `sid.asm` + `slot-shadow.inc` | `SID_POS_BLOCK` (`$54A2-$54A7` next-command offsets, `$54A8-$54A9` song jiffies) then `tickCount` at `$54AA` |
-| `$54AB-$567C` | 466B | `scroll-slot.inc` | `scrollScreenSlot` |
+| `$54AB-$55FA` | 336B | `scroll-slot.inc` | `scrollScreenSlot` |
+| `$55FB-$567C` | 130B | — | free — the below-pool band's spare run |
 | `$567D-$56FA` | 126B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembly, sprite pointers, collision latch, `sprPubMask` gate, deadline guard and the `frameCount` increment |
 | `$56FB-$56FF` | 5B | — | free |
 | `$5700-$C3FF` | 27.25KB | — | task pool (109 × 256B pages; tasks grow up, libs come down) |
@@ -120,12 +121,12 @@ splits a block further where it is useful (the per-file split comes from
 | `dynload.inc` | ✅ **1** — `$4310-$529D` (the band continues with `warmSpriteReset`, the free pocket upstream of `dlProbeFit`, and `sprInstall`) |
 | `malloc.inc` | ✅ **1** — `$F6A0-$F97D` |
 | `polevict.inc` | ✅ **1** — `$F97E-$FACC` |
-| `scroll-region.inc` | frag 1 `$EA71-$ECBC` + `paRoute` `$ECBD-$ECDB`; `scrollScreenSlot` → `scroll-slot.inc` `$54AB-$567C` |
+| `scroll-region.inc` | frag 1 `$EA71-$ECBC` + `paRoute` `$ECBD-$ECDB`; `scrollScreenSlot` → `scroll-slot.inc` `$54AB-$55FA` |
 | `kernel.asm` | jump table `$E000-$E118` (no spare entry left — `kMouseCall` took the last one); `reuCmpName` `$F652`; `blitGlyphFb` `$CDF5`; the gfx.lib working RAM at `$FC3F-$FF7D` (one block) |
 | gfx.lib working RAM | **1** — flood-fill + ellipse + circle all at `$FC3F-$FF7D` |
 | `main.asm` | BASIC stub `$0801`; `reuDirBuf` `$13D4`; static data block `$189F-$1A16` (lib tables + LUTs + font record + taskShadow); `libHold` `$1D16-$1D3F` (the pocket below the data heap, filled exactly); kernel data `$4000-$4303` + `freeList` `$4304`; `scratchBuf` `$C400`; dyn tables `$CA99`; lib descriptors `$CD0C`; `dynTaskLibMask` `$CD4C`; scroll-region data `$CD6D`; sid.lib + ipc.lib entries + stubs + names + `kLibHold` `$FF7E-$FFE8` |
 | `warm-boot-reset.inc` | **2 fragments** — `warmBootReset` `$181D-$1838` + `warmClearBufRecs` `$CA1B-$CA2B` |
-| `sprite.inc` | **6 fragments** — `sprBlkAddr` + `sprRestoreFrames` + the 5 stubs + `sprPtrBytes` `$CD9F-$CDF4`, `warmSpriteReset` `$529E-$52C0`, `sprInstall` + the state mover `$52DC-$5336`, `sprFrameDma` `$1CC0-$1D15`, `rasterCommit` `$567D-$56FA`, `kSpriteCollide` + `clearSlotSprite` `$CA2F-$CA6A`, tables/state `$CFA4-$CFFF`. Deliberate: no free pocket is large enough for two of these together |
+| `sprite.inc` | **6 fragments** — `sprBlkAddr` + `sprRestoreFrames` + the 5 stubs + `sprPtrBytes` `$CD9F-$CDF4`, `warmSpriteReset` `$529E-$52BF`, `sprInstall` + the state mover `$52DC-$5336`, `sprFrameDma` `$1CC0-$1D15`, `rasterCommit` `$567D-$56FA`, `kSpriteCollide` + `clearSlotSprite` `$CA2F-$CA69`, tables/state `$CFA4-$CFFF`. Deliberate: no free pocket is large enough for two of these together |
 | `warm-boot-reset.inc` | **2 fragments** — `warmBootReset` `$181D-$1838` (the warm-reboot entry point: every library released, every task's sprite state forgotten, reached by re-pointing the scheduler's `jmp start`) + `warmClearBufRecs` `$CA1B-$CA2B` |
 | `irq.inc` | `$0E76-$0EA5` — the interrupt dispatch, with two sources (VIC raster + CIA Timer A) |
 
@@ -142,16 +143,16 @@ splits a block further where it is useful (the per-file split comes from
   `ffStkXLo`, `ffSeedBit`) — it cannot move without breaking `gfx.lib`.
 - `.inc` files must stay listed in `project-config.json` `sources`.
 - Largest free pockets (largest first, as `tools/verify-map.ps1` reports them):
-  `$02A1-$02BF` (31B), `$020D-$021E`
-  `$CD5C-$CD6B` (16B, `gfxSurfPrep`) and `$FFE9-$FFF5` (13B, its tail) are now code, leaving 1B and 4B
-  respectively; next come `$13C4-$13D3` and
-  `CDCF-CDDD` (15B each), then a tail of 12B-or-less remnants, for **176B free in
-  total** across **25 pockets** (`$1844` and `$CA6B` hold `printGlyphAt`) - excluding
-  the 512B of fixed sprite slots (`memory-map.md` has the full list). ⚠️ `$02A1-$02BF`
-  and `$020D-$021E` are below `$0801`, so they can never hold kernel code, and
-  nothing may occupy the core's growth headroom at `$13C4-$13D3`. The largest
-  pocket there is 43B, which is why `kLibHold` (42B) had to be written to fit one
-  exactly.
+  `$55FB-$567C` (130B, between `scrollScreenSlot` and `rasterCommit`) and
+  `$176F-$1795` (39B, the FS code's tail before `spawnCore`); then the two below
+  `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B), and the core's growth
+  headroom `$13C4-$13D3` (16B); after those a tail of 9B-or-less remnants, for
+  **295B free in total** across **26 pockets** (`$1844` and `$CA6B` hold
+  `printGlyphAt`) - excluding the 512B of fixed sprite slots (`memory-map.md` has
+  the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
+  never hold kernel code, and nothing may occupy the core's growth headroom at
+  `$13C4-$13D3`. `kLibHold` (42B) fills the 43B data-heap pocket at `$1D16`
+  exactly, which is why it was written to size.
   ⚠️ Sprite data can only live in its two bands: `$1000-$1FFF` is char ROM *to the
   VIC* (sprite fetches included), so no address between the bands can hold a
   frame. `memory-map.md`'s *NOT free* table lists what else reads as free but is

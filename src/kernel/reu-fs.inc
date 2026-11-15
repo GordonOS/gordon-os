@@ -240,12 +240,9 @@ rdrGo:
     lda reuFsFile
     ora reuFsFile+1
     bne rdrSplit
-    lda #0; sta kArg; sta kArg+1
-    lda reuFsFlags; sta kArg+2
     lda reuFsLen; sta kArg+3
     lda reuFsLen+1; sta kArg+4
-    lda #0; sta kArg+5
-    jsr kReuToC64
+    jsr rdrDma
     jmp rdrDone
 rdrSplit:
     // chunk = $10000 - addr (fills to the end of this bank)
@@ -266,11 +263,7 @@ rdrSplit:
     bcc rdrLast
 rdrFull:
     // remaining >= chunk: DMA chunk bytes at addr/bank
-    lda reuFsFile; sta kArg
-    lda reuFsFile+1; sta kArg+1
-    lda reuFsFlags; sta kArg+2
-    lda #0; sta kArg+5
-    jsr kReuToC64
+    jsr rdrDma
     // advance the C64 destination by the chunk length (kArg+3/+4)
     lda kPtr
     clc
@@ -293,19 +286,27 @@ rdrFull:
     jmp rdrLoop
 rdrLast:
     // remaining < chunk: DMA the remainder at addr/bank, done
-    lda reuFsFile; sta kArg
-    lda reuFsFile+1; sta kArg+1
-    lda reuFsFlags; sta kArg+2
     lda reuFsLen; sta kArg+3
     lda reuFsLen+1; sta kArg+4
-    lda #0; sta kArg+5
-    jsr kReuToC64
+    jsr rdrDma
 rdrDone:
     // Restore C64 dest from stack
     pla; sta kPtr+1
     pla; sta kPtr
     plp                         // restore caller's I flag
     rts
+
+// --- rdrDma -- set the DMA block from the current position, then run it ---
+//  In:  reuFsFile/reuFsFile+1 = offset within the bank, reuFsFlags = bank,
+//       kArg+3/kArg+4 = length (the caller has already chosen it)
+//  Tail-jumps into kReuToC64, so its rts returns to reuDmaRange's caller.
+//  Clobbers: A
+rdrDma:
+    lda reuFsFile; sta kArg
+    lda reuFsFile+1; sta kArg+1
+    lda reuFsFlags; sta kArg+2
+    lda #0; sta kArg+5
+    jmp kReuToC64
 
 // ==========================================
 //  reuLoad -- load a whole file to C64 (used by `load` command)

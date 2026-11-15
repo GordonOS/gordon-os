@@ -42,16 +42,7 @@ sssRow:
     sec
     sbc #>$2000
     sta scrollSeedBuf+1         // r*320
-    lda taskGfxReuLo,x
-    clc
-    adc scrollSeedBuf
-    sta kArg
-    lda taskGfxReuHi,x
-    adc scrollSeedBuf+1
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2                  // source = slot + r*320
+    jsr sssAddr                 // kArg = slot + r*320 (source)
     lda #<$0140; sta kArg+3
     lda #>$0140; sta kArg+4
     lda #0; sta kArg+5
@@ -65,16 +56,7 @@ sssRow:
     lda scrollSeedBuf+1
     sbc #>$0140
     sta scrollSeedBuf+1         // (r-1)*320
-    lda taskGfxReuLo,x
-    clc
-    adc scrollSeedBuf
-    sta kArg
-    lda taskGfxReuHi,x
-    adc scrollSeedBuf+1
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2                  // dest = slot + (r-1)*320
+    jsr sssAddr                 // kArg = slot + (r-1)*320 (dest)
     lda #<$0140; sta kArg+3
     lda #>$0140; sta kArg+4
     lda #0; sta kArg+5
@@ -87,20 +69,7 @@ sssRow:
     sta scrollSeedBuf
     lda gfxCellRowLutHi,y
     sta scrollSeedBuf+1         // r*40
-    lda taskGfxReuLo,x
-    clc
-    adc scrollSeedBuf
-    sta kArg
-    lda taskGfxReuHi,x
-    adc scrollSeedBuf+1
-    sta kArg+1
-    lda kArg+1
-    clc
-    adc #>$2000
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2                  // source = slot + $2000 + r*SCREEN_COLS
+    jsr sssAddrPlane            // kArg = slot + $2000 + r*40 (source)
     lda #SCREEN_COLS; sta kArg+3
     lda #0; sta kArg+4
     sta kArg+5
@@ -114,20 +83,7 @@ sssRow:
     lda scrollSeedBuf+1
     sbc #0
     sta scrollSeedBuf+1         // (r-1)*40
-    lda taskGfxReuLo,x
-    clc
-    adc scrollSeedBuf
-    sta kArg
-    lda taskGfxReuHi,x
-    adc scrollSeedBuf+1
-    sta kArg+1
-    lda kArg+1
-    clc
-    adc #>$2000
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2                  // dest = slot + $2000 + (r-1)*SCREEN_COLS
+    jsr sssAddrPlane            // kArg = slot + $2000 + (r-1)*40 (dest)
     lda #SCREEN_COLS; sta kArg+3
     lda #0; sta kArg+4
     sta kArg+5
@@ -146,16 +102,7 @@ sssClear:
     sec
     sbc #>$2000
     sta scrollSeedBuf+1         // B*320
-    lda taskGfxReuLo,x
-    clc
-    adc scrollSeedBuf
-    sta kArg
-    lda taskGfxReuHi,x
-    adc scrollSeedBuf+1
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2
+    jsr sssAddr                 // kArg = slot + B*320
     lda #<$0140; sta kArg+3
     lda #>$0140; sta kArg+4
     lda #0
@@ -166,21 +113,8 @@ sssClear:
     lda gfxCellRowLutLo,y
     sta scrollSeedBuf
     lda gfxCellRowLutHi,y
-    sta scrollSeedBuf+1
-    lda taskGfxReuLo,x
-    clc
-    adc scrollSeedBuf
-    sta kArg
-    lda taskGfxReuHi,x
-    adc scrollSeedBuf+1
-    sta kArg+1
-    lda kArg+1
-    clc
-    adc #>$2000
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2
+    sta scrollSeedBuf+1         // B*40
+    jsr sssAddrPlane            // kArg = slot + $2000 + B*40
     lda #SCREEN_COLS; sta kArg+3
     lda #0; sta kArg+4
     lda taskGfxBg0,x
@@ -191,6 +125,38 @@ sssClear:
     beq sssDone
     jsr pcShadowScroll
 sssDone:
+    rts
+
+// --- sssAddr -- kArg/kArg+1/kArg+2 = slot base + a byte offset ---
+//  In:  scrollSeedBuf/scrollSeedBuf+1 = offset within the surface's REU block
+//  Out: kArg/kArg+1 = REU address, kArg+2 = bank. X (curTask) preserved; Y
+//       preserved, so a caller's row index survives.
+//  Clobbers: A, kArg..kArg+2
+sssAddr:
+    lda taskGfxReuLo,x
+    clc
+    adc scrollSeedBuf
+    sta kArg
+    lda taskGfxReuHi,x
+    adc scrollSeedBuf+1
+    sta kArg+1
+    lda taskGfxReuBank,x
+    adc #0
+    sta kArg+2
+    rts
+
+// --- sssAddrPlane -- sssAddr, then the $2000 cell-matrix plane ---
+//  The matrix sits $2000 into the slot, so the plane goes on the address hi
+//  byte with C cleared. A ripple out of this hi add is NOT carried into the
+//  bank: the plane is an addend on the hi byte alone, not part of the
+//  16-bit slot + offset sum.
+//  Clobbers: A, kArg..kArg+2
+sssAddrPlane:
+    jsr sssAddr
+    lda kArg+1
+    clc
+    adc #>$2000
+    sta kArg+1
     rts
 
 .label scrollSlotEnd = *
