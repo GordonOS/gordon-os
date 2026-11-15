@@ -715,6 +715,53 @@ the next column belongs to something else.
 
 ---
 
+## Bug #190 — the LIST decoder indexed the keyword record table by raw token value, so one removed statement shifted every later keyword 🟡 ✅ FIXED (2026-11-15)
+
+**Symptom.** `10 fillbox 0,0,320,200,1` listed back as `10 gchar 0,0,320,200,1`. Every
+graphics statement listed as the keyword four statements earlier (`getpixel` as `plot`,
+`plot` as `cls`), and it looked as though the wrong command had been entered — but the
+line still *ran* as `fillbox`.
+
+**Root cause.** LIST decodes a token in `lab_152e` by computing `lab_keyt + token×4` (the
+`$80` bias drops out of the 8-bit `asl`/`asl`, so the record number is `token-$80`). The
+table holds one 4-byte record per **keyword**, in token order — `len, first char, pointer
+to the rest` — and *no token byte of its own*, so that index is only valid while the token
+values are dense. Four values name nothing: `$D9-$DC` went with the statements removed
+from the run between `mid$` ($D8) and `getpixel` ($DD). The table compacted, the token
+values did not, so from `getpixel` onward every token read four records late — `fillbox`
+($E4) indexed record 100, which is `gchar`.
+
+Execution was never affected, which is what disguised it: the parser matches keywords by
+name, and statement dispatch is a *different* table (`lab_gxctbl`), indexed from `tk_mode`
+over a contiguous run with no holes in it.
+
+**Fix.** The decoder steps over the removed run before it indexes, and names the run by the
+tokens either side of it so the correction follows the token list if the run ever moves:
+
+```asm
+      cmp   #tk_getpixel      // first token after the removed run
+      bcc   lab_keyadj
+      sec
+      sbc   #(tk_getpixel-tk_mids-1)
+lab_keyadj:
+```
+
+7 bytes; `basic` stays at 64 code pages (109 in the pool, margin 0). The record table is
+deliberately left alone — it is a keyword list, and padding it with entries for token
+values nothing uses would make two lists that both have to be kept dense.
+
+**Verified** against the source: every one of the 115 token constants maps to the record
+whose pointer is its own keyword (`lbb_getpixel` for `getpixel`, …), including the
+single-character operator records, whose pointer field is unused and therefore cannot be
+checked the same way.
+
+**Transferable rule.** A table indexed by a **value** must be dense in that value; a table
+in **position** order needs a value-to-position mapping. That distinction is invisible in
+the data — the record format carries no key — so it has to be stated where the table is
+declared, and nothing in the build checks that the token list has no holes in it.
+
+---
+
 ## Bug #189 — the playhead divided the song tick by the PLAIN row unit, so a refined grid ran the cursor at a fraction of the row rate 🟠 ✅ FIXED (2026-11-01)
 
 **Symptoms.** On a tune whose onsets only land on rows when the row unit is refined
@@ -8550,6 +8597,7 @@ The AM/PM suffix is written in non-sequential order (`timeBuf+9` before `timeBuf
 
 | ID | Severity | Status | Title |
 |---|---|---|---|
+| #190 | 🟡 Medium | ✅ Fixed | **`LIST` printed `fillbox` as `gchar`.** `lab_152e` decoded a token by indexing the keyword record table with the raw token value (`lab_keyt + token x 4`, the `$80` bias dropping out of the 8-bit `asl`/`asl`), but that table is one 4-byte record per **keyword** in token order and carries no token byte, so it is only indexable while the values are dense. Four values (`$D9-$DC`) name nothing after a run of statements was removed between `mid$` and `getpixel`, so every token from `getpixel` ($DD) on read four records late — `fillbox` ($E4, record 100) came back as `gchar`, `getpixel` as `plot`. Parsing and execution were never affected: keywords match by name, and dispatch is a separate table (`lab_gxctbl`) indexed from `tk_mode` over a hole-free run — which is why the line ran correctly while listing wrongly. The decoder now steps over the removed run first, naming it by the tokens either side of it (`cmp #tk_getpixel` / `sec` / `sbc #(tk_getpixel-tk_mids-1)`) so the correction follows the token list; 7 bytes, `basic` still 109 pages. Verified source-wise that all 115 tokens map to their own `lbb_` record. Rule: **a table indexed by a value must be dense in that value — a table in position order needs a value-to-position mapping, and a record format that carries no key makes that invisible in the data** |
 | #187 | 🟠 High | ✅ Fixed | **A start scrolled the band before a note had played.** Two layers. (1) `muPhFollow` pinned the playhead's **line** at `MU_FOLLOW_CENTER` (8), but a row's own line sits as deep as that row has commands above it, so a tune whose opening has more than 8 command lines (`immig` 9, `tambrn` 11, `commodo` 5) had the view scroll off its own first lines before anything played, and the music then walked back up to the pencil. `muLnRowDraw` now raises `MU_FOLLOW1` to the opening's own depth, from the producer's `muLogLns`, for any tune. (2) `muPhSync` read `SID_POS_TICK`, which belongs to one pass and survives the hush that ends it; `muPtStart` now records it and sets `muPhWait`, and the row holds at 0 until the player publishes a different byte. Rule: **a target that describes a view is a claim about the content — derive it from what the producer emits, never from a constant that assumes the content is shallow; and compare a guard's two readings in the same units, or it silently does nothing** |
 | #186 | 🟠 High | ✅ Fixed | **`musedit`'s reversed command bars left solid blocks of colour behind.** `kBlitCharRev` writes `(bg0<<4) \| textColour`, so a bar leaves the cell's **paper** nibble on the text colour — and `kPrintCharAt`, the routed writer every plain cell used, is an *ink* write that keeps the paper it finds. So the first space or note drawn over a former bar came out ink-on-ink: a solid block wherever a bar had been, compounding with every repaint. `muPutC`'s plain path now uses `kBlitChar` while the task owns the display, which sets paper back to `bg0`; the routed writer stays for the background case. Rule: **only the fixed blitters write both nibbles — a routed text write inherits the paper, so a reversed cell can only be un-reversed by another fixed blit** |
 | #185 | 🟠 High | ✅ Fixed | **After any edit, `musedit`'s grid stopped drawing beyond the window.** `muRedrawRows` (the band-limited repaint an edit uses) set `muGdClip` and never cleared it, so from the first edit on the editor stayed in partial-repaint mode: every line the scroll pulled in fell outside the stale `MU_GDLo..MU_GDHi` band, `muLnSpot` recorded its table entry and declined to draw it, and the arriving lines were blank **and unnumbered** while the head's `R` advanced. `muDrawGrid` now consumes the clip at `muDgEnd`, `muRedrawNoHead`'s private clear is gone (net 0 bytes), and the note-replace path repaints from the cursor's row down, because a pitch typed over a rest takes the armed length and moves every row below. Rule: **a mode flag set by one routine and cleared by another is a one-shot that will be forgotten — clear it in the routine that consumes it.** The tell is a blank-but-advancing display |

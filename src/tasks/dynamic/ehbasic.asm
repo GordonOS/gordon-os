@@ -1417,6 +1417,17 @@ lab_152e:
       bit   oquote            // test the open quote flag
       bmi   lab_150c          // just go print character if open quote set
 
+      // The record table holds one 4-byte record per KEYWORD in token order, so
+      // it is dense in keywords but not in token VALUES: a token whose statement
+      // was removed leaves no record, and the raw value then lands that many
+      // records late (fillbox listed as gchar). Step over the removed run first.
+      // A run is named by the first token after it and the one before it.
+      cmp   #tk_getpixel      // first token after the removed run
+      bcc   lab_keyadj
+      sec
+      sbc   #(tk_getpixel-tk_mids-1)
+lab_keyadj:
+
       ldx   #>lab_keyt        // get table address high byte
       asl                     // *2
       asl                     // *4
