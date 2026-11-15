@@ -4510,7 +4510,7 @@ gpUiFileStd:
     .text "gpui.bin"
     .byte 0
 gpUiFileMc:
-    .text "gpui_mc.bin"
+    .text "gpuimc.bin"
     .byte 0
 
 // ==========================================

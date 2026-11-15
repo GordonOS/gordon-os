@@ -530,7 +530,7 @@ gordon-os/
 │                          truth) next to the *.spr the VIC reads; add a sheet to
 │                          the $assets array in tools/build-reu.ps1 to ship it
 ├── assets/ui/             UI band sources: gpui.txt (ASCII-art tool pictures, the
-│                          source of truth) next to the gpui.bin and gpui_mc.bin
+│                          source of truth) next to the gpui.bin and gpuimc.bin
 │                          that grpaint reads into its palette band (one file per
 │                          mode); shipped by the same $assets array. musedit's text
 │                          lives here too: musedit-msgs.txt (every string it prints)

@@ -58,7 +58,7 @@ SRC = ROOT / "assets" / "ui" / "gpui.txt"
 #                 the drawing WHITE in both, which is the whole feedback for "in use".
 MODES = {
     "std": dict(out="gpui.bin",    palette=0xFF, tile=(0xC0, 0, 1), chips=False),
-    "mc":  dict(out="gpui_mc.bin", palette=0x55, tile=(0xC0, 0, 1), chips=True),
+    "mc":  dict(out="gpuimc.bin", palette=0x55, tile=(0xC0, 0, 1), chips=True),
 }
 MODE = "std"
 for arg in sys.argv[1:]:

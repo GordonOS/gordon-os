@@ -251,7 +251,7 @@ It formats a fresh image and seeds, in this order:
 2. an `$assets` array hard-coded in the script — the three `.fnt` charsets, the
    shared sprite sheets (`ball.spr`, `boat.spr`, `gkball.spr`, `gkpad.spr`,
    `godzi.spr`), the pictures `hires.pic` / `mc.pic` / `alf.pic` / `alfgs.pic`, and
-   `gpui.bin` / `gpui_mc.bin`,
+   `gpui.bin` / `gpuimc.bin`,
    grpaint's UI
    band (`tools/gen-ui.py`, the file [gordonpaint.md](gordonpaint.md) reads);
 3. every `src/batch/*.bat`, every `src/banners/*.bnr`, every `src/corpus/*.bas`, every
@@ -673,7 +673,7 @@ generator lives in `tools/`:
 | BASIC corpus `src/corpus/*.bas` | the plain-text BASIC program | `gen-corpus.py` | every `src/corpus/*.bas` |
 | Banners `src/banners/*.bnr` | an image file | `img2bnr.py` (Pillow) | every `src/banners/*.bnr` |
 | Pictures `assets/pics/*.pic` | the source image `assets/pics/*-src.png`, which names its own conversion: `-mc-` before `-src` (or a leading `mc-`) is multicolour, `-dither-` error-diffuses (optionally `-dither45-` for 45%) | `img2pic.py` (Pillow) | `$assets` in `build-reu.ps1` |
-| UI band `assets/ui/gpui.bin`, `gpui_mc.bin` | the ASCII art `assets/ui/gpui.txt`: one 16x16 picture a tool, the last two being the MODE tile's two faces | `gen-ui.py --mode std` / `--mode mc` | `$assets` in `build-reu.ps1` |
+| UI band `assets/ui/gpui.bin`, `gpuimc.bin` | the ASCII art `assets/ui/gpui.txt`: one 16x16 picture a tool, the last two being the MODE tile's two faces | `gen-ui.py --mode std` / `--mode mc` | `$assets` in `build-reu.ps1` |
 | musedit's text `assets/ui/musedit-msgs.bin` + `src/tasks/dynamic/musedit-msgs.inc` | `assets/ui/musedit-msgs.txt`: one quoted string a line, in slot order; and `assets/ui/musedit-mnems.txt`: one quoted mnemonic a line, in id order, whose line number is the id the grid prints it under | `gen-musedit-msgs.py` | `$assets` in `build-reu.ps1`, and `-Check` in `build-tasks.ps1` |
 | musedit's piano `src/tasks/dynamic/musedit-glyphs.inc` | one geometry at the top of the generator: eight octaves over the 40-cell width, so a key is 5.7 px wide and every octave edge falls on a cell edge. The cell bytes and the two hit tables are derived from that one geometry, so a glyph and the key it answers cannot disagree | `gen-musedit-glyphs.py` | `-Check` in `build-tasks.ps1` (it is compiled into the task, so nothing is seeded) |
 | musedit's tempo table `src/tasks/dynamic/musedit-tables.inc` | `src/libs/sidplay.inc` — the player's own `DataTempoTable`, **parsed and copied** rather than restated, so the editor's triplet base is the player's byte for byte | `gen-musedit-tables.py` | `-Check` in `build-tasks.ps1` (compiled into the task) |

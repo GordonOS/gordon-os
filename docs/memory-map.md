@@ -515,7 +515,7 @@ the first scroll clobbers it — harmless.
 | `$00C000-$00C17F` | 384B | Thread names (24 × 16B) — the `parent.N` names `ps` prints |
 | `$00C180-$00C3FF` | 640B | (free) |
 | `$00C400-$00CFFF` | 3KB | **Per-task sprite state, 24 × 128B** at `REU_SPR_BASE + slot × 128` — the sheet records, the 39-byte shadow and the frame indices (71B used per block). Page-aligned on purpose: the block address is `slot × 128` with no add, so the base's low byte must be 0 (asserted in `main.asm`). Only the display owner's copy is live in kernel RAM; `sprInstall` swaps them with the display, and `warmSpriteReset` zeroes the region at a warm reboot |
-| `$00D000-$00D2CF` | 720B | **`grpaint`'s saved UI band** — the canvas's bottom two cell rows as the task found them: 640 pixel bytes at `$D000` and 80 matrix bytes at `$D280`, kept only while the palette is up so the release can put them back (`gpDma` in `src/tasks/dynamic/grpaint.inc`). The band's own image — the palette and the tools — is not here: it is the REU-FS file `gpui.bin` -- and `gpui_mc.bin` for the multicolour band
+| `$00D000-$00D2CF` | 720B | **`grpaint`'s saved UI band** — the canvas's bottom two cell rows as the task found them: 640 pixel bytes at `$D000` and 80 matrix bytes at `$D280`, kept only while the palette is up so the release can put them back (`gpDma` in `src/tasks/dynamic/grpaint.inc`). The band's own image — the palette and the tools — is not here: it is the REU-FS file `gpui.bin` -- and `gpuimc.bin` for the multicolour band
 -- written by `tools/gen-ui.py`. Bank 0 is free below the FS (which starts at bank 5 `$9000`), so the save costs the filesystem no capacity |
 | `$00D2D0-$00FFFF` | ~11.3KB | (free in bank 0) |
 

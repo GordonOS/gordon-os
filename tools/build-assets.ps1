@@ -74,7 +74,7 @@ if (-not $havePy) {
         else { $failed += "gen-sprites.py (assets/sprites/*.spr)" }
     }
 
-    # --- the UI band, one file per mode: assets/ui/gpui.txt -> gpui.bin, gpui_mc.bin ---
+    # --- the UI band, one file per mode: assets/ui/gpui.txt -> gpui.bin, gpuimc.bin ---
     #  The same fourteen pictures make both: the MODE tile's two faces are the last two,
     #  and each band takes the one that names the mode a press would go to.
     if (Test-Path "assets/ui/gpui.txt") {
@@ -82,8 +82,8 @@ if (-not $havePy) {
         if ($LASTEXITCODE -eq 0) { $done += "assets/ui/gpui.bin" }
         else { $failed += "gen-ui.py --mode std (assets/ui/gpui.bin)" }
         & $py "tools/gen-ui.py" --mode mc
-        if ($LASTEXITCODE -eq 0) { $done += "assets/ui/gpui_mc.bin" }
-        else { $failed += "gen-ui.py --mode mc (assets/ui/gpui_mc.bin)" }
+        if ($LASTEXITCODE -eq 0) { $done += "assets/ui/gpuimc.bin" }
+        else { $failed += "gen-ui.py --mode mc (assets/ui/gpuimc.bin)" }
     }
 
     # --- the BASIC corpus: the program text inside gen-corpus.py ---
