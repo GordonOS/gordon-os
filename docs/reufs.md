@@ -126,11 +126,15 @@ has no glyph either — an underscore is stored as screen code `$5F`, which
 | Host file | Stored as | Why |
 |---|---|---|
 | `Axel_F.mus` | `AxelF.mus` | `_` has no key on the machine |
-| `A@B.bin` | `AB.bin` | `@` is screen code `$00` — the directory's "no name" |
+| `A@B.bin` | `AB.bin` | `@` is screen code `$00` — end of a name |
+| `a/b.bin` | `ab.bin` | the kernel reads `/` as a path separator |
 | `weird~name.bin` | `weirdna.bin` | `~` has no key — then the cut below |
 
-Everything a C64 key **can** produce stays: the letters, the digits, space, and
-`! " # $ % & ' ( ) * + , - . / : ; < = > ? [ ] ^`.
+Everything a name **can** hold stays: the letters, the digits, space, and
+`! " # $ % & ' ( ) * + , - . : ; < = > ? [ ] ^`. The two rows in the middle are
+typeable but unstorable: `reuCmpName` gives `$00` the meaning "the name ends
+here" and `/` the meaning "the next path component starts here", so an entry
+holding either could never be found again.
 
 **The rest is cut to the slot.** A directory entry holds **11 characters
 including the dot and the extension**, so the **base** gives way, never the

@@ -37,7 +37,8 @@ leaves an image the machine would have produced itself:
     to fit with its extension kept -- `alongname.xxx` stores as `alongna.xxx`
     (see fit_name), so a host file transfers without renaming it by hand
   * a character the C64 keyboard cannot type is DROPPED, because the font has
-    no glyph for it either: `Axel_F.mus` stores as `AxelF.mus` (see clean_name)
+    no glyph for it either: `Axel_F.mus` stores as `AxelF.mus` (see clean_name);
+    so is `/` and `@`, which the kernel reads as a separator and as end-of-name
   * a live duplicate is refused -- delete the old one first, as `save` does
   * a zero-length file cannot exist: the OS reads size == 0 as an EMPTY SLOT,
     and its own save refuses size 0
@@ -103,6 +104,11 @@ SIGNATURE = 0xA5
 NAME_CHARS = (" !\"#$%&'()*+,-./0123456789:;<=>?"
               "ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^"
               "abcdefghijklmnopqrstuvwxyz")
+# ...minus two that are typeable but cannot be STORED, because reuCmpName
+# (src/kernel/kernel.asm) gives them a meaning inside a name: `/` starts a path
+# component and `$00` ends the name, so an entry holding either matches neither
+# "a" nor "a/b" and could never be found again.
+NAME_SEPARATORS = "/"
 
 E_FLAGS = 0
 E_NAME = 1
@@ -163,13 +169,15 @@ def check_name(name):
 
 
 def clean_name(name):
-    """`name` with every character removed that the C64 keyboard cannot type.
+    """`name` with every character removed that a name cannot hold: one the C64
+    keyboard cannot type, or one the kernel reads as a separator.
 
     `Axel_F.mus` becomes `AxelF.mus`: the underscore has no key on the machine,
     so it has no glyph in the font either, and the directory would show
     whatever screen code it was stored as. Removing it is the only transfer that
     reads the same on both sides."""
-    return "".join(ch for ch in name if ch in NAME_CHARS)
+    return "".join(ch for ch in name
+                   if ch in NAME_CHARS and ch not in NAME_SEPARATORS)
 
 
 def fit_name(name):
@@ -207,7 +215,8 @@ def name_report(name):
     kept = clean_name(name)
     stored = fit_name(kept)
     lines = []
-    gone = [ch for ch in dict.fromkeys(name) if ch not in NAME_CHARS]
+    gone = [ch for ch in dict.fromkeys(name)
+            if ch not in NAME_CHARS or ch in NAME_SEPARATORS]
     if gone:
         lines.append("removed %s: no C64 keyboard key types %s"
                      % (", ".join("'%s'" % ch for ch in gone),
@@ -595,10 +604,12 @@ def _selftest():
     ok("clean drops the underscore", clean_name("Axel_F.mus") == "AxelF.mus")
     ok("clean drops every untypeable character",
        clean_name("a_b|c~d`e{f}g\\h.mus") == "abcdefgh.mus")
-    ok("clean keeps what the keyboard can type",
-       clean_name("a-z.AZ 0!\"#$%&'()*+,-./:;<=>?[]^") ==
-       "a-z.AZ 0!\"#$%&'()*+,-./:;<=>?[]^")
+    ok("clean keeps what a name can hold",
+       clean_name("a-z.AZ 0!\"#$%&'()*+,-.:;<=>?[]^") ==
+       "a-z.AZ 0!\"#$%&'()*+,-.:;<=>?[]^")
     ok("clean drops @, which is screen code $00", clean_name("a@b") == "ab")
+    ok("clean drops / which the kernel reads as a separator",
+       clean_name("dir/file.bin") == "dirfile.bin")
     ok("clean leaves a clean name alone",
        clean_name("musedit.tsk") == "musedit.tsk")
     ok("store_name drops, then fits",
