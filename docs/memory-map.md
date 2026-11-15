@@ -3,7 +3,7 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**439B across 27 pockets**) and asserts the pinned pockets.
+> and their total (**531B across 27 pockets**) and asserts the pinned pockets.
 > A green build makes **234 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
@@ -116,8 +116,8 @@ main.asm  .pc=$0801  →  BASIC loader
 | `$02C0-$03FF` | 320B | sprite slots 0-4 | 5 × 64B VIC sprite data blocks (`$02C0 $0300 $0340 $0380 $03C0`) — the **low band**. All five are ordinary task sprites — fixed, not allocated |
 | `$0400-$07FF` | 1KB | | Bitmap video matrix (VIC-II reads this during bitmap mode) |
 | `$0801-$080C` | 12B | | BASIC loader `"10 SYS 2064"` |
-| `$0810-$0E60` | ~1.6KB | | **Kernel core part 1**: init + scheduler + irq + the syscall dispatcher and its jump table. ⚠️ The core is not one run — the sprite slot band below splits it |
-| `$0E45-$0E60` | 28B | `syscall.inc` | `syscallTbl` — 14 handler addresses at 2 bytes each, indexed by syscall number. ⚠️ It must END below `$0F00`: a slot's art is DMA'd over its whole 64 bytes, so art would replace the `SYS_SLEEP` entry's two bytes with pixels and the dispatcher would jump wherever they point. `main.asm` asserts the clearance; the size pad in `init.inc` is what holds the table's address |
+| `$0810-$0E0B` | ~1.5KB | | **Kernel core part 1**: init + scheduler + irq + the syscall dispatcher and its jump table. ⚠️ The core is not one run — the sprite slot band below splits it |
+| `$0DF0-$0E0B` | 28B | `syscall.inc` | `syscallTbl` — 14 handler addresses at 2 bytes each, indexed by syscall number. ⚠️ It must END below `$0F00`: a slot's art is DMA'd over its whole 64 bytes, so art would replace the `SYS_SLEEP` entry's two bytes with pixels and the dispatcher would jump wherever they point. `main.asm` asserts the clearance; the size pad in `init.inc` is what holds the table's address |
 | `$0F00-$0FBF` | 192B | sprite slots 5-7 | ⚠️ **Not free RAM** — 3 × 64B VIC sprite blocks (`$0F00 $0F40 $0F80`, the **high band**). Ordinary task sprites, like every other slot. Carved out of `verify-map.ps1`'s free total |
 | `$0FC0-$0FC9` | 10B | `main.asm` | `libNameMouse` — the `"mouse.lib"` name string, in the relocation slack above the slot band. `$0FC0` is deliberately not a slot: eight is the VIC's ceiling |
 | `$0FCA-$0FCB` | 2B | | ✓ Free — the rest of that slack |
@@ -604,7 +604,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$020D-$021E` | 18B | Free — below the BASIC stub. ⚠️ Never usable for kernel code: KickAssembler writes PRG blocks in ascending address order and VICE's autostart treats the first block as the load base |
 | `$02A1-$02BF` | 31B | Free — the rest of the only free run in pages 2-3 (`$0200-$02A0` is EhBASIC's; see NOT Free); `$02C0-$03FF` is sprite slots 0-4. ⚠️ Below `$0801`, so never usable for kernel code |
 | `$080D-$080F` | 3B | Free — the tail of the BASIC loader block |
-| `$0E61-$0EFF` | 159B | Free — the core chain's growth room, under the high sprite band (`$0F00-$0FBF` is slots 5-7); the core's last block ends at `$0EFD` |
+| `$0E0C-$0EFF` | 244B | Free — the core chain's growth room, under the high sprite band (`$0F00-$0FBF` is slots 5-7); the core's last block ends at `$0EFD` |
 | `$0FC0-$0FC9` | 10B | `libNameMouse` — the `"mouse.lib"` name string, in the relocation slack above the high band |
 | `$0FCA-$0FCB` | 2B | Free — the rest of that slack. `$0FC0` is deliberately **not** a slot: eight is the VIC's ceiling |
 | `$13C4-$13D3` | 16B | Free — the kernel core's growth headroom (the core's linear end is `kernelCoreEnd` at `$13C4`). ⚠️ Never park a routine at the bottom of this run: it is the core's only spare space |
@@ -630,7 +630,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$ECBD-$ECDB` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router, filling the pocket above `gfx.inc`'s anchor exactly |
 | `$FC39-$FC3E` | 6B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF5` | 13B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`); `$FFF6-$FFF9` free above the library-entry block and `kLibHold` |
-| **Total (fixed headroom)** | **439B across 27 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
+| **Total (fixed headroom)** | **531B across 27 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
 
 Usable beyond the fixed headroom:
 

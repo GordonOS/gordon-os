@@ -74,16 +74,8 @@ svCurSave:
     bcs svSaveCurDisplayed
     // background surface -> col/row to slot tail (+$23e8)
     ldx curTask                  // surfDisplayed clobbered X
-    lda taskGfxReuLo,x; clc; adc #<(GFX_SLOT_MATRIX + GFX_CURSOR_COL); sta $df04
-    lda taskGfxReuHi,x; adc #>(GFX_SLOT_MATRIX + GFX_CURSOR_COL); sta $df05
-    lda taskGfxReuBank,x; adc #0; sta $df06
-    lda #<cursorState; sta $df02
-    lda #>cursorState; sta $df03
-    lda #2; sta $df07
-    lda #0; sta $df08; sta $df0a
-    lda #$90; sta $df01           // C64->REU
-svWaitCurSave:
-    jsr reuWait                 // REU_ST_EOB is what reuWait polls
+    lda #$90                     // C64->REU
+    jsr curRowDma
     jmp svSaveCurOn
 svSaveCurDisplayed:
     lda cursorCol; sta GFX_MATRIX_BASE + GFX_CURSOR_COL
@@ -93,16 +85,8 @@ svSaveCurOn:
     cpx kbFocus
     beq svSaveOnFocused
     // cursorOn -> slot+$23ea (1 byte)
-    lda taskGfxReuLo,x; clc; adc #<(GFX_SLOT_MATRIX + GFX_CURSOR_ON); sta $df04
-    lda taskGfxReuHi,x; adc #>(GFX_SLOT_MATRIX + GFX_CURSOR_ON); sta $df05
-    lda taskGfxReuBank,x; adc #0; sta $df06
-    lda #<cursorOn; sta $df02
-    lda #>cursorOn; sta $df03
-    lda #1; sta $df07
-    lda #0; sta $df08; sta $df0a
-    lda #$90; sta $df01           // C64->REU
-svWaitCurOnSave:
-    jsr reuWait
+    lda #$90                     // C64->REU
+    jsr curOnDma
     jmp svNoCurSave
 svSaveOnFocused:
     lda cursorOn;  sta GFX_MATRIX_BASE + GFX_CURSOR_ON
@@ -158,16 +142,8 @@ svCurRest:
     bcs svRestCurDisplayed
     // background surface -> slot tail -> cursorState (col/row at +$23e8)
     ldx curTask                  // surfDisplayed clobbered X
-    lda taskGfxReuLo,x; clc; adc #<(GFX_SLOT_MATRIX + GFX_CURSOR_COL); sta $df04
-    lda taskGfxReuHi,x; adc #>(GFX_SLOT_MATRIX + GFX_CURSOR_COL); sta $df05
-    lda taskGfxReuBank,x; adc #0; sta $df06
-    lda #<cursorState; sta $df02
-    lda #>cursorState; sta $df03
-    lda #2; sta $df07
-    lda #0; sta $df08; sta $df0a
-    lda #$91; sta $df01           // REU->C64
-svWaitCurRest:
-    jsr reuWait
+    lda #$91                     // REU->C64
+    jsr curRowDma
     jmp svRestCurOn
 svRestCurDisplayed:
     lda GFX_MATRIX_BASE + GFX_CURSOR_COL; sta cursorCol
@@ -177,16 +153,8 @@ svRestCurOn:
     cpx kbFocus
     beq svRestOnFocused
     // slot+$23ea -> cursorOn (1 byte)
-    lda taskGfxReuLo,x; clc; adc #<(GFX_SLOT_MATRIX + GFX_CURSOR_ON); sta $df04
-    lda taskGfxReuHi,x; adc #>(GFX_SLOT_MATRIX + GFX_CURSOR_ON); sta $df05
-    lda taskGfxReuBank,x; adc #0; sta $df06
-    lda #<cursorOn; sta $df02
-    lda #>cursorOn; sta $df03
-    lda #1; sta $df07
-    lda #0; sta $df08; sta $df0a
-    lda #$91; sta $df01           // REU->C64
-svWaitCurOnRest:
-    jsr reuWait
+    lda #$91                     // REU->C64
+    jsr curOnDma
     jmp svNoCurRest
 svRestOnFocused:
     lda GFX_MATRIX_BASE + GFX_CURSOR_ON;  sta cursorOn
@@ -311,6 +279,50 @@ zpDma:
     pla
     sta $df01
     jmp reuWait                    // reuWait's rts returns to our caller
+
+// ==========================================
+//  curRowDma -- the surface's cursor column/row (2B) to/from the slot tail
+//  In:  A = $90 (C64 -> REU) or $91 (REU -> C64); X = curTask
+//  The cursor belongs to the SURFACE, not the task, so it travels in the slot's
+//  matrix tail (+$23E8) with the rest of the surface's own state.
+//  Clobbers A
+// ==========================================
+curRowDma:
+    pha
+    lda taskGfxReuLo,x; clc; adc #<(GFX_SLOT_MATRIX + GFX_CURSOR_COL); sta $df04
+    lda taskGfxReuHi,x; adc #>(GFX_SLOT_MATRIX + GFX_CURSOR_COL); sta $df05
+    lda taskGfxReuBank,x; adc #0; sta $df06
+    lda #<cursorState; sta $df02
+    lda #>cursorState; sta $df03
+    lda #2; sta $df07
+    lda #0; sta $df08; sta $df0a
+    pla
+    sta $df01
+    jmp reuWait                 // reuWait's rts returns to our caller
+
+// ==========================================
+//  curOnDma -- the surface's cursorOn byte (1B) to/from the slot tail
+//  In:  A = $90 (C64 -> REU) or $91 (REU -> C64); X = curTask
+//  A SEPARATE transfer from the col/row pair, not a third byte on the end of
+//  it, because the two run under different tests: cursorOn goes to the slot when
+//  this task is not the focus owner, while col/row go there when the SURFACE is
+//  not displayed. A task sharing another task's screen satisfies both
+//  differently in the same switch. (The slot side IS contiguous -- $23E8/E9/EA
+//  -- but the C64 side is not: cursorState is at $E11A and cursorOn at $E22C.)
+//  Clobbers A
+// ==========================================
+curOnDma:
+    pha
+    lda taskGfxReuLo,x; clc; adc #<(GFX_SLOT_MATRIX + GFX_CURSOR_ON); sta $df04
+    lda taskGfxReuHi,x; adc #>(GFX_SLOT_MATRIX + GFX_CURSOR_ON); sta $df05
+    lda taskGfxReuBank,x; adc #0; sta $df06
+    lda #<cursorOn; sta $df02
+    lda #>cursorOn; sta $df03
+    lda #1; sta $df07
+    lda #0; sta $df08; sta $df0a
+    pla
+    sta $df01
+    jmp reuWait                 // reuWait's rts returns to our caller
 
 // ==========================================
 //  saveStackReu -- switch-away half of the stack transfer
