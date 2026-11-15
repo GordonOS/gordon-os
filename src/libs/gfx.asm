@@ -742,7 +742,45 @@ gxPixReuPtr:
     and #7
     tax
     lda gfxPixelMasks,x
-    sta kArg+6
+    jmp gxReuRmW
+
+// --- gxReuRmW / gxReuFetch -- one pixel in curTask's REU slot ---
+//  A surface that is not displayed keeps its pixels in curTask's REU slot, so one
+//  pixel is a byte DMA in, the op, and a byte DMA out. Every reader and writer of a
+//  single slot pixel comes through here.
+//  Input: A = the pixel's mask within its byte, kPtr = its C64-side address.
+//  gxReuRmW applies gfxOp/gfxColor and writes the byte back; gxReuFetch stops after
+//  the read, leaving the raw byte in gfxTemp and the mask in kArg+6.
+//  gfxTemp is the staging byte and kArg carries the slot address across the DMA, so
+//  a caller must not keep anything in gfxTemp across the call.
+//  Clobbers A, X, Y, kPtr, kArg.
+gxReuRmW:
+    jsr gxReuFetch
+    lda kArg+6                  // the mask
+    ldy gfxOp
+    bne gxReuXor
+    ldx gfxColor
+    beq gxReuClr
+    ora gfxTemp                 // set on the colour
+    jmp gxReuPut
+gxReuXor:
+    eor gfxTemp
+    jmp gxReuPut
+gxReuClr:
+    eor #$ff
+    and gfxTemp
+gxReuPut:
+    sta gfxTemp
+    lda #<gfxTemp
+    sta kPtr
+    lda #>gfxTemp
+    sta kPtr+1
+    lda #0
+    sta kArg+5
+    jmp kReuFromC64
+
+gxReuFetch:
+    sta kArg+6                  // the mask survives the DMA
     ldx curTask
     lda kPtr
     sec
@@ -757,34 +795,17 @@ gxPixReuPtr:
     lda taskGfxReuBank,x
     adc #0
     sta kArg+2
-    lda #1; sta kArg+3
-    lda #0; sta kArg+4
-    lda #<gfxTemp; sta kPtr
-    lda #>gfxTemp; sta kPtr+1
-    lda #0; sta kArg+5
-    jsr kReuToC64
-    lda kArg+6
-    ldy gfxOp
-    bne gxPixReuXor
-    ldx gfxColor
-    beq gxPixReuClr
-    ora gfxTemp
-    sta gfxTemp
-    jmp gxPixReuWr
-gxPixReuXor:
-    eor gfxTemp
-    sta gfxTemp
-    jmp gxPixReuWr
-gxPixReuClr:
-    eor #$ff
-    and gfxTemp
-    sta gfxTemp
-gxPixReuWr:
-    lda #<gfxTemp; sta kPtr
-    lda #>gfxTemp; sta kPtr+1
-    lda #0; sta kArg+5
-    jsr kReuFromC64
-    rts
+    lda #1
+    sta kArg+3
+    lda #0
+    sta kArg+4
+    lda #<gfxTemp
+    sta kPtr
+    lda #>gfxTemp
+    sta kPtr+1
+    lda #0
+    sta kArg+5
+    jmp kReuToC64
 
 // --- gxBoxArgs -- unpack the box call into the shared kBox fields ---
 //  Input: A = colour, kArg/kArg+1 = x, kArg+2 = y, kArg+4/+5 = w, kArg+6 = h
@@ -1440,57 +1461,7 @@ gxCirclePixReuPtr:
     and #7
     tax
     lda gfxPixelMasks,x
-    sta kArg+6                 // mask (survives kReuToC64)
-    ldx curTask
-    lda kPtr
-    sec
-    sbc #<$2000
-    clc
-    adc taskGfxReuLo,x
-    sta kArg
-    lda kPtr+1
-    sbc #>$2000
-    adc taskGfxReuHi,x
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2
-    lda #1
-    sta kArg+3
-    lda #0
-    sta kArg+4
-    lda #<kCircleTemp
-    sta kPtr
-    lda #>kCircleTemp
-    sta kPtr+1
-    lda #0
-    sta kArg+5
-    jsr kReuToC64
-    lda kArg+6                 // mask
-    ldy gfxOp
-    bne gxCirclePixReuXor
-    ldx gfxColor
-    beq gxCirclePixReuClr
-    ora kCircleTemp
-    sta kCircleTemp
-    jmp gxCirclePixReuWr
-gxCirclePixReuXor:
-    eor kCircleTemp
-    sta kCircleTemp
-    jmp gxCirclePixReuWr
-gxCirclePixReuClr:
-    eor #$ff
-    and kCircleTemp
-    sta kCircleTemp
-gxCirclePixReuWr:
-    lda #<kCircleTemp
-    sta kPtr
-    lda #>kCircleTemp
-    sta kPtr+1
-    lda #0
-    sta kArg+5
-    jsr kReuFromC64
-    rts
+    jmp gxReuRmW
 
 // --- gxEllipse 32-bit helpers (clobber A only) ---
 gxEllDxAddTwoB:            // dx += 2b (32-bit += 24-bit)
@@ -2147,57 +2118,7 @@ gxEllipsePixReuPtr:
     and #7
     tax
     lda gfxPixelMasks,x
-    sta kArg+6
-    ldx curTask
-    lda kPtr
-    sec
-    sbc #<$2000
-    clc
-    adc taskGfxReuLo,x
-    sta kArg
-    lda kPtr+1
-    sbc #>$2000
-    adc taskGfxReuHi,x
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2
-    lda #1
-    sta kArg+3
-    lda #0
-    sta kArg+4
-    lda #<kEllTemp
-    sta kPtr
-    lda #>kEllTemp
-    sta kPtr+1
-    lda #0
-    sta kArg+5
-    jsr kReuToC64
-    lda kArg+6
-    ldy gfxOp
-    bne gxEllipsePixReuXor
-    ldx gfxColor
-    beq gxEllipsePixReuClr
-    ora kEllTemp
-    sta kEllTemp
-    jmp gxEllipsePixReuWr
-gxEllipsePixReuXor:
-    eor kEllTemp
-    sta kEllTemp
-    jmp gxEllipsePixReuWr
-gxEllipsePixReuClr:
-    eor #$ff
-    and kEllTemp
-    sta kEllTemp
-gxEllipsePixReuWr:
-    lda #<kEllTemp
-    sta kPtr
-    lda #>kEllTemp
-    sta kPtr+1
-    lda #0
-    sta kArg+5
-    jsr kReuFromC64
-    rts
+    jmp gxReuRmW
 
 // ==========================================
 //  gxFloodFill -- kFloodFill: scanline flood fill (hires)
@@ -2261,27 +2182,7 @@ gxFFReadReu:
     and #7
     tax
     lda gfxPixelMasks,x
-    sta kArg+6
-    ldx curTask
-    lda kPtr
-    sec
-    sbc #<$2000
-    clc
-    adc taskGfxReuLo,x
-    sta kArg
-    lda kPtr+1
-    sbc #>$2000
-    adc taskGfxReuHi,x
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2
-    lda #1; sta kArg+3
-    lda #0; sta kArg+4
-    lda #<gfxTemp; sta kPtr
-    lda #>gfxTemp; sta kPtr+1
-    lda #0; sta kArg+5
-    jsr kReuToC64
+    jsr gxReuFetch
     lda kArg+6
     and gfxTemp
 gxFFReadNorm:
@@ -2674,27 +2575,7 @@ gxGpReu:
     and #7
     tax
     lda gfxPixelMasks,x
-    sta kArg+6
-    ldx curTask
-    lda kPtr
-    sec
-    sbc #<$2000
-    clc
-    adc taskGfxReuLo,x
-    sta kArg
-    lda kPtr+1
-    sbc #>$2000
-    adc taskGfxReuHi,x
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2
-    lda #1; sta kArg+3
-    lda #0; sta kArg+4
-    lda #<gfxTemp; sta kPtr
-    lda #>gfxTemp; sta kPtr+1
-    lda #0; sta kArg+5
-    jsr kReuToC64
+    jsr gxReuFetch
     lda kArg+6
     and gfxTemp
     clc                         // C=0 valid
