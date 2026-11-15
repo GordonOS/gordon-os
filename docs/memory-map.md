@@ -3,7 +3,7 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**531B across 27 pockets**) and asserts the pinned pockets.
+> and their total (**620B across 27 pockets**) and asserts the pinned pockets.
 > A green build makes **234 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
@@ -240,11 +240,11 @@ but doesn't blank. ~1ms of freeze is tolerable for burst operations.
 | `$E11A-$E247` | 302B | `kernel-vars.inc` | Cursor state, screen base, semaphores, readString state, timeBuf, kbFocus, randomSeed, `taskSleepTicks` — plus reserved-but-dead bytes used as code/data homes, which is why the block's **SIZE is ABI**: `hexChars`' 16B is address-stability slack (keep the size or every label after it shifts), 15 of it holding `kmEvictAlloc` (`$E201`) — `kMalloc`'s pool-full recovery: evict one resident task (**never the caller**), then retry — and the 16th an `$EA` pad; two further dead bytes hold the kill cascade's root and fixpoint flag (`dlCascadeRoot`/`dlCascadeFlag`) — and the reserved byte after `randomSeed` is `surfResolved`, `surfDisplayed`'s scratch for `resolve(kbFocus)` (it must not use `kArg`: the scheduler calls it from the timer IRQ and `sysExit` calls it with a parked task's `kArg` live) |
 | `$E248-$EA70` | ~2.0KB | screen/input group | `screen-io.inc` (`$E248-$E4CE`) + `keyboard.inc` (`$E4CF-$EA70`), which also holds `sysSpeedShift` (`$E531`) — the machine's speed as a signed power of two, written by `speed.com` and read by sid.lib (see *VICE speed* in `quick-start.md`) — and `mouseKind` (`$E530`): the pointer device, 0 = off / 1 = 1351, written by the `mouse` command. Both ride in the band's NOP sled, so they add nothing to the band's size. ⚠️ **This band's labels are pinned ABI** — `keyrpt.com` pokes `keybRepeatLda`, and gfx.lib's `ffStk*`/`kCircle*`/`kEll*` scratch aliases sit above it (17 asserts in `main.asm` pin labels in the band), so a size change here must be paid back in place (an inert `.fill n, $ea` NOP sled keeps the size if the bytes are free) |
 | `$EA71-$ECDB` | 619B | `scroll-region.inc` (frag 1) | `setScrollRegion`/`scrollScreen`/`blitCharAt`/`blitCharAtRev` (`$EA71-$ECBC`) + `paRoute` (`$ECBD-$ECDB`, `kPrintCharAt`'s surface router, filling the pocket under `gfx.inc`'s anchor exactly) |
-| `$ECDC-$F69F` | ~2.5KB | gfx + mgmt + utils | `gfx.inc` (`$ECDC-$F075`) + `text-blit.inc` (`$F076-$F195`) + `screen-mgmt.inc` (`$F196-$F5A0`) + `semaphore.inc`/`screen-lock.inc`/`task-util.inc` (`$F5A1-$F651`) + `reuCmpName` (`$F652-$F69F`). The sub-spans are routine-entry boundaries: `blitChar` opens `text-blit.inc`, `surfSlotToReu` opens `screen-mgmt.inc`, `semWait` opens the semaphore group and `reuCmpName` the last run |
-| `$F6A0-$F97D` | 734B | `malloc.inc` | Page-granular `kMalloc`/`kFree`. On a full pool `kmAllocNow` retries once through `kmEvictAlloc` — the step into `dlEvict` protects the caller, so the victim is always another task. ⚠️ **This block's SIZE is ABI**: the malloc tables that follow are pinned by exact-address asserts in `main.asm`, so any change here must be paid back in place |
-| `$F97E-$FACC` | 335B | `poolevict.inc` | `dlPreEvict`..`dlFreePages` (the pre-evict loop's sufficiency test lives here) |
-| `$FACD-$FC39` | 365B | `lib.inc` | Dynamic library loader + lib name strings (⚠️ `libNameSid` and `libNameIpc` are the odd ones out — their strings live in the `$FF7E` block, because more bytes here would have eaten that pocket) |
-| `$FC3A-$FC3E` | 5B | — | ✓ Free — the code chain's growth room, below the `$FC3F` gfx scratch pin. Growing past `$FC3E` trips that `.pc` anchor |
+| `$ECDC-$F69F` | ~2.5KB | gfx + mgmt + utils | `gfx.inc` (`$ECDC-$F01B`) + `text-blit.inc` (`$F01C-$F13B`) + `screen-mgmt.inc` (`$F13C-$F545`) + `semaphore.inc`/`screen-lock.inc`/`task-util.inc` (`$F5A1-$F651`) + `reuCmpName` (`$F5F6-$F643`). The sub-spans are routine-entry boundaries: `blitChar` opens `text-blit.inc`, `surfSlotToReu` opens `screen-mgmt.inc`, `semWait` opens the semaphore group and `reuCmpName` the last run |
+| `$F644-$F923` | 736B | `malloc.inc` | Page-granular `kMalloc`/`kFree`. On a full pool `kmAllocNow` retries once through `kmEvictAlloc` — the step into `dlEvict` protects the caller, so the victim is always another task. ⚠️ **This block's SIZE is ABI**: the malloc tables that follow are pinned by exact-address asserts in `main.asm`, so any change here must be paid back in place |
+| `$F92E-$FA72` | 325B | `poolevict.inc` | `dlPreEvict`..`dlFreePages` (the pre-evict loop's sufficiency test lives here) |
+| `$FA73-$FBDF` | 365B | `lib.inc` | Dynamic library loader + lib name strings (⚠️ `libNameSid` and `libNameIpc` are the odd ones out — their strings live in the `$FF7E` block, because more bytes here would have eaten that pocket) |
+| `$FBE0-$FC3E` | 95B | — | ✓ Free — the code chain's growth room, below the `$FC3F` gfx scratch pin. Growing past `$FC3E` trips that `.pc` anchor |
 | `$FC3F-$FF7D` | 831B | gfx.lib scratch | **One contiguous block** (no `.pc` pin): flood-fill span-seed stacks + working vars + `kEll*` ellipse scratch (`ffStkXLo`..`kEllTemp`, `$FC3F-$FF6F`) **+ `kCircle*` circle scratch (`$FF70-$FF7D`)** |
 | `$FF7E-$FFE8` | 107B | `main.asm` | **`sid.lib` + `ipc.lib` call entries, their lazy cold stubs and both name strings**: `kSidPlay` `$FF7E` / `kSidHush` `$FF81` / `kIpcPost` `$FF84` / `kIpcPick` `$FF87` (four 3-byte entries — they cannot go in the `$E000` table, which is full) + the four cold stubs + `"sid.lib"` + `"ipc.lib"`, all under one `.pc = $FF7E`. The four entries come first, so each address is fixed arithmetic ($FF7E + 3n) and can be pinned by an assert. **`kLibHold` `$FFE6`** is *not* a library entry — it is library-system machinery — so its stub sits at the far end of the pocket instead of joining that run. ⚠️ This block must stay the **last thing assembled**: a `.pc` moves the location counter, and anything emitted after it continues past `$FFFF` |
 | `$FFE9-$FFF5` | 13B | `kernel.asm` | `gfxSurfPrep`'s tail — the cursorRow/cursorOn stores, reached by `jmp` from `$CD5C`. **4B free at `$FFF6-$FFF9`**, the run above the library-entry block and `kLibHold` |
@@ -628,9 +628,9 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$E105-$E106` | 2B | Free (between the gfx table and the filesys stubs) |
 | `$E119` | 1B | Free (vector headroom) |
 | `$ECBD-$ECDB` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router, filling the pocket above `gfx.inc`'s anchor exactly |
-| `$FC39-$FC3E` | 6B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
+| `$FBE0-$FC3E` | 95B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF5` | 13B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`); `$FFF6-$FFF9` free above the library-entry block and `kLibHold` |
-| **Total (fixed headroom)** | **531B across 27 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
+| **Total (fixed headroom)** | **620B across 27 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
 
 Usable beyond the fixed headroom:
 
@@ -710,9 +710,9 @@ pages.
 | `$E248-$EA70` | `screen-io.inc` + `keyboard.inc` |
 | `$EA71-$ECBC` | `scroll-region.inc` (frag 1) |
 | `$ECDC-$F6A3` | `gfx.inc` + `text-blit.inc` + `screen-mgmt.inc` + semaphore/screen-lock/task-util + `reuCmpName` |
-| `$F6A0-$F97D` | `malloc.inc` (size ABI — the malloc tables are address-asserted) |
-| `$F97E-$FACC` | `poolevict.inc` |
-| `$FACD-$FC39` | `lib.inc` |
+| `$F644-$F923` | `malloc.inc` (size ABI — the malloc tables are address-asserted) |
+| `$F92E-$FA72` | `poolevict.inc` |
+| `$FA73-$FBDF` | `lib.inc` |
 | `$FC3F-$FF7D` | gfx.lib scratch — flood-fill + `kEll*` + `kCircle*`, one block (no pin) |
 | `$5457-$5481` | `cursor-helpers.inc` (`dlFindMaster`/`dlInstallCursor`) — loader band |
 | `$5482-$54A1` | `slot-shadow.inc` (`clearSlotShadows` — zeroes a recycled slot's ZP shadow) |

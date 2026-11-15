@@ -131,40 +131,33 @@ gfxOp:      .byte 0
 //  surface switching (unified)
 // ==========================================
 
-// --- surfSave -- DMA framebuffer -> task X's slot (10 KB) ---
+// --- surfSave / surfLoad -- the framebuffer <-> slot transfer, one direction --
 //  Input: X = task index (slot from taskGfxReu*); X preserved
+//  The three transfers are the SAME SEQUENCE in both directions: the slot end is
+//  always kArg and the framebuffer end always kPtr, and only the REU command
+//  differs. So the body is shared and each DMA takes its direction from Y.
 //  Clobbers: A, Y, kPtr, kArg..kArg+4
 surfSave:
-    // pixels: $2000-$3FFF -> slot+0
-    lda taskGfxReuLo,x; sta kArg
-    lda taskGfxReuHi,x; sta kArg+1
-    lda taskGfxReuBank,x; sta kArg+2
-    lda #<$2000; sta kPtr
-    lda #>$2000; sta kPtr+1
-    lda #<$2000; sta kArg+3
-    lda #>$2000; sta kArg+4
-    lda #0; sta kArg+5
-    jsr kReuFromC64
-    // matrix: $0400-$07FF -> slot+$2000 (kArg lo + kArg+5 survive the DMA)
-    lda taskGfxReuHi,x; clc; adc #>$2000; sta kArg+1
-    lda taskGfxReuBank,x; adc #0; sta kArg+2
-    lda #<$0400; sta kPtr
-    lda #>$0400; sta kPtr+1
-    lda #<$0400; sta kArg+3
-    lda #>$0400; sta kArg+4
-    jsr kReuFromC64
-    // color RAM: $D800-$DBFF -> slot+$2400 (len $0400 survives too)
-    lda taskGfxReuHi,x; clc; adc #>$2400; sta kArg+1
-    lda taskGfxReuBank,x; adc #0; sta kArg+2
-    lda #<$d800; sta kPtr
-    lda #>$d800; sta kPtr+1
-    jmp kReuFromC64             // kReuFromC64's rts returns to this routine's caller
-
-// --- surfLoad -- DMA task X's slot -> framebuffer + set VIC mode/colors ---
-//  Input: X = task index (slot from taskGfxReu*); X preserved
-//  Clobbers: A, Y, kPtr, kArg..kArg+4
+    ldy #$90                    // framebuffer -> slot
+    jmp surfXfer
 surfLoad:
-    // pixels: slot+0 -> $2000-$3FFF
+    ldy #$91                    // slot -> framebuffer
+    jmp surfXfer
+
+// --- surfDma -- run one transfer in the direction Y names ---
+//  In: Y = $90 (C64 -> REU) or $91 (REU -> C64), with kPtr/kArg..kArg+4 set
+//  Both kReu* entries preserve X and Y, so a caller's Y survives the transfer.
+//  Clobbers: A
+surfDma:
+    tya
+    and #1                      // $90 -> 0, $91 -> 1
+    bne surfDmaTo
+    jmp kReuFromC64
+surfDmaTo:
+    jmp kReuToC64
+
+surfXfer:
+    // pixels: $2000-$3FFF <-> slot+0
     lda taskGfxReuLo,x; sta kArg
     lda taskGfxReuHi,x; sta kArg+1
     lda taskGfxReuBank,x; sta kArg+2
@@ -173,21 +166,21 @@ surfLoad:
     lda #<$2000; sta kArg+3
     lda #>$2000; sta kArg+4
     lda #0; sta kArg+5
-    jsr kReuToC64
-    // matrix: slot+$2000 -> $0400-$07FF (kArg lo + kArg+5 survive the DMA)
+    jsr surfDma
+    // matrix: slot+$2000 <-> $0400-$07FF (kArg lo + kArg+5 survive the DMA)
     lda taskGfxReuHi,x; clc; adc #>$2000; sta kArg+1
     lda taskGfxReuBank,x; adc #0; sta kArg+2
     lda #<$0400; sta kPtr
     lda #>$0400; sta kPtr+1
     lda #<$0400; sta kArg+3
     lda #>$0400; sta kArg+4
-    jsr kReuToC64
-    // color RAM: slot+$2400 -> $D800-$DBFF (len $0400 survives too)
+    jsr surfDma
+    // color RAM: slot+$2400 <-> $D800-$DBFF (len $0400 survives too)
     lda taskGfxReuHi,x; clc; adc #>$2400; sta kArg+1
     lda taskGfxReuBank,x; adc #0; sta kArg+2
     lda #<$d800; sta kPtr
     lda #>$d800; sta kPtr+1
-    jmp kReuToC64               // kReuToC64's rts returns to this routine's caller
+    jmp surfDma                 // its rts returns to the caller's caller
 
 // --- doGfxSwitch -- switch VIC display between surfaces (unified) ---
 //  Input: kArg = fromTask index, X = toTask index

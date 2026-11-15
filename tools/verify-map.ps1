@@ -9,7 +9,7 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '531',
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '620',
     [Parameter(Mandatory = $false)][string]$ExpectPockets = '27'
 )
 
@@ -148,11 +148,11 @@ Check 'printGlyphAt tail :' ($hit.Count -eq 1 -and $hit[0].Size -eq 1) ('{0} byt
 #  past `$FC3E` trips the `.pc = $FC3F` anchor.
 Check 'router ECBD      :' (Occupied 0xECBD 0xECDB) 'paRoute is 31B - the pocket under gfx.inc ($ECDC) exactly full'
 Check 'glyph blit CDF5 :' (Occupied 0xCDF5 0xCDFD) 'blitGlyphFb is 9B in the $CDF5 pocket'
-$hit = @($runs | Where-Object { $_.Range -eq 'FC39-FC3E' })
+$hit = @($runs | Where-Object { $_.Range -eq 'FBE0-FC3E' })
 #  The code-chain growth run below the $FC3F gfx scratch pin: 2B. gfxOp ($ED5D) is one
 #  byte of it -- the pixel write op sits after gfx.inc's pinned data block so that no
 #  address gfx.lib hardcodes moves, which is the one byte of chain room it costs.
-Check 'chain tail        :' ($hit.Count -eq 1 -and $hit[0].Size -eq 6) ('{0} bytes of code-chain growth room below the $FC3F gfx scratch pin' -f ($hit | ForEach-Object { $_.Size }))
+Check 'chain tail        :' ($hit.Count -eq 1 -and $hit[0].Size -eq 95) ('{0} bytes of code-chain growth room below the $FC3F gfx scratch pin' -f ($hit | ForEach-Object { $_.Size }))
 #  The `$E000` band's own slack: jump table group 2 ends at `$E0F2` and the band
 #  holds two more entries there -- kPrintGlyphAt took `$E0F3` and kMouseCall the
 #  last one, `$E0F6`, before the filesys stubs at `$E0F9`. The band now has no

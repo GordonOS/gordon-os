@@ -96,17 +96,17 @@ splits a block further where it is useful (the per-file split comes from
 | `$E4CF-$EA70` | 1442B | `keyboard.inc` | keyboard scan + ring buffer + `readRow` |
 | `$EA71-$ECBC` | 588B | `scroll-region.inc` (frag 1) | `setScrollRegion`/`scrollScreen`/`blitCharAt`/`blitCharAtRev` |
 | `$ECBD-$ECDB` | 31B | `scroll-region.inc` | `paRoute` — `kPrintCharAt`'s surface router, filling the pocket above `gfx.inc`'s anchor exactly |
-| `$ECDC-$F075` | 410B | `gfx.inc` | bitmap mode switch + surface alloc + `printCharAt`. ⚠️ **`.pc`-anchored at `$ECDC`**: its data addresses are ABI (gfx.lib hardcodes `gfxPixelMasks`/`gfxCol`/`dispIsBitmap`/`kLineX1Lo`/`kBoxColor`), so it must not drift when `scroll-region.inc` changes size |
-| `$F076-$F195` | 288B | `text-blit.inc` | glyph blitters: `blitChar`/`blitFbCommon` (framebuffer) + `blitCharSlot`/`blitGlyphSlot` (REU slot); `blitGlyphFb` lives in the `$CDF5` pocket |
-| `$F196-$F5A0` | 1035B | `screen-mgmt.inc` | surface alloc/free/share/view + `setGfxMode` |
-| `$F5A1-$F5DA` | 58B | `semaphore.inc` | `semWait` + `semSignal` |
-| `$F5DB-$F60B` | 49B | `screen-lock.inc` | `lockScreen` + `unlockScreen` |
-| `$F60C-$F651` | 70B | `task-util.inc` | `getTaskName` |
-| `$F652-$F69F` | 78B | `kernel.asm` | `reuCmpName` (filesys.lib helper) |
-| `$F6A0-$F97D` | 734B | `malloc.inc` | `kMalloc`/`kFree` (page-granular) |
-| `$F97E-$FACC` | 335B | `poolevict.inc` | `dlPreEvict`..`dlFreePages` |
-| `$FACD-$FC39` | 365B | `lib.inc` | library loader + name strings |
-| `$FC3A-$FC3E` | 5B | — | ✓ Free — the code chain's growth room. Growing past `$FC3E` trips the `$FC3F` anchor |
+| `$ECDC-$F01B` | 320B | `gfx.inc` | bitmap mode switch + surface alloc + `printCharAt`. ⚠️ **`.pc`-anchored at `$ECDC`**: its data addresses are ABI (gfx.lib hardcodes `gfxPixelMasks`/`gfxCol`/`dispIsBitmap`/`kLineX1Lo`/`kBoxColor`), so it must not drift when `scroll-region.inc` changes size |
+| `$F01C-$F13B` | 288B | `text-blit.inc` | glyph blitters: `blitChar`/`blitFbCommon` (framebuffer) + `blitCharSlot`/`blitGlyphSlot` (REU slot); `blitGlyphFb` lives in the `$CDF5` pocket |
+| `$F13C-$F545` | 1034B | `screen-mgmt.inc` | surface alloc/free/share/view + `setGfxMode` |
+| `$F546-$F57F` | 58B | `semaphore.inc` | `semWait` + `semSignal` |
+| `$F580-$F5AF` | 48B | `screen-lock.inc` | `lockScreen` + `unlockScreen` |
+| `$F5B0-$F5F5` | 70B | `task-util.inc` | `getTaskName` |
+| `$F5F6-$F643` | 78B | `kernel.asm` | `reuCmpName` (filesys.lib helper) |
+| `$F644-$F923` | 736B | `malloc.inc` | `kMalloc`/`kFree` (page-granular) |
+| `$F92E-$FA72` | 325B | `poolevict.inc` | `dlPreEvict`..`dlFreePages` |
+| `$FA73-$FBDF` | 365B | `lib.inc` | library loader + name strings |
+| `$FBE0-$FC3E` | 95B | — | ✓ Free — the code chain's growth room. Growing past `$FC3E` trips the `$FC3F` anchor |
 | `$FC3F-$FF7D` | 831B | `kernel.asm` (gfx.lib data) | **one contiguous block**: flood-fill span-seed stacks + `kEll*` ellipse scratch + `kCircle*` circle scratch. ⚠️ **`.pc`-anchored at `$FC3F`**: gfx.lib hardcodes these addresses, so the code ahead of it grows into the gap above the anchor instead of moving them |
 | `$FF7E-$FFE8` | 107B | `main.asm` | `sid.lib` + `ipc.lib` call entries, lazy cold stubs and name strings, plus the `kLibHold` stub at the far end — the block that must stay the last thing assembled. ⚠️ **The gfx scratch band below it ends at `$FF7D` with ZERO slack**: any growth anywhere in the kernel's code band collides with this block and fails the build |
 | `$FFE9-$FFF5` | 13B | `kernel.asm` | `gfxSurfPrep`'s tail (the `cursorRow`/`cursorOn` stores, `jmp`ed to from `$CD5C`) — `$FFF6-$FFF9` is free, the run above the `$FF7E` block
@@ -119,8 +119,8 @@ splits a block further where it is useful (the per-file split comes from
 | File | Fragments |
 |---|---|
 | `dynload.inc` | ✅ **1** — `$4310-$529D` (the band continues with `warmSpriteReset`, the free pocket upstream of `dlProbeFit`, and `sprInstall`) |
-| `malloc.inc` | ✅ **1** — `$F6A0-$F97D` |
-| `polevict.inc` | ✅ **1** — `$F97E-$FACC` |
+| `malloc.inc` | ✅ **1** — `$F644-$F923` |
+| `polevict.inc` | ✅ **1** — `$F92E-$FA72` |
 | `scroll-region.inc` | frag 1 `$EA71-$ECBC` + `paRoute` `$ECBD-$ECDB`; `scrollScreenSlot` → `scroll-slot.inc` `$54AB-$55FF` |
 | `kernel.asm` | jump table `$E000-$E118` (no spare entry left — `kMouseCall` took the last one); `reuCmpName` `$F652`; `blitGlyphFb` `$CDF5`; the gfx.lib working RAM at `$FC3F-$FF7D` (one block) |
 | gfx.lib working RAM | **1** — flood-fill + ellipse + circle all at `$FC3F-$FF7D` |
@@ -147,7 +147,7 @@ splits a block further where it is useful (the per-file split comes from
   `$176F-$1795` (39B, the FS code's tail before `spawnCore`); then the two below
   `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B), and the core's growth
   headroom `$13C4-$13D3` (16B); after those a tail of 9B-or-less remnants, for
-  **531B free in total** across **26 pockets** (`$1844` and `$CA6B` hold
+  **620B free in total** across **26 pockets** (`$1844` and `$CA6B` hold
   `printGlyphAt`) - excluding the 512B of fixed sprite slots (`memory-map.md` has
   the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
   never hold kernel code, and nothing may occupy the core's growth headroom at

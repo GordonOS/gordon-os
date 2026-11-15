@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1273 total call sites** found across `src/`.
+- **1269 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -107,9 +107,9 @@ API surface this document is inventorying.
 | [`kPrintChar`](#kprintchar) | `$E003` | 100 | 16 | Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom. |
 | [`kSetTextColor`](#ksettextcolor) | `$E063` | 57 | 4 | Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive). |
 | [`kSetCursor`](#ksetcursor) | `$E009` | 53 | 14 | Set the kernel cursor position (X=col, Y=row). The only screen routine that preserves all registers. |
-| [`kReuFromC64`](#kreufromc64) | `$E06C` | 33 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
-| [`kReuToC64`](#kreutoc64) | `$E069` | 32 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
+| [`kReuFromC64`](#kreufromc64) | `$E06C` | 31 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
 | [`kSwitchView`](#kswitchview) | `$E054` | 31 | 18 | Switch the VIC-II display to another task's screen -- changes only what's shown, not where the caller writes. |
+| [`kReuToC64`](#kreutoc64) | `$E069` | 30 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
 | [`kReadKey`](#kreadkey) | `$E018` | 28 | 14 | Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@'). |
 | [`kReuFillReu`](#kreufillreu) | `$E072` | 26 | 11 | Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address). |
 | [`kReuDirPageDma`](#kreudirpagedma) | `$E0B4` | 25 | 2 | DMA one 256-byte page of the REU-FS directory between REU and the bounce buffer (internal helper behind directory scans). |
@@ -354,7 +354,7 @@ Set the kernel cursor position (X=col, Y=row). The only screen routine that pres
 
 ### kReuFromC64
 
-``$E06C`` — **33 calls** across 12 file(s)
+``$E06C`` — **31 calls** across 12 file(s)
 
 DMA-copy a block from C64 memory to the REU (both addresses increment).
 
@@ -362,34 +362,15 @@ DMA-copy a block from C64 memory to the REU (both addresses increment).
 |---|---:|
 | `src/libs/gfx.asm` | 6 |
 | `src/tasks/dynamic/edit.inc` | 6 |
-| `src/kernel/gfx.inc` | 3 |
 | `src/kernel/scroll-region.inc` | 3 |
 | `src/libs/filesys.asm` | 3 |
 | `src/tasks/dynamic/grpaint.inc` | 3 |
 | `src/kernel/char-shadow.inc` | 2 |
 | `src/kernel/scroll-slot.inc` | 2 |
 | `src/kernel/text-blit.inc` | 2 |
+| `src/kernel/gfx.inc` | 1 |
 | `src/kernel/sprite.inc` | 1 |
 | `src/kernel/syscall.inc` | 1 |
-| `src/tasks/cmd/compact.inc` | 1 |
-
-### kReuToC64
-
-``$E069`` — **32 calls** across 10 file(s)
-
-DMA-copy a block from the REU to C64 memory (both addresses increment).
-
-| File | Calls |
-|---|---:|
-| `src/libs/gfx.asm` | 10 |
-| `src/tasks/dynamic/edit.inc` | 6 |
-| `src/tasks/dynamic/grpaint.inc` | 4 |
-| `src/kernel/gfx.inc` | 3 |
-| `src/kernel/scroll-region.inc` | 3 |
-| `src/kernel/scroll-slot.inc` | 2 |
-| `src/kernel/char-shadow.inc` | 1 |
-| `src/kernel/reu-fs.inc` | 1 |
-| `src/kernel/sprite.inc` | 1 |
 | `src/tasks/cmd/compact.inc` | 1 |
 
 ### kSwitchView
@@ -418,6 +399,25 @@ Switch the VIC-II display to another task's screen -- changes only what's shown,
 | `src/tasks/dynamic/maze.inc` | 1 |
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
+
+### kReuToC64
+
+``$E069`` — **30 calls** across 10 file(s)
+
+DMA-copy a block from the REU to C64 memory (both addresses increment).
+
+| File | Calls |
+|---|---:|
+| `src/libs/gfx.asm` | 10 |
+| `src/tasks/dynamic/edit.inc` | 6 |
+| `src/tasks/dynamic/grpaint.inc` | 4 |
+| `src/kernel/scroll-region.inc` | 3 |
+| `src/kernel/scroll-slot.inc` | 2 |
+| `src/kernel/char-shadow.inc` | 1 |
+| `src/kernel/gfx.inc` | 1 |
+| `src/kernel/reu-fs.inc` | 1 |
+| `src/kernel/sprite.inc` | 1 |
+| `src/tasks/cmd/compact.inc` | 1 |
 
 ### kReadKey
 
