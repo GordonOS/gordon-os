@@ -117,6 +117,9 @@
 .const ffStkPtr    = $FF46
 .const ffSeedBit   = $FF47
 .const ffFillMc    = $FF48   // 0=hires, 1=mc (flood-fill mode flag)
+.const ffDisp      = $FF7D   // 1 = the caller's surface is the displayed one, set once
+                            //   per call: kCircleTemp's byte, unused since the REU
+                            //   pixel path was shared
 
 gfxBinStart:
     .word HDR_MAGIC              // +0:  magic 'G','O' (LE)
@@ -2150,9 +2153,8 @@ gxFFReadStd:
     bcc gxFFReadGo
     inc kPtr+1
 gxFFReadGo:
-    ldx curTask
-    jsr kSurfDisplayed          // C=1 displayed (clobbers A,X,Y)
-    bcc gxFFReadReu
+    lda ffDisp
+    beq gxFFReadReu
 gxFFReadC64:
     lda ffXLo
     and #7
@@ -2289,6 +2291,13 @@ gxFFSeedOk:
     sta ffXHi
     lda kArg+2
     sta ffY
+    ldx curTask                 // the surface choice is per call, not per pixel
+    jsr kSurfDisplayed
+    lda #1
+    bcs gxFFDispSet
+    lda #0
+gxFFDispSet:
+    sta ffDisp
     jsr gxFFRead                // seed value -> A (0/1 hires, 0-3 MC)
     sta ffSeedBit
     lda ffFillMc
