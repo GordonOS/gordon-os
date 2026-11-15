@@ -3,7 +3,7 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**295B across 26 pockets**) and asserts the pinned pockets.
+> and their total (**290B across 26 pockets**) and asserts the pinned pockets.
 > A green build makes **234 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
@@ -156,8 +156,8 @@ main.asm  .pc=$0801  →  BASIC loader
 | `$54A8-$54A9` | 2B | `SID_POS_TICK` = `SID_POS_BLOCK + 6` (sid.asm) | The jiffies the player has played in this pass, 16-bit, cleared by `sidInitSong`. Every voice's counter starts at 1 and the count is incremented before the tick is processed, so row 0 is fetched with the count already at 1 — a reader's grid row is **(count - 1) divided by its row unit**, the player's own position instead of a predicted rate |
 | `$54AA` | 1B | `tickCount` (`slot-shadow.inc`) | Scheduler-tick counter, incremented by the CIA #1 Timer A handler in `irq.inc` — the same 59.2 Hz (PAL) clock the Sidplayer's jiffy uses. Read by tasks through `kernel-shared.inc`; it follows the player's published block so that block stays contiguous |
 | **scrollScreenSlot + Task Pool** — `$54AB-$C3FF` | | | |
-| `$54AB-$55FA` | 336B | `scrollScreenSlot` | Per-row background slot scroll up; guarded by `.assert scrollSlotEnd <= POOL_BASE`. Its six REU address computations go through `sssAddr`/`sssAddrPlane` |
-| `$55FB-$567C` | 130B | | ✓ Free — the below-pool band's spare run, between `scrollScreenSlot` and `rasterCommit` |
+| `$54AB-$55FF` | 341B | `scrollScreenSlot` | Per-row background slot scroll up; guarded by `.assert scrollSlotEnd <= POOL_BASE`. Its six REU address computations go through `sssAddr`/`sssAddrPlane` |
+| `$5600-$567C` | 125B | | ✓ Free — the below-pool band's spare run, between `scrollScreenSlot` and `rasterCommit` |
 | `$567D-$56FA` | 126B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembled from the per-sprite X-MSB flags, sprite pointers → `$07F8-$07FF`, collision latch, `$D015` masked by `sprPubMask`, the `inc sprFrameCount` clock, and the deadline guard |
 | `$56FB-$56FF` | 5B | | ✓ Free (headroom below the pool) |
 | `$5700-$C3FF` | ~27.25KB | ✓ Free (task pool, 109 × 256B pages) | Dynamic tasks load here (relocatable). `POOL_BASE=$5700`, `POOL_END=$C400` (hard against the `$C400` loader/scroll scratch). BASIC's program RAM is the REU working file; resident tasks are evicted to REU and restored on exit (see kernel.md) |
@@ -616,7 +616,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$52C1-$52CC` | 11B used + 1B free | `kbScreenGate` (11B, `$52C1-$52CB`) — the switch path's entry for a display change the key scan recorded — then 1B free at `$52CC` |
 | `$5337-$533F` | 9B | Free — the loader's growth budget: after `sprInstall` + the state mover (`$52DC-$5336`) and before `font-help.inc` at `$5340` |
 | `$54A8-$54AA` | 3B used | `SID_POS_TICK` (2B at `$54A8`, the player's published song jiffies) and `tickCount` (1B at `$54AA`), in that order so the player's block at `$54A2-$54A9` is contiguous (the band holds `pool-top.inc` 101B at `$53F2-$5456`, `cursor-helpers.inc` 43B at `$5457-$5481`, `slot-shadow.inc` 32B at `$5482-$54A1`) |
-| `$55FB-$567C` | 130B | Free — the below-pool band's spare run: `scrollScreenSlot` ends at `$55FA` and `rasterCommit` starts at `$567D` |
+| `$5600-$567C` | 125B | Free — the below-pool band's spare run: `scrollScreenSlot` ends at `$55FA` and `rasterCommit` starts at `$567D` |
 | `$56FB-$56FF` | 5B | Free — headroom below the pool, after `rasterCommit` (126B at `$567D-$56FA`) |
 | `$CA1B-$CA2B` | 17B | `warmClearBufRecs` (kernel/warm-boot-reset.inc) — clears every slot's `taskDataSize`/`taskDataPtrLo/Hi` at a warm reboot, `jsr`-ed from `warmBootReset`. Between the REU DMA routines in `reu.inc` (ending `$CA1A`) and the sprite API (`$CA2F`) |
 | `$CA2C-$CA2E` | 3B | Free — the tail of that run |
@@ -630,7 +630,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$ECBD-$ECDB` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router, filling the pocket above `gfx.inc`'s anchor exactly |
 | `$FC39-$FC3E` | 6B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF5` | 13B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`); `$FFF6-$FFF9` free above the library-entry block and `kLibHold` |
-| **Total (fixed headroom)** | **295B across 26 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 126), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
+| **Total (fixed headroom)** | **290B across 26 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 126), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
 
 Usable beyond the fixed headroom:
 
@@ -687,7 +687,7 @@ pages.
 | `$4310-$529D` | Dynamic task loader (`dynload.inc` — can grow; `dlProbeFit` and `warmSpriteReset` follow it, then nothing may be pinned directly after it) |
 | `$5340-$53F1` | `font-help.inc` (REU font helpers; its `fs-offset.inc` macro expansions live here too) |
 | `$53F2-$5456` | `pool-top.inc` (library pool placement + caller-eviction accounting) |
-| `$54AB-$55FA` | `scrollScreenSlot` (background slot scroll up) |
+| `$54AB-$55FF` | `scrollScreenSlot` (background slot scroll up) |
 | `$567D-$56FA` | `rasterCommit` — the per-frame vblank sprite commit (shadow → `$D000-$D02E`, `$D010`, sprite pointers, collision latch, deadline guard, frame counter) |
 | `$5700-$C3FF` | The task pool (109 × 256B pages) |
 | `$C400-$C7FF` | `scratchBuf` |

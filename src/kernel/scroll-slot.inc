@@ -147,9 +147,9 @@ sssAddr:
 
 // --- sssAddrPlane -- sssAddr, then the $2000 cell-matrix plane ---
 //  The matrix sits $2000 into the slot, so the plane goes on the address hi
-//  byte with C cleared. A ripple out of this hi add is NOT carried into the
-//  bank: the plane is an addend on the hi byte alone, not part of the
-//  16-bit slot + offset sum.
+//  byte. A ripple out of that add is the bank and must be carried into it: a
+//  slot base is slot x $2800, so its hi byte can be $E0 or more and the plane
+//  takes it past $FF.
 //  Clobbers: A, kArg..kArg+2
 sssAddrPlane:
     jsr sssAddr
@@ -157,6 +157,9 @@ sssAddrPlane:
     clc
     adc #>$2000
     sta kArg+1
+    bcc sapDone
+    inc kArg+2
+sapDone:
     rts
 
 .label scrollSlotEnd = *

@@ -21,6 +21,42 @@
 
 ---
 
+## Bug #210 — `scrollScreenSlot` dropped the `$2000` plane's carry, so a high slot scrolled another surface's cell matrix 🟡 ✅ FIXED (2026-11-15)
+
+**Symptoms.** A background surface scrolled its colour matrix into the wrong 16 KB. Nothing visible at
+normal task counts: the arithmetic only ripples when a slot's base hi byte is `$E0` or more, which needs
+**slot 6** (hi `$F0`) or **slot 12** (hi `$E0`) -- i.e. 7 or 13 live surfaces. When it does happen, the
+task's own matrix rows stay stale (cell colours wrong on the next repaint, and `kCharAt`/the char shadow
+read the wrong byte) and the writes land in the block 64 KB below: slot 6's matrix went over slot 0's
+pixel data.
+
+**Root cause.** `scrollScreenSlot` built its matrix addresses as
+
+    lda kArg+1 / clc / adc #>$2000 / sta kArg+1      ; the plane, carry thrown away
+    lda taskGfxReuBank,x / adc #0 / sta kArg+2       ; bank + 0 -- nothing to add
+
+The `clc` is the bug: it discards the ripple out of the hi byte, so the following `adc #0` on the bank
+adds zero. Every **other** slot-matrix site -- `surfSave`, `surfLoad`, `surfClearSlot`, `blitCharSlot`/
+`blitGlyphSlot` -- does `adc #>$2000` with no `clc` and then `lda taskGfxReuBank,x / adc #0`, so their
+carry propagates correctly. `surfSlotToReu` gives a slot the base `slot x $2800`, so base hi is
+`(slot x $28) & $FF`: `$F0` at slot 6, `$E0` at slot 12, and `$F0 + $20` overflows.
+
+**Fix.** The `$2000` plane has one home now -- `sssAddrPlane` in `scroll-slot.inc`, which carries the
+ripple into the bank (`bcc` over `inc kArg+2`, 5 bytes). `scrollScreenSlot` is 341B (`$54AB-$55FF`);
+free space 295 -> **290B across 26 pockets**, and the below-pool run before `rasterCommit` 130 -> 125B
+(`$5600-$567C`), both re-pinned in `verify-map.ps1`.
+
+**Rule.** When a plane offset is added to an address's **hi byte**, the ripple out of that byte is the
+**bank** -- carry it, or the access lands exactly 64 KB away, inside whichever slot owns that address.
+And when two sites look alike, diff the load/store order before assuming they agree: the four that were
+right do the bank add *after* the plane add, which is what keeps the carry alive.
+
+**Verified.** Build green (234 asserts, 0 failed), `verify-map.ps1` re-pinned, every lint/doc gate
+clean. A background `dir` scrolled on a non-displayed surface still renders byte-correct. The carry path
+itself is **not** exercised by a live test: reaching slot 6 needs seven concurrent surfaces, which this
+pool cannot hold alongside the tasks that would scroll, so the fix is verified by the instruction
+sequence and by the unchanged non-carry path.
+
 ## Bug #209 — `SHIFT+N` and `SHIFT+P` moved the window during playback and left the follow behind 🟡 ✅ FIXED (2026-11-08)
 
 **Symptoms.** Starting the tune and then stepping a bar with `SHIFT+N`/`SHIFT+P` moved the grid while
