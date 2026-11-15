@@ -238,11 +238,17 @@ class Monitor:
 
 
 def screen_code(ch):
-    """ASCII -> the C64 screen code a keypress produces."""
+    """ASCII -> the C64 screen code that keypress puts in the key ring.
+
+    A capital is the SHIFTED code ($41-$5A, keyTableShift), not the same code as
+    its lowercase -- feeding the ring bypasses the matrix, so the shift is carried
+    by the code itself. Mapping 'A' to 1 types an 'a': the filesystem's names are
+    screen codes and case sensitive, so `run musedit AxelF` would arrive as
+    `axelf` and match nothing."""
     if "a" <= ch <= "z":
         return ord(ch) - ord("a") + 1
     if "A" <= ch <= "Z":
-        return ord(ch) - ord("A") + 1
+        return ord(ch) - ord("A") + 0x41
     if "0" <= ch <= "9":
         return 0x30 + (ord(ch) - ord("0"))
     table = {" ": 0x20, ".": 0x2E, ",": 0x2C, ":": 0x3A, ";": 0x3B, "-": 0x2D,
