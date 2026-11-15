@@ -460,9 +460,8 @@ Markers: `(swp)` = evicted (code swapped out), `(pau)` = paused,
 
 Open an editor screen: a fresh hires-text surface (shell colors) with
 its own keyboard focus. `run edit <filename>` opens that file (CR+NUL
-line endings; up to 192 lines of 40 columns — larger files are
-truncated) or starts blank for a new file. `run edit` with no argument
-prints a usage error on the shell's screen and exits. The document is
+line endings; up to 192 lines of 40 columns — a larger file loads
+truncated and the status line says `trunc 192`) or starts blank for a new file. `run edit` with no argumentprints a usage error on the shell's screen and exits. The document is
 held in memory as a growable line table: typing past each 24-line page
 mallocs another 4-page chunk on the fly (up to 192 lines, freed again as
 you delete back). The window scrolls both ways, with content-aware

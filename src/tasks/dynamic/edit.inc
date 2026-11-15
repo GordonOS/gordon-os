@@ -3704,6 +3704,20 @@ elGrowOk:
     clc
     rts
 
+// --- elTrunc -- the load hit MAX_LINES: say so, then stop reading ----------
+//  Both of the byte loop's "document full" exits come here instead of a bare
+//  rts. A file longer than MAX_LINES is loaded up to the limit and the rest is
+//   NOT read, so the status line has to say which happened: an unannounced
+//  truncation reads as a complete document, and the next save writes the
+//  shortened version back over the original.
+//  Tail-called from the loop, so edShowMsg's rts returns to editLoad's caller.
+elTrunc:
+    lda #<edTruncMsg
+    sta kPtr
+    lda #>edTruncMsg
+    sta kPtr+1
+    jmp edShowMsg
+
 editLoad:
     lda dataPtr                  // srcPtr = filename
     sta srcPtr
@@ -3896,7 +3910,7 @@ elChar:
     lda (dataPtr),y
     cmp #MAX_LINES
     bcc elWrapOk
-    rts                          // doc full -- stop (discard the rest)
+    jmp elTrunc                  // doc full: report it, stop reading
 elWrapOk:
     pha                          // preserve ED_LINES for the increment
     jsr elGrowChunkIfNeeded
@@ -3949,7 +3963,7 @@ elNewline:
     lda (dataPtr),y
     cmp #MAX_LINES
     bcc elNlOk
-    rts                          // doc full -- stop (discard the rest)
+    jmp elTrunc                  // doc full: report it, stop reading
 elNlOk:
     pha                          // preserve ED_LINES for the increment
     jsr elGrowChunkIfNeeded
@@ -4597,6 +4611,7 @@ edNoSpaceMsg: .text "no space"; .byte 0
 edDirFullMsg: .text "dir full"; .byte 0
 edLoadFailMsg: .text "load fail"; .byte 0
 edSaveFailMsg: .text "save fail"; .byte 0
+edTruncMsg: .text "trunc 192"; .byte 0
 
 editUse:  .text "? edit <filename>"; .byte 0
 

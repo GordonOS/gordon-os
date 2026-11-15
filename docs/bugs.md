@@ -5703,7 +5703,7 @@ So: the reported sequence is closed by pool sizing rather than by a fix, and **n
 
 ---
 
-## Bug #107 — A file longer than 192 lines loads **silently truncated** 🟡 OPEN
+## Bug #107 — A file longer than 192 lines loads **silently truncated** ✅ FIXED (2026-11-15)
 
 **Severity:** Medium — it needs a document over `MAX_LINES`, and the loss only
 becomes permanent if the user then saves.
@@ -5733,13 +5733,26 @@ message table has no `truncated` entry; the only related string is
 `edNoSpaceMsg` ("no space"), used by `edNoRoom` for the out-of-chunks path
 (Bug #106).
 
-**Fix (proposed, not applied).** Make the exits signal — set a flag, or return
-with the carry set — and have the **load path** report it on the editor's own
-status line, either with a new `truncated` string or by reusing `edNoRoom`'s
-"no space" with `kWaitKey`, the way Bug #106's chunk failure does. The same two
-exits are also reachable from a mid-session grow, where "document full" is the
-correct wording, so the flag has to be interpreted by whoever called the loop
-rather than printed at the exit.
+**Fix (applied 2026-11-15).** Both exits now `jmp elTrunc` instead of returning bare. `elTrunc`
+loads `kPtr` with the new `edTruncMsg` string and **tail-jumps to `edShowMsg`**, so the message
+is drawn on the status line and `edShowMsg`'s `rts` returns straight to `editLoad`'s caller —
+no carry to plumb through nine exits, and no change to the caller at all. 27 bytes (`jmp` +
+`jmp` + a 13-byte helper + the 10-byte string); `edit` stays at 78 pool pages with 31 pages of
+margin.
+
+The message is the same for both exits because both are only reachable from `editLoad`: a
+mid-session overflow is a different path, `edInsLine`'s refusal, which already reports through
+`edNoRoom`'s "no space".
+
+**Verified in VICE (2026-11-15).** A 200-line, 6,000-byte file was injected into the REU image
+with `tools/reufs.py put`, then `run edit long.txt` showed the status line
+`long.txt    trunc 192 INS 5732` — the message, and a size field that confirms only 5,732 of
+the 6,000 bytes were read. STOP+`q` then left the file **byte-identical** (6,000 bytes) in the
+image, so an unsaved truncation is no longer a silent overwrite waiting to happen.
+
+**The message is the whole fix.** Saving still writes what is on screen, which is the right
+behaviour for an editor with a documented limit — but it is no longer possible to do it
+believing the file was loaded whole.
 
 ---
 
@@ -8680,7 +8693,7 @@ The AM/PM suffix is written in non-sequential order (`timeBuf+9` before `timeBuf
 | #113 | 🔴 High | ✅ Fixed | `spawn`'s ZP-window guard computed `zpBase + zpLen` in 8 bits and tested only the truncated sum against `$f1`, ignoring the carry — a header like `zpBase=$F5, zpLen=$0C` (true sum 257) wrapped below the threshold and was wrongly accepted, letting the per-task ZP save DMA alias and corrupt the kernel's own reserved zero page every context switch |
 | #112 | 🔴 Critical | ✅ Fixed | `dlrNameSetup`'s name-copy loop capped at 11 chars before appending `".tsk\0"` (5 bytes) into the 12-byte `dynNameBuf`, overflowing into `reentFirst`/`reentResIdx`/`dlRegSlot` for any restored dynamic-task name of 8+ characters — `dlRegSlot` going out of range then misdirected every subsequent dyn-table access in that restore; cap lowered to 7 chars so the suffix always fits exactly |
 | #111 | 🔴 High | ✅ Fixed | `run basic` never started after `edit` had run — `dlPreEvict`'s fit test checked a free-page *count* but a load needs a contiguous *run*, so eviction stopped early on fragmented space, placement then failed, and the caller had already been sacrificed with nowhere to report the error; the loop now also probes for a contiguous run and `dlSelfEvictOk` refuses a sacrifice that can't help |
-| #107 | 🟡 Medium | 🟡 Open | `edit` on a file over 192 lines (`MAX_LINES`) loads silently truncated — the load loop's two full-document exits return with no status, so nothing distinguishes "file ended" from "document full," and `STOP+S` then writes the shortened document back over the original |
+| #107 | 🟡 Medium | ✅ Fixed | `edit` on a file over 192 lines (`MAX_LINES`) loaded **silently** truncated, and `STOP+S` then wrote the shortened document back over the original. The load loop's two full-document exits returned with no status, so nothing distinguished "file ended" from "document full". Both now `jmp elTrunc`, which draws `trunc 192` on the status line and tail-jumps to `edShowMsg` — so its `rts` returns straight to `editLoad`'s caller, with no carry to plumb through nine exits. 27 bytes; `edit` stays 78 pages. Verified in VICE with a 200-line, 6,000-byte file: the bar showed `long.txt    trunc 192 INS 5732`, and quitting without saving left the file byte-identical |
 | #59 | 🟡 Medium | 🟡 Open | `kill` after `run basic` loses the shell — the display switches to `basic` on `kill 2` and exiting `basic` lands on a blank screen with the shell never restored; not yet root-caused (victim selection / kill cascade needs a live trace) |
 | #108 | 🔴 High | ✅ Fixed | The shell parked its foreground child slot in `kArg+4` — the global DMA length byte — so `pcFgWait` polled the wrong `taskState` slot after `compact`: an ALIVE leftover (0 or 1) meant the console never woke again, a dead one meant the shell resumed while `compact` was still running (garbage echo). The slot now lives in the shell's instance buffer, and `surfDisplayed` keeps its value in its own byte instead of the kArg block |
 | #93 | 🟡 Medium | ✅ Fixed | A voluntary `yield` was swallowed at priority > 1 — `switchTask`'s per-task slice counter is right for a preemption and wrong for a hand-over, so `semWait`'s "yield and retry" polled with a full context save/restore per retry; `sysYield` now forces `taskSliceLeft = 1` (and page-aligning the kArg shadow paid for it, plus a relocation that gave the core band its headroom back) |
