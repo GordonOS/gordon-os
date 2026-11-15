@@ -528,6 +528,29 @@ rasterCommit:
     bcc rcGo                    // in time -- commit as normal
     rts                         // too late -- leave it all to the next frame
 rcGo:
+    //  NOTHING TO PUBLISH. $D015 is `sprShEnable & sprPubMask` -- the display
+    //  owner's sprite mask, gated on there being an owner at all. When it is 0
+    //  no sprite can be visible, so every register below it is invisible state
+    //  and this frame's ~560 cycles of copying buy nothing: the 16-byte shadow
+    //  copy, the $D010 assembly, the eight colours, the six register pairs and
+    //  the eight pointer bytes all belong to a picture that cannot be drawn.
+    //  That is the state of every task that never enables a sprite.
+    //
+    //  The collision latch is skipped with them, which loses nothing: $D01E and
+    //  $D01F are cleared by READING and accumulate until the next commit reads
+    //  them, and a machine with every sprite disabled cannot set either one.
+    //  The sprite pointers and $D010 heal on the first enabled frame -- the
+    //  commit rewrites all of them before the first visible line.
+    lda sprShEnable
+    and sprPubMask              // only the DISPLAY OWNER's sprites are published
+    sta $d015                   // WARNING: no `and #SPR_ENABLE_MASK` term: at 8 slots
+                                // it is $FF, because every channel has a slot
+                                // behind it.
+                                // Re-add it if a slot is ever dropped -- the assert
+                                // "enable mask is $FF at eight slots" is the tripwire.
+    bne rcPub
+    rts
+rcPub:
     ldx #15                     // $D000-$D00F as ONE 16-byte copy: the shadow
 rcPos:                          // mirrors $D000 interleaved (X0,Y0,...,X7,Y7) so
     lda sprShReg,x              // this is a loop, not 8 unrolled register pairs
@@ -564,13 +587,6 @@ rcCol:
     sta $d027,x
     dex
     bpl rcCol
-    lda sprShEnable
-    and sprPubMask              // only the DISPLAY OWNER's sprites are published
-    sta $d015                   // WARNING: no `and #SPR_ENABLE_MASK` term: at 8 slots
-                                // it is $FF, because every channel has a slot
-                                // behind it.
-                                // Re-add it if a slot is ever dropped -- the assert
-                                // "enable mask is $FF at eight slots" is the tripwire.
     lda sprShYExp;     sta $d017
     lda sprShPriority; sta $d01b
     lda sprShMc;       sta $d01c

@@ -3,7 +3,7 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**290B across 26 pockets**) and asserts the pinned pockets.
+> and their total (**287B across 26 pockets**) and asserts the pinned pockets.
 > A green build makes **234 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
@@ -158,8 +158,8 @@ main.asm  .pc=$0801  →  BASIC loader
 | **scrollScreenSlot + Task Pool** — `$54AB-$C3FF` | | | |
 | `$54AB-$55FF` | 341B | `scrollScreenSlot` | Per-row background slot scroll up; guarded by `.assert scrollSlotEnd <= POOL_BASE`. Its six REU address computations go through `sssAddr`/`sssAddrPlane` |
 | `$5600-$567C` | 125B | | ✓ Free — the below-pool band's spare run, between `scrollScreenSlot` and `rasterCommit` |
-| `$567D-$56FA` | 126B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembled from the per-sprite X-MSB flags, sprite pointers → `$07F8-$07FF`, collision latch, `$D015` masked by `sprPubMask`, the `inc sprFrameCount` clock, and the deadline guard |
-| `$56FB-$56FF` | 5B | | ✓ Free (headroom below the pool) |
+| `$567D-$56FD` | 129B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembled from the per-sprite X-MSB flags, sprite pointers → `$07F8-$07FF`, collision latch, `$D015` masked by `sprPubMask`, the `inc sprFrameCount` clock, and the deadline guard |
+| `$56FE-$56FF` | 2B | | ✓ Free (headroom below the pool) |
 | `$5700-$C3FF` | ~27.25KB | ✓ Free (task pool, 109 × 256B pages) | Dynamic tasks load here (relocatable). `POOL_BASE=$5700`, `POOL_END=$C400` (hard against the `$C400` loader/scroll scratch). BASIC's program RAM is the REU working file; resident tasks are evicted to REU and restored on exit (see kernel.md) |
 | **Font (REU-only)** | | | |
 | (REU FS) | 2KB | `fontRecLo/Mid/Hi` = `$19D7-$19D9` | Bitmap text font — 256 glyphs × 8 bytes (lowercase/uppercase), screencode order. Lives in the REU FS (`gordon.fnt`); the boot task resolves the record, the blitter DMA's glyphs on demand |
@@ -617,7 +617,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$5337-$533F` | 9B | Free — the loader's growth budget: after `sprInstall` + the state mover (`$52DC-$5336`) and before `font-help.inc` at `$5340` |
 | `$54A8-$54AA` | 3B used | `SID_POS_TICK` (2B at `$54A8`, the player's published song jiffies) and `tickCount` (1B at `$54AA`), in that order so the player's block at `$54A2-$54A9` is contiguous (the band holds `pool-top.inc` 101B at `$53F2-$5456`, `cursor-helpers.inc` 43B at `$5457-$5481`, `slot-shadow.inc` 32B at `$5482-$54A1`) |
 | `$5600-$567C` | 125B | Free — the below-pool band's spare run: `scrollScreenSlot` ends at `$55FA` and `rasterCommit` starts at `$567D` |
-| `$56FB-$56FF` | 5B | Free — headroom below the pool, after `rasterCommit` (126B at `$567D-$56FA`) |
+| `$56FE-$56FF` | 2B | Free — headroom below the pool, after `rasterCommit` (129B at `$567D-$56FD`) |
 | `$CA1B-$CA2B` | 17B | `warmClearBufRecs` (kernel/warm-boot-reset.inc) — clears every slot's `taskDataSize`/`taskDataPtrLo/Hi` at a warm reboot, `jsr`-ed from `warmBootReset`. Between the REU DMA routines in `reu.inc` (ending `$CA1A`) and the sprite API (`$CA2F`) |
 | `$CA2C-$CA2E` | 3B | Free — the tail of that run |
 | `$CA6B-$CA8B` | 33B | `printGlyphAt`'s tail (32B, `$CA6B-$CA8A`) + 1B free — the pocket after `kSpriteCollide` + `clearSlotSprite` (59B at `$CA2F-$CA69`, then 1B free at `$CA6A`), below `dlEvMaybeSelf` (13B at `$CA8C-$CA98`). The routine is split here by SIZE and its two halves are joined by a `jmp` |
@@ -630,7 +630,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$ECBD-$ECDB` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router, filling the pocket above `gfx.inc`'s anchor exactly |
 | `$FC39-$FC3E` | 6B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF5` | 13B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`); `$FFF6-$FFF9` free above the library-entry block and `kLibHold` |
-| **Total (fixed headroom)** | **290B across 26 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 126), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
+| **Total (fixed headroom)** | **287B across 26 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
 
 Usable beyond the fixed headroom:
 

@@ -9,7 +9,7 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '290',
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '287',
     [Parameter(Mandatory = $false)][string]$ExpectPockets = '26'
 )
 

@@ -61,7 +61,7 @@ splits a block further where it is useful (the per-file split comes from
 | `$54A2-$54AA` | 9B | `sid.asm` + `slot-shadow.inc` | `SID_POS_BLOCK` (`$54A2-$54A7` next-command offsets, `$54A8-$54A9` song jiffies) then `tickCount` at `$54AA` |
 | `$54AB-$55FF` | 341B | `scroll-slot.inc` | `scrollScreenSlot` |
 | `$5600-$567C` | 125B | — | free — the below-pool band's spare run |
-| `$567D-$56FA` | 126B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembly, sprite pointers, collision latch, `sprPubMask` gate, deadline guard and the `frameCount` increment |
+| `$567D-$56FD` | 129B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembly, sprite pointers, collision latch, `sprPubMask` gate, deadline guard and the `frameCount` increment |
 | `$56FB-$56FF` | 5B | — | free |
 | `$5700-$C3FF` | 27.25KB | — | task pool (109 × 256B pages; tasks grow up, libs come down) |
 | `$C400-$C7FF` | 1KB | `main.asm` | `scratchBuf` |
@@ -147,7 +147,7 @@ splits a block further where it is useful (the per-file split comes from
   `$176F-$1795` (39B, the FS code's tail before `spawnCore`); then the two below
   `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B), and the core's growth
   headroom `$13C4-$13D3` (16B); after those a tail of 9B-or-less remnants, for
-  **290B free in total** across **26 pockets** (`$1844` and `$CA6B` hold
+  **287B free in total** across **26 pockets** (`$1844` and `$CA6B` hold
   `printGlyphAt`) - excluding the 512B of fixed sprite slots (`memory-map.md` has
   the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
   never hold kernel code, and nothing may occupy the core's growth headroom at

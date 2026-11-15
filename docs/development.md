@@ -377,7 +377,7 @@ show up on the machine as a wrong number, a stale binary or a garbled screen.
 
 | Gate | Checks |
 |---|---|
-| `verify-map.ps1` | the kernel `Memory Map` block against the free-run totals `memory-map.md` publishes (290 bytes across 26 pockets). It runs the kernel build itself; `-ExpectTotal`/`-ExpectPockets` override the figures for a change that is meant to move them — update the doc in the same commit |
+| `verify-map.ps1` | the kernel `Memory Map` block against the free-run totals `memory-map.md` publishes (287 bytes across 26 pockets). It runs the kernel build itself; `-ExpectTotal`/`-ExpectPockets` override the figures for a change that is meant to move them — update the doc in the same commit |
 | `verify-jumptable-docs.ps1` | two things: every address in `kernel.md`'s section headings against `jumptable.inc`, and that every entry is headable in **some** doc — `kernel.md`, its owning `lib-*.md`, or an inventory. An entry no document heads is a gap and fails the gate; an entry documented outside `kernel.md` is reported, not failed |
 | `verify-inventory-docs.ps1` | every address quoted in `kernel-call-inventory.md` and `library-call-inventory.md` against `jumptable.inc`, and — through `gen-call-inventory.ps1 -Check` — every call count in them against the tree |
 | `gen-call-inventory.ps1` | the **numbers** in those two documents: totals, per-file breakdowns and the summary figures. `-Check` reports drift and writes nothing; a rewrite touches no prose and no address, and refuses to write if the result is a different shape |
