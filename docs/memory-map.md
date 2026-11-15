@@ -3,7 +3,7 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**620B across 27 pockets**) and asserts the pinned pockets.
+> and their total (**588B across 27 pockets**) and asserts the pinned pockets.
 > A green build makes **234 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
@@ -122,7 +122,7 @@ main.asm  .pc=$0801  →  BASIC loader
 | `$0FC0-$0FC9` | 10B | `main.asm` | `libNameMouse` — the `"mouse.lib"` name string, in the relocation slack above the slot band. `$0FC0` is deliberately not a slot: eight is the VIC's ceiling |
 | `$0FCA-$0FCB` | 2B | | ✓ Free — the rest of that slack |
 | `$0FCC-$13BF` | ~1.0KB | | **Kernel core part 2**: `spawnCore`'s remainder (`$0FCC-$10D8`) + `sysSpawn`/`sysKill` and the rest of the syscall API (hard limit is `reuDirBuf` at `$13D4`, guarded by the `kernelCoreEnd` assert) |
-| `$13C4-$13D3` | 16B | | ✓ Free — the kernel core's growth headroom (`kernelCoreEnd` is at `$13C4`; `main.asm` asserts it stays `<= $13D4`) |
+| `$13C7-$13D3` | 13B | | ✓ Free — the kernel core's growth headroom (`kernelCoreEnd` is at `$13C7`; `main.asm` asserts it stays `<= $13D4`) |
 | `$13D4-$14D3` | 256B | `reuDirBuf` | REU directory page buffer |
 | `$14D4-$176E` | 667B | | REU filesystem code (init, detect, find/dma helpers, `reuLoad`, `reuDmaRange`, `reuLoadAtomic`). With `reuDirBuf` the whole FS block is 923B (`$13D4-$176E`) |
 | `$176F-$1795` | 39B | | ✓ Free — the FS block's tail, between `reuDmaRange`'s `rdrDma` helper and `spawnCore`'s relocated front half |
@@ -604,10 +604,11 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$020D-$021E` | 18B | Free — below the BASIC stub. ⚠️ Never usable for kernel code: KickAssembler writes PRG blocks in ascending address order and VICE's autostart treats the first block as the load base |
 | `$02A1-$02BF` | 31B | Free — the rest of the only free run in pages 2-3 (`$0200-$02A0` is EhBASIC's; see NOT Free); `$02C0-$03FF` is sprite slots 0-4. ⚠️ Below `$0801`, so never usable for kernel code |
 | `$080D-$080F` | 3B | Free — the tail of the BASIC loader block |
-| `$0E0C-$0EFF` | 244B | Free — the core chain's growth room, under the high sprite band (`$0F00-$0FBF` is slots 5-7); the core's last block ends at `$0EFD` |
+| `$0E0C-$0EE2` | 215B | Free — the core chain's growth room, under the high sprite band (`$0F00-$0FBF` is slots 5-7) |
+| `$0EE3-$0EFF` | 29B | `slot-shadow.inc` — `clearKArgShadow`, the spawn path's clear of a recycled slot's kArg shadow (parked at the top of the run so the room below stays one piece) |
 | `$0FC0-$0FC9` | 10B | `libNameMouse` — the `"mouse.lib"` name string, in the relocation slack above the high band |
 | `$0FCA-$0FCB` | 2B | Free — the rest of that slack. `$0FC0` is deliberately **not** a slot: eight is the VIC's ceiling |
-| `$13C4-$13D3` | 16B | Free — the kernel core's growth headroom (the core's linear end is `kernelCoreEnd` at `$13C4`). ⚠️ Never park a routine at the bottom of this run: it is the core's only spare space |
+| `$13C7-$13D3` | 13B | Free — the kernel core's growth headroom (the core's linear end is `kernelCoreEnd` at `$13C7`). ⚠️ Never park a routine at the bottom of this run: it is the core's only spare space |
 | `$176F-$1795` | 39B | Free — the FS code's tail: after `reuDmaRange`'s `rdrDma` helper (`reu-fs.inc` ends at `$176E`) and before `spawnCore`'s relocated front half at `$1796` |
 | `$1844-$186E` | 43B | `printGlyphAt` (40B, `$1844-$186B`) + 4B free — above `sprite.lib`'s name string (`$1839-$1843`, 11B) and `warmBootReset` (28B at `$181D-$1838`), below `taskLo` at `$186F` |
 | `$1C6A-$1C6D` | 4B | Free — the tail of the `$1A1B` stub block, 4B below `sysExit` at `$1C6E` (the block's limit is asserted in `main.asm`) |
@@ -630,7 +631,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$ECBD-$ECDB` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router, filling the pocket above `gfx.inc`'s anchor exactly |
 | `$FBE0-$FC3E` | 95B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF5` | 13B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`); `$FFF6-$FFF9` free above the library-entry block and `kLibHold` |
-| **Total (fixed headroom)** | **620B across 27 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
+| **Total (fixed headroom)** | **588B across 27 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
 
 Usable beyond the fixed headroom:
 

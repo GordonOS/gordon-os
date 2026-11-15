@@ -366,6 +366,9 @@ scZpOk:
     //  free here (the name build in sysThreadSpawn finished before scGo). See
     //  slot-shadow.inc; the routine does no DMA at all when len = 0.
     jsr clearSlotShadows
+    //  And this slot's kArg shadow: the same per-slot-stale shape (see
+    //  slot-shadow.inc). X is still the slot -- the call above preserves it.
+    jsr clearKArgShadow
     //  Zero this slot's SPRITE state. The block is per SLOT and holds the task's
     //  shadow, sheet records and frame indices, so a successor spawned into a
     //  recycled slot must start from nothing rather than inherit the previous

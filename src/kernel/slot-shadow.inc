@@ -22,14 +22,12 @@
 //  WARNING: A task with no declared window (taskZpLen = 0) does NO DMA at all -- the
 //  zero-overhead rule the per-task ZP feature was written with.
 //
-//  WARNING: The kArg shadow (REU_KARG_BASE + slot x 8) has the same per-slot-stale
-//  shape and is deliberately NOT cleared here -- BENIGN, not an oversight: kArg
-//  is a calling-convention scratch that every kernel call documents as
-//  clobbered, so a task must set the fields a call reads before making it, and
-//  nothing may depend on the initial contents. The save/restore gates keep the
-//  block private per task, and a spawn runs SEI'd, so no switch can land between
-//  it and the loader's next kArg read. Clearing it waits on the byte budget: the
-//  fill is ~28B and this pocket has 9B.
+//  The kArg shadow (REU_KARG_BASE + slot x 8) has the same per-slot-stale shape
+//  and is cleared too -- by clearKArgShadow, in this file's second fragment,
+//  because this pocket has no room for a second fill. `kArg` is a
+//  calling-convention scratch that every kernel call documents as clobbered, so
+//  no task may rely on its CONTENTS; the clear is about the STARTING state being
+//  defined rather than whatever the last occupant of the slot was passing.
 //
 //  Called from scSetAlive (syscall.inc) with X = the new task's slot, AFTER
 //  taskZpBase/taskZpLen are stored, so the declared window is known. Runs SEI'd
@@ -69,3 +67,41 @@ cssRts:
 //  lives in `clearSlotSprite` -- in src/kernel/sprite.inc, beside the sprite
 //  code that reads it, because this band is exactly full (see main.asm's
 //  `slot-shadow helpers fit below scrollScreenSlot` assert).
+
+// ==========================================
+//  clearKArgShadow -- zero the kArg shadow a recycled slot would hand down
+// ==========================================
+//  REU_KARG_BASE + slot x 8 is addressed by slot and only ever WRITTEN by
+//  switchTask's save DMA, while its restore gate is unconditional -- so a task
+//  spawned into a used slot has the previous occupant's kArg/kResult block DMA'd
+//  in on its first switch-in. Zeros are the defined start: no kernel call may
+//  read a field it did not set, and a zeroed block makes a caller that leaves
+//  one unset fail visibly instead of inheriting another task's argument.
+//
+//  It sits here, not beside clearSlotShadows, because that pocket has no room for
+//  a second fill: this is the TOP of the core chain's growth run, so whatever is
+//  left of the run below stays one piece.
+//
+//  Called from scSetAlive (syscall.inc) with X = the new task's slot, after the
+//  ZP shadow's clear -- which leaves X live (kReuFillReu preserves it). Runs
+//  SEI'd, as the whole spawn path does, so no IRQ can start a competing DMA.
+//
+//  Clobbers: A, kArg..kArg+5 (kReuFillReu stages its fill byte at kArg+5)
+.pc = $0F00 - 29                // 29B, parked at the TOP so the run below stays whole
+clearKArgShadow:
+    txa
+    asl
+    asl
+    asl                         // slot x 8: the base is page-aligned, so this IS the
+    sta kArg                    //   low byte (MAX_TASKS x 8 <= 256 is asserted)
+    lda #>REU_KARG_BASE
+    sta kArg+1
+    lda #8
+    sta kArg+3                  // length lo
+    lda #0
+    sta kArg+2                  // bank 0 -- the kArg shadow lives in bank 0
+    sta kArg+4                  // length hi
+    jsr kReuFillReu             // A = 0: the fill byte, so eight zeros
+    rts
+.label clearKArgShadowEnd = *
+.assert "clearKArgShadow fits the top of the core growth run", (clearKArgShadowEnd <= $0F00) ? 1 : 0, 1

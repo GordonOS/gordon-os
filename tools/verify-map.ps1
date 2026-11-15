@@ -9,7 +9,7 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '620',
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '588',
     [Parameter(Mandatory = $false)][string]$ExpectPockets = '27'
 )
 
@@ -133,10 +133,9 @@ $hit = @($runs | Where-Object { $_.Range -eq '186B-186E' })
 Check 'pocket 186B-186E :' ($hit.Count -eq 1 -and $hit[0].Size -eq 4) ('{0} bytes (printGlyphAt fills $1844 up to here, below taskLo at $186F)' -f ($hit | ForEach-Object { $_.Size }))
 $hit = @($runs | Where-Object { $_.Range -eq 'CA8B-CA8B' })
 Check 'printGlyphAt tail :' ($hit.Count -eq 1 -and $hit[0].Size -eq 1) ('{0} byte left after printGlyphAt''s tail ($CA6B-$CA8A), before dlEvMaybeSelf' -f ($hit | ForEach-Object { $_.Size }))
-#  The core headroom run (16B, pinned below) is the kernel core's only spare
-#  space: it is the run the next core change takes, and a change larger than it
-#  needs a relocation. main.asm's `kernelCoreEnd <= $13D4` assert fires when it
-#  runs out.
+#  The core headroom run (pinned below) is the kernel core's only spare space: it
+#  is the run the next core change takes, and a change larger than it needs a
+#  relocation. main.asm's `kernelCoreEnd <= $13D4` assert fires when it runs out.
 #  The loader band's own headroom is the region above `dynload.inc` (ends
 #  $529D) and below font-help ($5340): `dlProbeFit` ($52CD-$52DB) and
 #  sprInstall ($52DC-$5336) live there, leaving the free run pinned below.
@@ -165,8 +164,8 @@ Check 'mouse name 0FC0  :' (Occupied 0x0FC0 0x0FC9) 'libNameMouse is 10B in the 
 #  $1C6E, which main.asm asserts as `libStubsEnd <= $1C6E`.
 $hit = @($runs | Where-Object { $_.Range -eq '1C6A-1C6D' })
 Check 'stub tail 1C6A   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 4) ('{0} bytes free between libStubsEnd ($1C6A) and sysExit ($1C6E)' -f ($hit | ForEach-Object { $_.Size }))
-$hit = @($runs | Where-Object { $_.Range -eq '13C4-13D3' })
-Check 'core headroom     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 16) ('{0} bytes free after kernelCoreEnd ($13C4), before reuDirBuf' -f ($hit | ForEach-Object { $_.Size }))
+$hit = @($runs | Where-Object { $_.Range -eq '13C7-13D3' })
+Check 'core headroom     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 13) ('{0} bytes free after kernelCoreEnd ($13C7), before reuDirBuf' -f ($hit | ForEach-Object { $_.Size }))
 #  The below-pool band's spare run: scrollScreenSlot ends at $55FF and sprite.inc
 #  places rasterCommit at $567D, so this gap belongs to neither of them.
 $hit = @($runs | Where-Object { $_.Range -eq '5600-567C' })

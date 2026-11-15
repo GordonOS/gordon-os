@@ -26,12 +26,13 @@ splits a block further where it is useful (the per-file split comes from
 |---|---|---|---|
 | `$0801-$080C` | 12B | `main.asm` | BASIC stub |
 | `$0810-$0E0B` | 1532B | `init.inc` + `scheduler.inc` + `irq.inc` + `syscall.inc` (the dispatcher and its 28B jump table, which ends at `$0EFF`) | Kernel core part 1 |
-| `$0E0C-$0EFF` | 244B | — | free — the core chain's growth room under the high sprite band |
+| `$0E0C-$0EE2` | 215B | — | free — the core chain's growth room under the high sprite band |
+| `$0EE3-$0EFF` | 29B | `slot-shadow.inc` | `clearKArgShadow` — zeroes a recycled slot's kArg shadow when a task is spawned into it |
 | `$0F00-$0FBF` | 192B | (VIC) | **sprite slots 5-7** — three 64B VIC sprite data blocks the VIC fetches pixels from. Not free, and not kernel RAM |
 | `$0FC0-$0FC9` | 10B | `main.asm` | `libNameMouse` -- the `"mouse.lib"` name string (`libNameLo/Hi[8]` points at it), in the relocation slack above the band |
 | `$0FCA-$0FCB` | 2B | — | free — the rest of the band's relocation slack |
 | `$0FCC-$13C1` | ~1.0KB | `syscall.inc` | Kernel core part 2 — `spawnCore`'s remainder (its first 132B sit at `$1796`) + the rest of the syscall layer, ending at `kernelCoreEnd` |
-| `$13C4-$13D3` | 16B | — | free — the kernel core's growth headroom (`kernelCoreEnd` is `$13C4`). ⚠️ Never park a routine at the bottom of it: it is the core band's only spare space, and a change larger than it needs a relocation |
+| `$13C7-$13D3` | 13B | — | free — the kernel core's growth headroom (`kernelCoreEnd` is `$13C7`). ⚠️ Never park a routine at the bottom of it: it is the core band's only spare space, and a change larger than it needs a relocation |
 | `$13D4-$14D3` | 256B | `main.asm` | `reuDirBuf` |
 | `$14D4-$176E` | 667B | `reu-fs.inc` | FS code (assembled after `reuDirBuf`); its tail is the 39B run `$176F-$1795` |
 | `$1796-$181C` | 132B | `syscall.inc` | `spawnCore`'s relocated front half + the 3B `jmp` seam into the byte-identical remainder at `$0FCC` |
@@ -143,17 +144,17 @@ splits a block further where it is useful (the per-file split comes from
   `ffStkXLo`, `ffSeedBit`) — it cannot move without breaking `gfx.lib`.
 - `.inc` files must stay listed in `project-config.json` `sources`.
 - Largest free pockets (largest first, as `tools/verify-map.ps1` reports them):
-  the two chain growth rooms - `$0E0C-$0EFF` (244B, after the kernel core, under
+  the two chain growth rooms - `$0E0C-$0EE2` (215B, after the kernel core, under
   the high sprite band) and `$FBE0-$FC3E` (95B, the tail of the packed code
   chain) - then `$5600-$567C` (125B, between `scrollScreenSlot` and
   `rasterCommit`) and `$176F-$1795` (39B, the FS code's tail before `spawnCore`);
   then the two below `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B), and the
-  core's growth headroom `$13C4-$13D3` (16B); after those a tail of 9B-or-less
-  remnants, for **620B free in total** across **27 pockets** (`$1844` and `$CA6B`
+  core's growth headroom `$13C7-$13D3` (13B); after those a tail of 9B-or-less
+  remnants, for **588B free in total** across **27 pockets** (`$1844` and `$CA6B`
   hold `printGlyphAt`) - excluding the 512B of fixed sprite slots
   (`memory-map.md` has the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
   never hold kernel code, and nothing may occupy the core's growth headroom at
-  `$13C4-$13D3`. `kLibHold` (42B) fills the 43B data-heap pocket at `$1D16`
+  `$13C7-$13D3`. `kLibHold` (42B) fills the 43B data-heap pocket at `$1D16`
   exactly, which is why it was written to size.
   ⚠️ Sprite data can only live in its two bands: `$1000-$1FFF` is char ROM *to the
   VIC* (sprite fetches included), so no address between the bands can hold a

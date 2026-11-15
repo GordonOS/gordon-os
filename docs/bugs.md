@@ -1922,10 +1922,10 @@ It has nowhere to live. The gate is **47B in a 47B pocket with both neighbours p
 
 ---
 
-## Bug #99: The kArg Shadow Is Stale Across Slot Reuse  ⛔ WON'T FIX (benign)
+## Bug #99: The kArg Shadow Is Stale Across Slot Reuse  ✅ FIXED (2026-11-15)
 
-**Severity:** Benign by contract. `kArg` is a calling-convention scratch: every kernel call documents which fields it reads (the caller must set them) and documents the block as clobbered, so nothing may depend on its initial contents. Recorded here for the mechanism and for the day a relocation makes the fix free.
-**Status:** ⛔ **WON'T FIX** — settled 2026-09-13 at the user's direction: it has no failure mode (see *Why it is benign*). This is a decision, not an oversight: do not "fix" it opportunistically, and do not let it block a change that matters.
+**Severity:** Benign by contract. `kArg` is a calling-convention scratch: every kernel call documents which fields it reads (the caller must set them) and documents the block as clobbered, so nothing may depend on its initial contents. Recorded here for the mechanism, for the fix that was written out long before it could be paid for, and for the size accounting that deferred it.
+**Status:** ✅ **FIXED 2026-11-15** — `clearKArgShadow` (29B) in a second fragment of `src/kernel/slot-shadow.inc`, called from `scSetAlive` right after `clearSlotShadows`. The 8B fill had waited on a free run since 2026-09-13; the core chain's growth room is 215B after the switch-path dedupes, so it finally had one.
 **Location:** `src/kernel/scheduler.inc` (both kArg DMA gates) against `src/kernel/kernel.inc` (`REU_KARG_BASE = $9700`)
 
 ### Why it is benign
@@ -1948,27 +1948,36 @@ The **exact same per-slot-stale shape as Bug #97**, one shadow over: `REU_KARG_B
 1. **It is benign by contract.** Every kernel routine that reads `kArg` documents it as an input the caller must set, and every routine that writes it documents it as clobbered — so no task can depend on a stale value, and the dangerous case (a routine reading an input the caller never set) does not exist in the tree. Contrast the ZP window, which is *task state* (pointers!), where inherited bytes are arbitrary misbehaviour.
 2. **No bytes.** The fix is ~28B — `txa / asl / asl / asl` plus `lda #>REU_KARG_BASE` for the aligned address, then a second 8-byte `kReuFillReu` — and the loader band's last free run is down to **9B** after Bug #97. It needs a free run elsewhere: the same relocation decision as Bug #89's generation counter.
 
-### The fix, if it ever becomes a problem
+### The fix as implemented
 
-Extend `clearSlotShadows` (`src/kernel/slot-shadow.inc`) with this **before** the ZP fill (X = slot on entry, and `kReuFillReu` stages its fill byte at `kArg+5`):
+A second fragment of `src/kernel/slot-shadow.inc`, called from `scSetAlive` (syscall.inc) right after `clearSlotShadows` — X is still the new task's slot, because `kReuFillReu` preserves it:
 
 ```asm
-    txa                          ; A = slot
+.pc = $0F00 - 29                // 29B, parked at the TOP so the run below stays whole
+clearKArgShadow:
+    txa
     asl
     asl
-    asl                          ; slot × 8 = the kArg shadow's low byte
-    sta kArg                     ; (the base is page-aligned — see the kArg note
-    lda #>REU_KARG_BASE          ;  in switchTask; MAX_TASKS × 8 ≤ 256 is asserted)
+    asl                         ; slot x 8: the base is page-aligned, so this IS the
+    sta kArg                    ;   low byte (MAX_TASKS x 8 <= 256 is asserted)
+    lda #>REU_KARG_BASE
     sta kArg+1
-    lda #8
-    sta kArg+3                   ; length
     lda #0
-    sta kArg+2                   ; bank 0
-    sta kArg+4                   ; length hi
-    jsr kReuFillReu              ; A = 0 → zeros
+    sta kArg+2                  ; bank 0
+    sta kArg+4                  ; length hi
+    lda #8
+    sta kArg+3                  ; length lo
+    jsr kReuFillReu             ; A = 0 -> zero the eight bytes
+    rts
+.label clearKArgShadowEnd = *
+.assert "clearKArgShadow fits the top of the core growth run", (clearKArgShadowEnd <= $0F00) ? 1 : 0, 1
 ```
 
-…and find it a home first — that is the whole task. The largest free run in the tree is 17B (three of them, at least one earmarked as the gfx scratch's growth room), the 28B run is the core's growth headroom — which the project's own rule reserves for core changes — and `clearSlotShadows`' pocket is down to 9B, so this is the same *relocation decision, not a byte count* that blocks Bug #89's generation counter. **Won't fix unless a symptom appears or a relocation happens for another reason**, at which point it folds in for the cost of the code above.
+**Why it waited.** Every earlier home was blocked: `clearSlotShadows`' own pocket has 9B left with both neighbours pinned, the largest free run in the tree was 17B, and the `$13C4-$13D3` run is the core's reserved growth headroom. The switch-path dedupes of 2026-11-15 grew the core chain's growth room from 5B to 244B, which is the relocation the entry had been waiting for — so the routine took the **top** of that run (leaving one contiguous 215B pocket below it, rather than splitting the run in two) and the call site's 3 bytes came out of the core's own block.
+
+Cost: 29B + 3B; free total 620 → **588B across 27 pockets**, core headroom `$13C7-$13D3` (13B).
+
+**The contract is unchanged:** `kArg` is still a calling-convention scratch that every kernel call documents as clobbered, so no caller may read a field it did not set. What the clear buys is a *defined starting state* — a recycled slot starts from zeros instead of the previous occupant's arguments, so a caller that forgets to set an input fails visibly rather than inheriting another task's value.
 
 ---
 
@@ -2085,7 +2094,7 @@ Zeros are the only correct starting state — the one value that is not some oth
 
 **Cost.** 32B, in the loader band's **last free run** `$5482-$54AA` (41B → 9B) — *not* in the core's growth headroom, which is exactly what that rule protects. Only the `jsr` touches the core band: 3B, headroom 31B → 28B. Free total 250B → **215B** across the same 18 pockets, now pinned by `tools/verify-map.ps1` together with the new `54A2-54AA` pocket. Byte-verified in the PRG: `BD D5 41 8D 00 40 BD ED 41 8D 01 40 BD BD 41 F0 0E 8D 03 40 A9 00 8D 02 40 8D 04 40 20 72 E0 60` at the `$5482` block, and `jsr $5482` at the call site (right after `tya`/`sta taskZpLen,x`).
 
-**Same class, deliberately not fixed — recorded as Bug #99 and settled as benign (2026-09-13):** the **kArg shadow** (`REU_KARG_BASE + slot × 8`) has the identical per-slot-stale shape — a fresh task's first `kArg` is the previous occupant's — and is not cleared because `kArg` is a *calling-convention scratch* that every kernel call documents as clobbered, so no caller may rely on it across calls, and the 8-byte fill does not fit the 41B run. If it is ever wanted it is ~28B more (the aligned `slot × 8` trick plus a second fill) and needs a free run — a relocation decision, the same shape of problem as Bug #89's generation counter.
+**Same class, closed later — Bug #99:** the **kArg shadow** (`REU_KARG_BASE + slot × 8`) had the identical per-slot-stale shape — a fresh task's first `kArg` was the previous occupant's. It was left alone here for the byte budget (the 8-byte fill did not fit this pocket's 9B) and cleared on 2026-11-15 by `clearKArgShadow`, in a second fragment of the same file, once the switch-path dedupes had grown the core chain's growth room. See Bug #99 for the placement and the cost.
 
 **Lesson:** per-slot storage addressed by a *recycled* id is not per-task storage. Anything the kernel keeps "for task N" must be re-initialised when N is handed out, or the successor silently runs on the predecessor's state — and the failure will present as the successor's own bug.
 

@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1270 total call sites** found across `src/`.
+- **1271 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -111,7 +111,7 @@ API surface this document is inventorying.
 | [`kSwitchView`](#kswitchview) | `$E054` | 31 | 18 | Switch the VIC-II display to another task's screen -- changes only what's shown, not where the caller writes. |
 | [`kReuToC64`](#kreutoc64) | `$E069` | 30 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
 | [`kReadKey`](#kreadkey) | `$E018` | 28 | 14 | Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@'). |
-| [`kReuFillReu`](#kreufillreu) | `$E072` | 26 | 11 | Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address). |
+| [`kReuFillReu`](#kreufillreu) | `$E072` | 27 | 11 | Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address). |
 | [`kReuDirPageDma`](#kreudirpagedma) | `$E0B4` | 25 | 2 | DMA one 256-byte page of the REU-FS directory between REU and the bounce buffer (internal helper behind directory scans). |
 | [`kBlinkReset`](#kblinkreset) | `$E0C0` | 24 | 13 | Erase the live blink cursor block at its saved position and force the next blink to redraw at the current cursor -- call after moving the cursor. |
 | [`kLockScreen`](#klockscreen) | `$E045` | 22 | 22 | Acquire the screen semaphore, saving `kPtr`/`kArg` across the wait; yields and retries if another task holds it. Must be paired with `kUnlockScreen`. |
@@ -444,7 +444,7 @@ Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (us
 
 ### kReuFillReu
 
-``$E072`` — **26 calls** across 11 file(s)
+``$E072`` — **27 calls** across 11 file(s)
 
 Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address).
 
@@ -455,11 +455,11 @@ Fill a REU memory region with a constant byte (fixed C64 source address, increme
 | `src/libs/gfx.asm` | 4 |
 | `src/kernel/char-shadow.inc` | 2 |
 | `src/kernel/scroll-slot.inc` | 2 |
+| `src/kernel/slot-shadow.inc` | 2 |
 | `src/kernel/sprite.inc` | 2 |
 | `src/tasks/dynamic/fpdemo.inc` | 2 |
 | `src/tasks/dynamic/gfxdemo.inc` | 2 |
 | `src/kernel/screen-io.inc` | 1 |
-| `src/kernel/slot-shadow.inc` | 1 |
 | `src/tasks/dynamic/ehbasic.asm` | 1 |
 
 ### kReuDirPageDma
