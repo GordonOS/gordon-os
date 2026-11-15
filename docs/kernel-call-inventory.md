@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1265 total call sites** found across `src/`.
+- **1263 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -108,11 +108,11 @@ API surface this document is inventorying.
 | [`kSetTextColor`](#ksettextcolor) | `$E063` | 57 | 4 | Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive). |
 | [`kSetCursor`](#ksetcursor) | `$E009` | 53 | 14 | Set the kernel cursor position (X=col, Y=row). The only screen routine that preserves all registers. |
 | [`kSwitchView`](#kswitchview) | `$E054` | 31 | 18 | Switch the VIC-II display to another task's screen -- changes only what's shown, not where the caller writes. |
-| [`kReuFromC64`](#kreufromc64) | `$E06C` | 29 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
 | [`kReadKey`](#kreadkey) | `$E018` | 28 | 14 | Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@'). |
+| [`kReuFromC64`](#kreufromc64) | `$E06C` | 28 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
 | [`kReuFillReu`](#kreufillreu) | `$E072` | 27 | 11 | Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address). |
-| [`kReuToC64`](#kreutoc64) | `$E069` | 26 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
 | [`kReuDirPageDma`](#kreudirpagedma) | `$E0B4` | 25 | 2 | DMA one 256-byte page of the REU-FS directory between REU and the bounce buffer (internal helper behind directory scans). |
+| [`kReuToC64`](#kreutoc64) | `$E069` | 25 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
 | [`kBlinkReset`](#kblinkreset) | `$E0C0` | 24 | 13 | Erase the live blink cursor block at its saved position and force the next blink to redraw at the current cursor -- call after moving the cursor. |
 | [`kLockScreen`](#klockscreen) | `$E045` | 22 | 22 | Acquire the screen semaphore, saving `kPtr`/`kArg` across the wait; yields and retries if another task holds it. Must be paired with `kUnlockScreen`. |
 | [`kShareScreen`](#ksharescreen) | `$E05A` | 22 | 22 | Attach the current task to another task's surface so both write to the same memory (e.g. an overlay like a clock on the shell). |
@@ -379,27 +379,6 @@ Switch the VIC-II display to another task's screen -- changes only what's shown,
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
-### kReuFromC64
-
-``$E06C`` — **29 calls** across 12 file(s)
-
-DMA-copy a block from C64 memory to the REU (both addresses increment).
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 6 |
-| `src/libs/gfx.asm` | 4 |
-| `src/kernel/scroll-region.inc` | 3 |
-| `src/libs/filesys.asm` | 3 |
-| `src/tasks/dynamic/grpaint.inc` | 3 |
-| `src/kernel/char-shadow.inc` | 2 |
-| `src/kernel/scroll-slot.inc` | 2 |
-| `src/kernel/text-blit.inc` | 2 |
-| `src/kernel/gfx.inc` | 1 |
-| `src/kernel/sprite.inc` | 1 |
-| `src/kernel/syscall.inc` | 1 |
-| `src/tasks/cmd/compact.inc` | 1 |
-
 ### kReadKey
 
 ``$E018`` — **28 calls** across 14 file(s)
@@ -423,6 +402,27 @@ Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (us
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
+### kReuFromC64
+
+``$E06C`` — **28 calls** across 12 file(s)
+
+DMA-copy a block from C64 memory to the REU (both addresses increment).
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 6 |
+| `src/kernel/scroll-region.inc` | 3 |
+| `src/libs/filesys.asm` | 3 |
+| `src/libs/gfx.asm` | 3 |
+| `src/tasks/dynamic/grpaint.inc` | 3 |
+| `src/kernel/char-shadow.inc` | 2 |
+| `src/kernel/scroll-slot.inc` | 2 |
+| `src/kernel/text-blit.inc` | 2 |
+| `src/kernel/gfx.inc` | 1 |
+| `src/kernel/sprite.inc` | 1 |
+| `src/kernel/syscall.inc` | 1 |
+| `src/tasks/cmd/compact.inc` | 1 |
+
 ### kReuFillReu
 
 ``$E072`` — **27 calls** across 11 file(s)
@@ -443,25 +443,6 @@ Fill a REU memory region with a constant byte (fixed C64 source address, increme
 | `src/kernel/screen-io.inc` | 1 |
 | `src/tasks/dynamic/ehbasic.asm` | 1 |
 
-### kReuToC64
-
-``$E069`` — **26 calls** across 10 file(s)
-
-DMA-copy a block from the REU to C64 memory (both addresses increment).
-
-| File | Calls |
-|---|---:|
-| `src/libs/gfx.asm` | 6 |
-| `src/tasks/dynamic/edit.inc` | 6 |
-| `src/tasks/dynamic/grpaint.inc` | 4 |
-| `src/kernel/scroll-region.inc` | 3 |
-| `src/kernel/scroll-slot.inc` | 2 |
-| `src/kernel/char-shadow.inc` | 1 |
-| `src/kernel/gfx.inc` | 1 |
-| `src/kernel/reu-fs.inc` | 1 |
-| `src/kernel/sprite.inc` | 1 |
-| `src/tasks/cmd/compact.inc` | 1 |
-
 ### kReuDirPageDma
 
 ``$E0B4`` — **25 calls** across 2 file(s)
@@ -472,6 +453,25 @@ DMA one 256-byte page of the REU-FS directory between REU and the bounce buffer 
 |---|---:|
 | `src/libs/filesys.asm` | 17 |
 | `src/tasks/cmd/compact.inc` | 8 |
+
+### kReuToC64
+
+``$E069`` — **25 calls** across 10 file(s)
+
+DMA-copy a block from the REU to C64 memory (both addresses increment).
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 6 |
+| `src/libs/gfx.asm` | 5 |
+| `src/tasks/dynamic/grpaint.inc` | 4 |
+| `src/kernel/scroll-region.inc` | 3 |
+| `src/kernel/scroll-slot.inc` | 2 |
+| `src/kernel/char-shadow.inc` | 1 |
+| `src/kernel/gfx.inc` | 1 |
+| `src/kernel/reu-fs.inc` | 1 |
+| `src/kernel/sprite.inc` | 1 |
+| `src/tasks/cmd/compact.inc` | 1 |
 
 ### kBlinkReset
 

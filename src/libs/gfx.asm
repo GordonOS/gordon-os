@@ -334,39 +334,23 @@ gxPimNoHi:
     sta (kPtr),y
     cli; rts
 gxPiMatrixReu:
-    ldx curTask
+    // the matrix byte is addressed from kArg, which holds matrix-$0400 at this point
     lda kArg
     clc; adc #<$2000
-    sta kArg
+    sta kPtr
     lda kArg+1
     adc #>$2000
-    sta kArg+1
-    lda kArg
-    clc; adc taskGfxReuLo,x
-    sta kArg
-    lda kArg+1
-    adc taskGfxReuHi,x
-    sta kArg+1
-    lda taskGfxReuBank,x
-    adc #0
-    sta kArg+2
-    lda #1; sta kArg+3
-    lda #0; sta kArg+4
-    lda #<gfxTemp; sta kPtr
-    lda #>gfxTemp; sta kPtr+1
-    lda #0; sta kArg+5
-    jsr kReuToC64
+    sta kPtr+1
+    lda #$0f                    // read mask unused: the merge below keeps the paper nibble
+    jsr gxReuFetch
     lda gfxTemp
     and #$0F
     sta gfxTemp
     lda gfxColor
     asl; asl; asl; asl
     ora gfxTemp
-    sta gfxTemp
-    lda #<gfxTemp; sta kPtr
-    lda #>gfxTemp; sta kPtr+1
-    lda #0; sta kArg+5
-    jsr kReuFromC64
+    jsr gxReuPut                // gfxTemp -> the slot byte
+    jmp gxPiDone                // cli; rts -- the caller SEI'd
 
 gxPiDone:
     cli; rts
