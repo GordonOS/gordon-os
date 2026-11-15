@@ -1359,6 +1359,9 @@ muTempoBase:
 //  A length that would drop a bit off the end of a byte is refused, which is why
 //  a 32nd at TEM $90 is not a value at all rather than 4.5 jiffies.
 muNoteJiffies:
+    beq muNjBad                  // $00 is not a length: the player skips the event
+                                //   before it reads the class, so nothing this
+                                //   tempo grants is written under that byte
     sta muDurByte
     and #$1c                    // the class, bits 2-4
     lsr
@@ -10476,7 +10479,12 @@ muPowHi:    .byte >10000, >1000, >100, >10, >1
 // The duration columns, W .. 64th, and the class each one wears. The 64th last: it is
 // the shortest, but it is only a length at the tempos whose whole note is a few
 // jiffies.
-muDurTab:   .byte $08, $0c, $10, $14, $18, $1c, $00   // W H Q 8 16 32 64
+muDurTab:   .byte $08, $0c, $10, $14, $18, $1c, $20   // W H Q 8 16 32 64
+//  The 64th arms as $20, not $00: its class bits are already zero, so a bare
+//  $00 is the one byte the player never reads as a length at all (it skips the
+//  event before the class test). The dot bit is what makes the byte non-zero,
+//  and the player ignores the dot for class 0 -- it grants the tempo's own
+//  short length, which is what a 64th is.
 // The DUR field's value cells, by class 0-7 (class 1 is UL/UV, drawn apart).
 muArmCh1:   .byte '6', 0, 'W', 'H', 'Q', '8', '1', '3'
 muArmCh2:   .byte '4', 0, ' ', ' ', ' ', ' ', '6', '2'
