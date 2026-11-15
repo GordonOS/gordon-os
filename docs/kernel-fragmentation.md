@@ -143,13 +143,15 @@ splits a block further where it is useful (the per-file split comes from
   `ffStkXLo`, `ffSeedBit`) — it cannot move without breaking `gfx.lib`.
 - `.inc` files must stay listed in `project-config.json` `sources`.
 - Largest free pockets (largest first, as `tools/verify-map.ps1` reports them):
-  `$5600-$567C` (125B, between `scrollScreenSlot` and `rasterCommit`) and
-  `$176F-$1795` (39B, the FS code's tail before `spawnCore`); then the two below
-  `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B), and the core's growth
-  headroom `$13C4-$13D3` (16B); after those a tail of 9B-or-less remnants, for
-  **620B free in total** across **26 pockets** (`$1844` and `$CA6B` hold
-  `printGlyphAt`) - excluding the 512B of fixed sprite slots (`memory-map.md` has
-  the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
+  the two chain growth rooms - `$0E0C-$0EFF` (244B, after the kernel core, under
+  the high sprite band) and `$FBE0-$FC3E` (95B, the tail of the packed code
+  chain) - then `$5600-$567C` (125B, between `scrollScreenSlot` and
+  `rasterCommit`) and `$176F-$1795` (39B, the FS code's tail before `spawnCore`);
+  then the two below `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B), and the
+  core's growth headroom `$13C4-$13D3` (16B); after those a tail of 9B-or-less
+  remnants, for **620B free in total** across **27 pockets** (`$1844` and `$CA6B`
+  hold `printGlyphAt`) - excluding the 512B of fixed sprite slots
+  (`memory-map.md` has the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
   never hold kernel code, and nothing may occupy the core's growth headroom at
   `$13C4-$13D3`. `kLibHold` (42B) fills the 43B data-heap pocket at `$1D16`
   exactly, which is why it was written to size.
