@@ -5673,7 +5673,7 @@ The file described REU as "auto-detected" with a software fallback copy path (`s
 
 ## Bug #59 — `kill` after `run basic` loses the shell; exiting basic lands on an empty screen 🟡 OPEN
 
-**Status:** 🟡 Reported (2026-08-26), not yet root-caused
+**Status:** 🟡 Reported (2026-08-26), not root-caused — and as of 2026-11-15 the repro below **cannot be run**: `basic` and the shell no longer co-exist, so there is no shell prompt from which to type `kill 2`. The reachable variants of the same class (a display-owning task exits) were verified working. See *Repro status*.
 
 **Location:** eviction/restore + focus transfer (`src/kernel/dynload.inc` `dlEvict`/`dlRestore`, `src/kernel/syscall.inc` `transferFocusAway`), `kill.com`
 
@@ -5687,6 +5687,19 @@ The file described REU as "auto-detected" with a software fallback copy path (`s
 **Observed facts to reconcile:** basic is still ALIVE and interactive after `kill 2` (so the kill did not reap it), yet the display left the shell — and once basic exits, `transferFocusAway` finds no alive task with a surface and blanks the display (its `cmp #TA_ALIVE` skips swapped victims). The shell therefore ended up either dead or TA_SWAPPED without a later restore. With 104 pool pages and basic ≈57+fswrite 6+fp 11+RAM 4, shell ≈21, `kill.com` (3) should fit without eviction — so the victim selection / kill cascade path needs a live trace (breadcrumbs or monitor) to explain which path killed/evicted the shell. `dlRestore`'s `dlrNone` focus hand-back (X=$FF) only acts when `kbFocus == $FF`, which is satisfied by the blank, so a restore failure would have to be in the reload itself (e.g. file re-find) or the shell being DEAD rather than SWAPPED.
 
 **Workaround:** don't `kill` basic while the pool is tight; `exit` basic instead (its `sysExit` frees pages and `dynFree`→`dlRestore` brings evicted tasks back).
+
+### Repro status (2026-11-15) — steps 2-3 are unreachable, the class is not
+
+The repro assumed basic and the shell can be resident together. They cannot: `shell` is **32** pool pages and `basic` is **109** of 109 (`tools/check-pool-budget.ps1`), so `run basic` **swaps the shell out** — measured: after `run basic`, `taskState[1]` is `04` (`TA_SWAPPED`), BASIC is `TA_ALIVE` in its own slot with `screenOwner = $FF`, and `kbFocus` is BASIC. With the shell swapped there is no prompt to type `ps` or `kill 2` at, so the sequence cannot start.
+
+What can still be reached is the shape underneath it — a task that owns the display exits — and both sub-cases were verified on 2026-11-15:
+
+* **with the shell swapped out** (`run basic`, then `exit` inside BASIC, three cycles): shell `04 → 01`, `kbFocus → 01`, `$D011` back to text, the shell's screen contents intact, and `pool` afterwards `22 used / 87 free` — no leak. The slot BASIC vacated is the recycled slot the spawn path clears, so this also exercises `clearSlotShadows`/`clearKArgShadow`.
+* **with the shell still resident** (`run edit boot.bat`, then STOP+`q`): the editor's `edGiveDisplay` → `kFreeScreen` order hands the display back, `kbFocus` returns to the shell, `$D011` to text, the shell's history intact, `pool` `32 used / 77 free` (filesys loaded by the command, nothing leaked).
+
+Also checked while here, because it would be the other way to strand the focus: **eviction never writes `kbFocus`** (its only writers are `init`, `switchView` and `transferFocusAway`), but it cannot steal the focus either — the spawner is protected from self-eviction (`dlNoSelfEvict`) and the victim is a third task, so the focus holder is always either the caller or the newly spawned task.
+
+So: the reported sequence is closed by pool sizing rather than by a fix, and **nothing here confirms or refutes the original mechanism**. If `basic` ever gets a smaller footprint, or the pool grows, re-run steps 2-5 before assuming this is still absent.
 
 ---
 
