@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1269 total call sites** found across `src/`.
+- **1270 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -121,8 +121,8 @@ API surface this document is inventorying.
 | [`kEnableCursor`](#kenablecursor) | `$E012` | 19 | 7 | Enable the blinking block cursor for the running task; persisted to the surface's matrix tail so it survives context switches. |
 | [`kReuFillC64`](#kreufillc64) | `$E06F` | 19 | 7 | Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address). |
 | [`kDisableCursor`](#kdisablecursor) | `$E015` | 18 | 16 | Disable the blinking block cursor for the running task; persisted to the surface's matrix tail. |
+| [`kSurfDisplayed`](#ksurfdisplayed) | `$E0BD` | 16 | 4 | Report whether a task's surface is the one currently shown on the VIC framebuffer, vs sitting in its REU slot in the background. |
 | [`kRandom`](#krandom) | `$E033` | 15 | 4 | Generate a pseudo-random byte from a Galois LFSR (`randomSeed`). |
-| [`kSurfDisplayed`](#ksurfdisplayed) | `$E0BD` | 15 | 4 | Report whether a task's surface is the one currently shown on the VIC framebuffer, vs sitting in its REU slot in the background. |
 | [`kClearScreen`](#kclearscreen) | `$E000` | 14 | 6 | Fill the screen with spaces and home the cursor to (0,0). |
 | [`kGetCursor`](#kgetcursor) | `$E03F` | 14 | 8 | Read the current kernel cursor position into X (col) and Y (row). |
 | [`kBlitCharRev`](#kblitcharrev) | `$E0F0` | 12 | 2 | Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0. |
@@ -670,6 +670,19 @@ Disable the blinking block cursor for the running task; persisted to the surface
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
+### kSurfDisplayed
+
+``$E0BD`` — **16 calls** across 4 file(s)
+
+Report whether a task's surface is the one currently shown on the VIC framebuffer, vs sitting in its REU slot in the background.
+
+| File | Calls |
+|---|---:|
+| `src/libs/gfx.asm` | 13 |
+| `src/tasks/dynamic/clock.inc` | 1 |
+| `src/tasks/dynamic/edit.inc` | 1 |
+| `src/tasks/dynamic/granim.inc` | 1 |
+
 ### kRandom
 
 ``$E033`` — **15 calls** across 4 file(s)
@@ -682,19 +695,6 @@ Generate a pseudo-random byte from a Galois LFSR (`randomSeed`).
 | `src/tasks/dynamic/spirog.inc` | 3 |
 | `src/tasks/dynamic/gortris.inc` | 2 |
 | `src/tasks/dynamic/maze.inc` | 1 |
-
-### kSurfDisplayed
-
-``$E0BD`` — **15 calls** across 4 file(s)
-
-Report whether a task's surface is the one currently shown on the VIC framebuffer, vs sitting in its REU slot in the background.
-
-| File | Calls |
-|---|---:|
-| `src/libs/gfx.asm` | 12 |
-| `src/tasks/dynamic/clock.inc` | 1 |
-| `src/tasks/dynamic/edit.inc` | 1 |
-| `src/tasks/dynamic/granim.inc` | 1 |
 
 ### kClearScreen
 

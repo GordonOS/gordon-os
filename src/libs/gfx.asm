@@ -771,111 +771,279 @@ gxPixReuWr:
     jsr kReuFromC64
     rts
 
+// --- gxBoxArgs -- unpack the box call into the shared kBox fields ---
+//  Input: A = colour, kArg/kArg+1 = x, kArg+2 = y, kArg+4/+5 = w, kArg+6 = h
+//  Output: kBoxX1Lo/Hi = x, kBoxY1 = y, kBoxX2Lo/Hi = x+w-1, kBoxY2 = y+h-1
+//          (both last, inclusive), gfxColor = colour
+//  Clobbers A. Caller holds SEI; both walking routines use kBoxY1 as their row
+//  counter, so it is consumed from the first row onward.
+gxBoxArgs:
+    sta gfxColor
+    lda kArg;   sta kBoxX1Lo
+    lda kArg+1; sta kBoxX1Hi
+    lda kArg+2; sta kBoxY1
+    lda kArg+4; sec; sbc #1; sta kBoxX2Lo
+    lda kArg+5; sbc #0; sta kBoxX2Hi
+    clc
+    lda kBoxX2Lo; adc kBoxX1Lo; sta kBoxX2Lo
+    lda kBoxX2Hi; adc kBoxX1Hi; sta kBoxX2Hi
+    lda kArg+6; sec; sbc #1; sta kBoxY2
+    clc; adc kBoxY1; sta kBoxY2
+    rts
+
 // ==========================================
 //  gxBox -- kBox: rectangle outline (calls gxPix)
 // ==========================================
 gxBox:
     sei
-    sta gfxColor
-    lda kArg;   sta kBoxX1Lo
-    lda kArg+1; sta kBoxX1Hi
-    lda kArg+2; sta kBoxY1
-    lda kArg+4; sec; sbc #1; sta kBoxX2Lo
-    lda kArg+5; sbc #0; sta kBoxX2Hi
-    clc
-    lda kBoxX2Lo; adc kBoxX1Lo; sta kBoxX2Lo
-    lda kBoxX2Hi; adc kBoxX1Hi; sta kBoxX2Hi
-    lda kArg+6; sec; sbc #1; sta kBoxY2
-    clc; adc kBoxY1; sta kBoxY2
-
+    jsr gxBoxArgs
+    lda kBoxY1
+    jsr gxSpanY
+    lda kBoxY2
+    jsr gxSpanY
     lda kBoxX1Lo; sta gfxCol
     lda kBoxX1Hi; sta gfxColHi
-gxBoxHTop:
-    lda gfxColHi; cmp kBoxX2Hi
-    bcc gxBoxHTopPlot; bne gxBoxHTopDone
-    lda gfxCol; cmp kBoxX2Lo
-    bcc gxBoxHTopPlot; beq gxBoxHTopPlot
-    jmp gxBoxHTopDone
-gxBoxHTopPlot:
-    ldx gfxCol; lda gfxColHi; cmp #1
-    ldy kBoxY1; jsr gxPix
-    inc gfxCol; bne gxBoxHTop
-    inc gfxColHi; jmp gxBoxHTop
-gxBoxHTopDone:
-
-    lda kBoxX1Lo; sta gfxCol
-    lda kBoxX1Hi; sta gfxColHi
-gxBoxHBot:
-    lda gfxColHi; cmp kBoxX2Hi
-    bcc gxBoxHBotPlot; bne gxBoxHBotDone
-    lda gfxCol; cmp kBoxX2Lo
-    bcc gxBoxHBotPlot; beq gxBoxHBotPlot
-    jmp gxBoxHBotDone
-gxBoxHBotPlot:
-    ldx gfxCol; lda gfxColHi; cmp #1
-    ldy kBoxY2; jsr gxPix
-    inc gfxCol; bne gxBoxHBot
-    inc gfxColHi; jmp gxBoxHBot
-gxBoxHBotDone:
-
-    lda kBoxY1; clc; adc #1; sta gfxRow
-gxBoxVLeft:
-    lda gfxRow; cmp kBoxY2
-    bcs gxBoxVLeftDone
-    ldx kBoxX1Lo; lda kBoxX1Hi; cmp #1
-    ldy gfxRow; jsr gxPix
-    inc gfxRow; jmp gxBoxVLeft
-gxBoxVLeftDone:
-
-    lda kBoxY1; clc; adc #1; sta gfxRow
-gxBoxVRight:
-    lda gfxRow; cmp kBoxY2
-    bcs gxBoxVRightDone
-    ldx kBoxX2Lo; lda kBoxX2Hi; cmp #1
-    ldy gfxRow; jsr gxPix
-    inc gfxRow; jmp gxBoxVRight
-gxBoxVRightDone:
-
+    jsr gxVSpan
+    lda kBoxX2Lo; sta gfxCol
+    lda kBoxX2Hi; sta gfxColHi
+    jsr gxVSpan
     cli; rts
+
+// --- gxSpanY -- plot one whole row of the box, the row in A ---
+//  The box's edges are two such rows; the fill walks them all.
+gxSpanY:
+    sta gfxRow
+    lda kBoxX1Lo; sta gfxCol
+    lda kBoxX1Hi; sta gfxColHi
+gxSpanYRun:
+    lda gfxColHi; cmp kBoxX2Hi
+    bcc gxSpanYPlot; bne gxSpanYDone
+    lda gfxCol; cmp kBoxX2Lo
+    bcc gxSpanYPlot; beq gxSpanYPlot
+    jmp gxSpanYDone
+gxSpanYPlot:
+    ldx gfxCol; lda gfxColHi; cmp #1
+    ldy gfxRow; jsr gxPix
+    inc gfxCol; bne gxSpanYRun
+    inc gfxColHi; jmp gxSpanYRun
+gxSpanYDone:
+    rts
+
+// --- gxVSpan -- plot the box's column gfxCol/Hi, inside the two edge rows ---
+gxVSpan:
+    lda kBoxY1; clc; adc #1; sta gfxRow
+gxVSpanRun:
+    lda gfxRow; cmp kBoxY2
+    bcs gxVSpanDone
+    ldx gfxCol; lda gfxColHi; cmp #1
+    ldy gfxRow; jsr gxPix
+    inc gfxRow; jmp gxVSpanRun
+gxVSpanDone:
+    rts
 
 // ==========================================
 //  gxFillBox -- kFillBox: filled rectangle
 // ==========================================
+//  A displayed hires surface is filled a whole BYTE at a time: one hires byte is
+//  eight pixels of one raster line, so a row costs at most 40 stores instead of up
+//  to 320 per-pixel writes, and only the two end bytes need a pixel mask (the ends
+//  compose, so a one-byte row takes both masks in turn).
+//  Every other surface keeps the per-pixel walk: a background fill is a
+//  read-modify-write DMA per pixel, MC has no byte-wide pixel value, a text surface
+//  drops every pixel, and the XOR op is a preview that never fills.
 gxFillBox:
     sei
-    sta gfxColor
-    lda kArg;   sta kBoxX1Lo
-    lda kArg+1; sta kBoxX1Hi
-    lda kArg+2; sta kBoxY1
-    lda kArg+4; sec; sbc #1; sta kBoxX2Lo
-    lda kArg+5; sbc #0; sta kBoxX2Hi
-    clc
-    lda kBoxX2Lo; adc kBoxX1Lo; sta kBoxX2Lo
-    lda kBoxX2Hi; adc kBoxX1Hi; sta kBoxX2Hi
-    lda kArg+6; sec; sbc #1; sta kBoxY2
-    clc; adc kBoxY1; sta kBoxY2
-
-gxFbY:
-    lda kBoxX1Lo; sta gfxCol
-    lda kBoxX1Hi; sta gfxColHi
-gxFbX:
-    lda gfxColHi; cmp kBoxX2Hi
-    bcc gxFbXPlot; bne gxFbXRowDone
-    lda gfxCol; cmp kBoxX2Lo
-    bcc gxFbXPlot; beq gxFbXPlot
-    jmp gxFbXRowDone
-gxFbXPlot:
-    ldx gfxCol; lda gfxColHi; cmp #1
-    ldy kBoxY1; jsr gxPix
-    inc gfxCol; bne gxFbX
-    inc gfxColHi; jmp gxFbX
-gxFbXRowDone:
-
-    inc kBoxY1
-    lda kBoxY1; cmp kBoxY2
-    bcc gxFbY
-    beq gxFbY
+    jsr gxBoxArgs
+    jsr gxFbTry             // C=1: drawn by the span fill
+    bcs gxFbDone
+    jsr gxFbPix
+gxFbDone:
     cli; rts
+
+// --- gxFbTry -- the span fill ---
+//  Returns C=1 when the box was drawn, C=0 to ask for the pixel walk.
+//  The span walk writes byte addresses directly, so it takes ONLY a box wholly
+//  inside the canvas: a clipped edge would carry into the next cell block.
+gxFbTry:
+    lda gfxOp
+    bne gxFbTryNo
+    lda kBoxY1
+    cmp kBoxY2
+    beq gxFbTryY
+    bcs gxFbTryNo           // h wrapped: the last row is above the first
+gxFbTryY:
+    lda kBoxY2
+    cmp #200
+    bcs gxFbTryNo
+    lda kBoxX2Hi
+    beq gxFbTryX
+    cmp #1
+    bne gxFbTryNo
+    lda kBoxX2Lo
+    cmp #64
+    bcs gxFbTryNo
+gxFbTryX:
+    lda dispIsBitmap
+    beq gxFbTryNo
+    ldx curTask
+    lda screenKind,x
+    cmp #BMPMODE_STD
+    bne gxFbTryNo
+    jsr kSurfDisplayed
+    bcs gxFbGo
+gxFbTryNo:
+    clc
+    rts
+
+gxFbGo:
+    // whole-byte columns: B1 = x1's own byte, End = x2's own byte
+    lda kBoxX1Lo
+    and #$f8
+    sta gxFbB1
+    lda kBoxX1Hi
+    sta gxFbB1+1
+    lda kBoxX2Lo
+    and #$f8
+    sta gxFbEnd
+    lda kBoxX2Hi
+    sta gxFbEnd+1
+    // N1 = (End - B1) / 8 = the number of 8-byte steps from the first byte to the last
+    sec
+    lda gxFbEnd
+    sbc gxFbB1
+    sta gfxTemp
+    lda gxFbEnd+1
+    sbc gxFbB1+1
+    sta gxFbBase
+    lsr gxFbBase; ror gfxTemp
+    lsr gxFbBase; ror gfxTemp
+    lsr gxFbBase; ror gfxTemp
+    lda gfxTemp
+    sta gxFbN1
+    // the fill byte, and the two end masks from the pixel's bit in its cell
+    lda #0
+    sta gxFbFill
+    lda gfxColor
+    beq gxFbMasked
+    lda #$ff
+    sta gxFbFill
+gxFbMasked:
+    lda kBoxX1Lo
+    and #7
+    tax
+    lda gxFbMaskTab,x
+    sta gxFbMaskL
+    lda kBoxX2Lo
+    and #7
+    tax
+    inx
+    lda gxFbMaskTab,x
+    eor #$ff
+    sta gxFbMaskR
+
+gxFbRow:
+    // kPtr = gfxRowLut[y>>3] + (y&7) + B1
+    lda kBoxY1
+    lsr; lsr; lsr
+    tay
+    lda gfxRowLutLo,y
+    sta gxFbBase
+    lda gfxRowLutHi,y
+    sta gxFbBase+1
+    lda kBoxY1
+    and #7
+    clc
+    adc gxFbBase
+    sta gxFbBase
+    bcc gxFbRowPtr
+    inc gxFbBase+1
+gxFbRowPtr:
+    lda gxFbBase
+    clc
+    adc gxFbB1
+    sta kPtr
+    lda gxFbBase+1
+    adc gxFbB1+1
+    sta kPtr+1
+    ldx gxFbN1
+    beq gxFbRowOne
+    lda gxFbMaskL
+    jsr gxFbPutA
+gxFbRowStep:
+    lda kPtr
+    clc
+    adc #8
+    sta kPtr
+    bcc gxFbRowStepNo
+    inc kPtr+1
+gxFbRowStepNo:
+    dex
+    beq gxFbRowLast
+    lda #$ff
+    jsr gxFbPutA
+    jmp gxFbRowStep
+gxFbRowLast:
+    lda gxFbMaskR
+    jsr gxFbPutA
+    jmp gxFbRowNext
+gxFbRowOne:
+    // the whole row inside one byte: the two end masks INTERSECT there
+    lda gxFbMaskL
+    and gxFbMaskR
+    jsr gxFbPutA
+gxFbRowNext:
+    inc kBoxY1
+    lda kBoxY1
+    cmp kBoxY2
+    bcc gxFbRow
+    beq gxFbRow
+    sec
+    rts
+
+// --- gxFbPutA -- paint the byte at kPtr in the pixels A selects ---
+//  A = pixel mask within the byte ($FF = the whole byte). gxFbFill is the fill
+//  byte: a masked paint is (old AND ~A) OR (fill AND A), so clearing is the same
+//  code as setting. A row that fits in one byte takes the INTERSECTION of the two
+//  end masks, because both ends of the box are in that byte.
+//  Clobbers A, Y, gfxTemp. Preserves X (the row walk counts in it).
+gxFbPutA:
+    sta gfxTemp
+    eor #$ff
+    sta gxFbKeep
+    lda gfxTemp
+    and gxFbFill
+    sta gxFbMark
+    ldy #0
+    lda (kPtr),y
+    and gxFbKeep
+    ora gxFbMark
+    sta (kPtr),y
+    rts
+
+// --- the per-pixel walk: MC, text and background surfaces ---
+gxFbPix:
+    lda kBoxY1
+    jsr gxSpanY
+    inc kBoxY1
+    lda kBoxY1
+    cmp kBoxY2
+    bcc gxFbPix
+    beq gxFbPix
+    rts
+
+// --- span-fill state (library-local; every path that uses it holds SEI) ---
+//  gxFbMaskTab[n] = the pixels from cell offset n to the end of the byte, so the
+//  left end needs an entry and the right end its complement one step along.
+gxFbMaskTab: .byte $ff, $7f, $3f, $1f, $0f, $07, $03, $01, $00
+gxFbFill:    .byte 0
+gxFbMark:    .byte 0
+gxFbKeep:    .byte 0
+gxFbMaskL:   .byte 0
+gxFbMaskR:   .byte 0
+gxFbN1:      .byte 0
+gxFbB1:      .byte 0, 0
+gxFbEnd:     .byte 0, 0
+gxFbBase:    .byte 0, 0
 
 // ==========================================
 //  gxCircle -- kCircle: midpoint circle, 8-way symmetry (hires)

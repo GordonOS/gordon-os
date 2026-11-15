@@ -126,6 +126,15 @@ jsr kLine
 
 - **Input / output / clobbers:** identical to `kBox`, but the interior is
   filled.
+- **Notes:** a **displayed hires** surface is filled a whole byte at a time:
+  one hires byte is eight pixels of a raster line, so a row costs at most 40
+  stores and only the byte at each end of the row needs a pixel mask. Anything
+  else takes the per-pixel walk — a background surface (a read-modify-write
+  DMA per pixel), MC (no byte-wide pixel value), a text surface (every pixel is
+  dropped) and the XOR op (a preview never fills). The fast path needs the box
+  wholly on the canvas; one that runs over an edge falls back, so it clips
+  exactly as the pixel walk does. Holds SEI for the whole fill either way;
+  pixels only, the matrix is not written.
 
 ### `kClearBitmap` — clear the task's bitmap
 

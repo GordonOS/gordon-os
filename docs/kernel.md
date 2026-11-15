@@ -2397,10 +2397,15 @@ Bresenham line / rectangle outline / filled rectangle. Arguments in `kArg`
 (`kLine`: x1 lo/hi, y1, x2 lo/hi, y2; `kBox`/`kFillBox`: x lo/hi, y, w lo/hi,
 h), color in A (hires: 0=clear, ≠0=set; MC: 0-3 = 2-bit value). Pixels go to the
 framebuffer when the surface is displayed and to the REU slot otherwise.
-**Caveat:** these
-routines hold SEI for the whole loop — a background `kFillBox` blocks the
-scheduler for the DMA duration (2 DMAs per pixel). Clobbers: A, X, Y, kPtr,
-kArg.
+**Caveat:** both hold SEI for the whole loop. `kBox` walks its perimeter pixel
+by pixel. `kFillBox` fills a displayed hires surface a **whole byte at a
+time** -- one hires byte is eight pixels of a raster line, so a row costs at
+most 40 stores and only the byte at each end of the row needs a pixel mask --
+and falls back to the pixel walk for a background surface (a
+read-modify-write DMA per pixel), MC, a text surface, the XOR op, or a box that
+runs over a canvas edge. A background `kFillBox` over the whole canvas is
+therefore a scheduler stall measured in milliseconds, where a per-pixel walk is
+measured in seconds. Clobbers: A, X, Y, kPtr, kArg.
 
 ### `kCircle` `$E0CF`
 
