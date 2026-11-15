@@ -112,11 +112,29 @@ overwrites host files of the same name.
 
 Exit codes: `0` done, `1` refused (with the reason on stderr).
 
-### Names longer than a slot
+### Names the filesystem cannot hold
 
-A directory entry holds **11 characters including the dot and the extension**, so
-a longer host name is cut — and it gives way in the **base**, never in the
-extension, because the extension is what tells the OS how to treat the file:
+Two things happen to a host name on the way in, and both are reported — never
+done silently.
+
+**Characters with no key are dropped.** A name is typed on the machine as often
+as it is typed here: `load` takes it, `dir` shows it, and the font draws it
+straight from the directory bytes. So a character the C64 keyboard cannot type
+has no glyph either — an underscore is stored as screen code `$5F`, which
+`charsets/gordon.fnt` draws as a checkerboard. It is removed:
+
+| Host file | Stored as | Why |
+|---|---|---|
+| `Axel_F.mus` | `AxelF.mus` | `_` has no key on the machine |
+| `A@B.bin` | `AB.bin` | `@` is screen code `$00` — the directory's "no name" |
+| `weird~name.bin` | `weirdna.bin` | `~` has no key — then the cut below |
+
+Everything a C64 key **can** produce stays: the letters, the digits, space, and
+`! " # $ % & ' ( ) * + , - . / : ; < = > ? [ ] ^`.
+
+**The rest is cut to the slot.** A directory entry holds **11 characters
+including the dot and the extension**, so the **base** gives way, never the
+extension — that is what tells the OS how to treat the file:
 
 | Host file | Stored as |
 |---|---|
@@ -130,12 +148,13 @@ extension, and the fourth is a name whose extension alone would leave no base at
 all, so it is cut whole. A leading dot or a dot with nothing after it protects
 nothing either — those names are cut at eleven too.
 
-Nothing has to be renamed on your computer first, and nothing is silent about
-it: the window logs `fitted name: 'alongname.xxx' -> 'alongna.xxx'`, `put` prints
-`put 'alongname.xxx' as 'alongna.xxx'`, and `import` prints one `fitted` line per
-name it shortened. Two host files can fit to the same stored name, and then the
-second replaces the first — the window asks first, the command line (which
-replaces silently) does not.
+Nothing has to be renamed on your computer first: the window logs the step and
+the result (`removed '_': no C64 keyboard key types it`, then
+`'Axel_F.mus' -> 'AxelF.mus'`), `put` prints the same before
+`put 'Axel_F.mus' as 'AxelF.mus'`, and `import` does it per file. A name with
+nothing typeable left in it (`___`) is refused. Two host files can end up with
+the same stored name, and then the second replaces the first — the window asks
+first, the command line (which replaces silently) does not.
 
 ### From Python
 
@@ -155,8 +174,10 @@ fs.save()                          # refused while VICE runs unless force=True
 `fs.next_free`, `fs.capacity` and `fs.free` are the header's figures;
 `fs.export_to(dir)` and `fs.import_from(dir)` are the bulk operations — the
 latter returns `[(host name, name as stored, bytes)]`, so the two differ exactly
-where a name was fitted. `reufs.fit_name(name)` is the fitting rule on its own,
-for a caller that wants to show the name before it goes in.
+where a name was cleaned or cut. `reufs.store_name(name)` is what a transfer will
+store, `reufs.clean_name` and `reufs.fit_name` are the two steps on their own,
+and `reufs.name_report(name)` returns the lines explaining them — for a caller
+that wants to show the result before it goes in.
 
 Every refusal raises `reufs.FsError`, whose `code` matches the kernel's
 `kReuSave` error where one exists (`0` duplicate, `1` no space, `2` directory
@@ -170,7 +191,7 @@ the host is one the machine could have written itself.
 
 | Rule | Detail |
 |---|---|
-| **Name** | 1–11 characters, **extension included**: `musedit.tsk` is exactly eleven. A longer host name is **cut to fit with its extension kept** — `alongname.xxx` stores as `alongna.xxx`, `alongnamefile` as `alongnamefi` — so nothing has to be renamed before it goes in. Stored in **screen codes**, not ASCII — `a`–`z` are `$01`–`$1A`, everything else is its own byte, which is why `musedit.tsk` reads `0d 15 13 05 04 09 14 2e 14 13 0b` in the directory. Printable ASCII only. Case-sensitive. |
+| **Name** | 1–11 characters, **extension included**: `musedit.tsk` is exactly eleven. Only characters a C64 keyboard can type are kept — a character with no key has no glyph either, so `Axel_F.mus` stores as `AxelF.mus` — and a longer name is **cut to fit with its extension kept** (`alongname.xxx` → `alongna.xxx`). Stored in **screen codes**, not ASCII — `a`–`z` are `$01`–`$1A`, everything else is its own byte, which is why `musedit.tsk` reads `0d 15 13 05 04 09 14 2e 14 13 0b` in the directory. Case-sensitive. |
 | **No empty files** | Size 0 *is* the kernel's empty-slot marker, so a zero-length file cannot exist. |
 | **No duplicates** | A live name appears once. Replace means delete-then-add. |
 | **Where data goes** | Appended at `nextFreeOffset`, which then advances by the size. The first slot whose two size bytes are zero is used. |
@@ -192,6 +213,7 @@ cannot leave a half-written directory.
 | `... is not a GordonOS filesystem (no $A5 signature ...)` | The image was never formatted, or it is not a GordonOS image | `format` on the machine, or seed one with `tools/build-reu.ps1` |
 | `no such file in the image: X` | The name does not match exactly — **including the extension** | `ls` and copy the name from there |
 | `an empty name cannot be stored` | Nothing to store under | Give it a name |
+| `'___' keeps nothing a C64 keyboard can type` | Every character was dropped | Use a name the C64 keyboard could type |
 | `a zero-length file cannot be stored` | Size 0 is the empty-slot marker | Nothing to copy — skip it |
 | `... is over the 16-bit size field's 65535` | One file cannot exceed 64 KB | Split it |
 | `the directory is full (all 511 slots are live or tombstoned)` | The directory is out of entries | `compact` on the machine reclaims the deleted ones |

@@ -204,9 +204,10 @@ See [lib-gfx.md](lib-gfx.md).
   machine, and a file can be dropped in without rebuilding the image. Both mirror the
   kernel's own rules (screen-code names, 1–11 characters, no zero-length file, appends
   at `nextFreeOffset`, tombstones kept until `compact`), both refuse to write while
-  a VICE process holds the image, and both fit a longer host name to the slot instead
-  of refusing it — the base gives way, the extension does not (`alongname.xxx` goes in
-  as `alongna.xxx`).
+  a VICE process holds the image, and both adapt a host name instead of refusing it:
+  a character the C64 keyboard cannot type is removed — it has no glyph either, so
+  `Axel_F.mus` goes in as `AxelF.mus` — and a longer name is cut with its extension
+  kept (`alongname.xxx` becomes `alongna.xxx`).
 
 ## 11. The shell and the commands
 
