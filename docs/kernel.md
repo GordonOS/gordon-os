@@ -2391,6 +2391,12 @@ Plot a single pixel. If the caller's surface is displayed — the *surface*, not
 
 Clobbers: A, X, Y, kPtr, kArg.
 
+**A pixel off the canvas is dropped** — a row >= 200, or a column >= 320 (hi bit set
+with `X >= 64`), exits before the address is computed, the same way a non-bitmap
+surface does, so a stray coordinate cannot wrap into the next cell row or past the row
+LUT. The caller that names a *region* of pixels (a brush blob, a glyph box) still has to
+clip the region itself.
+
 ### `kLine` `$E0C6` / `kBox` `$E0C9` / `kFillBox` `$E0CC`
 
 Bresenham line / rectangle outline / filled rectangle. Arguments in `kArg`

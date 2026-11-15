@@ -2059,21 +2059,17 @@ gpCcPlSameRow:
     jmp gpCcPlLeft
 
 // --- gpCcRdot -- plot the cell of GP_CC_PX ---
-//  WARNING: an x off the canvas is dropped HERE, not handed to kPlot. gpDot passes the
-//  9th bit as bit 0 of the hi byte, which is an "x >= 256" flag only for 0 and 1: a
-//  mirrored point's $ff reads as set and a far-right 2 reads as clear, and either becomes
-//  a column on the wrong side of the screen.
+//  WARNING: the rim's arithmetic can produce an x kPlot cannot EXPRESS: it takes
+//  a one-bit column high, and these values carry the 9th bit in bit 0 of a byte
+//  that also reaches $ff (behind the left edge) and 2+ (past the right). Those
+//  have to be dropped here -- a $ff reads to kPlot as ">= 256" and a 2 as "clear",
+//  either of which lands the dot on the wrong side of the screen. The 320..511
+//  half needs no test: kPlot drops it itself.
 gpCcRdot:
     ldy #GP_CC_PX + 1
     lda (dataPtr),y
-    beq gpCcRXok                 // 0..255: on the canvas whatever the low byte
-    cmp #1
-    bne gpCcRDone                // $ff (behind the left edge) or 2+ (past the right)
-    ldy #GP_CC_PX
-    lda (dataPtr),y
-    cmp #64
-    bcs gpCcRDone                // 320..511
-    bne gpCcRXok                 // always
+    cmp #2
+    bcs gpCcRDone                // $ff (behind the left edge) or 2+ (past the right)
 gpCcRXok:
     ldy #GP_CC_PX                // the rim's own pixel: kPlot SETS what it colours, so
     lda (dataPtr),y              //   a cell's corner would leave a stray dot off the rim
@@ -2091,13 +2087,8 @@ gpCcRDone:
 gpCcLdot:
     ldy #GP_CC_LPX + 1
     lda (dataPtr),y
-    beq gpCcLXok
-    cmp #1
-    bne gpCcLDone
-    ldy #GP_CC_LPX
-    lda (dataPtr),y
-    cmp #64
-    bcs gpCcLDone
+    cmp #2
+    bcs gpCcLDone                // unexpressible to kPlot -- see gpCcRdot
 gpCcLXok:
     ldy #GP_CC_LPX
     lda (dataPtr),y              // the mirrored rim pixel, for the same reasons
@@ -3309,9 +3300,11 @@ gpHalf1Mc:
 //  into every screen on the system rather than just this canvas.
 //  kPlot is the pencil's own call, so a brush paints in the ink AND claims the cells'
 //  colour, the two things the other tools have to do separately.
-//  WARNING: kPlot does NOT clip, and the pixel it is handed here is the BLOB's own, up
-//  to four pixels outside the pointer -- so every mark below is tested against the
-//  canvas first.
+//  kPlot drops a mark outside the canvas, and the blob needs no clip of its own: the
+//  pointer is clamped to 0..319 and the blob reaches four pixels past it, so the only
+//  out-of-range x values are 320..322 (carry set, low byte >= 64 -- dropped) and the
+//  wrapped negatives -4..-1 (which read to kPlot as 508..511 -- also dropped). A
+//  negative far enough to alias back under 320 would need a pointer below -193.
 //  Centred by starting four pixels up and left: that is the glyph's own middle, so the
 //  three sizes grow around the pointer instead of away from it.
 //  WARNING: one kPlot per SET pixel of the glyph, and gpSeg calls this once per step, so
@@ -3379,8 +3372,6 @@ gpBrBit:
     asl
     sta (dataPtr),y              // the next column's bit is now in the carry
     bcc gpBrNext                 // clear column: nothing to mark
-    jsr gpBrClip                 // the blob's pixel, tested against the canvas: kPlot
-    bcc gpBrNext                 //   does not clip, and this pixel is not the pointer's
     ldy #GP_BR_X
     lda (dataPtr),y
     ldy #GP_LAST
@@ -3442,36 +3433,6 @@ gpBrNext:
     lda (dataPtr),y
     ldy #GP_LAST + 2
     sta (dataPtr),y
-    rts
-
-// --- gpBrClip -- is the blob's pixel on the canvas? Carry SET means it is ---
-//  kPlot does NOT clip, and the pixel it is handed here is the BLOB's own, up to four
-//  pixels outside the pointer. Its X = col lo / Carry = col hi pair is an ADD 256 to a
-//  cell row only 320 bytes wide, so x 320..511 lands at the START of the next cell row
-//  -- the far left, eight lines down -- and its matrix nibble lands a cell below; a row
-//  of 200 or more indexes the 25-entry row LUT past its end. The pointer itself is
-//  always on the canvas (gpClamp1), so the brush's mark is the only one that can be
-//  handed a point outside it; the circle's own cells test themselves (gpCcRdot).
-//  Clobbers A, Y.
-gpBrClip:
-    ldy #GP_BR_Y
-    lda (dataPtr),y
-    cmp #200
-    bcs gpBrClipNo               // below the canvas, or negative and wrapped past it
-    ldy #GP_BR_X + 1
-    lda (dataPtr),y
-    beq gpBrClipYes              // x 0..255: on the canvas
-    cmp #1
-    bne gpBrClipNo               // negative (a blob at the left edge), or past 511
-    ldy #GP_BR_X
-    lda (dataPtr),y
-    cmp #64
-    bcs gpBrClipNo               // 320..511: past the right edge
-gpBrClipYes:
-    sec
-    rts
-gpBrClipNo:
-    clc
     rts
 
 // --- gpBrushGlyphs -- the three brushes: one blob each, centred on the glyph ---

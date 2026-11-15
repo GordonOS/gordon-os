@@ -3434,6 +3434,13 @@ lab_1c25:
 // returned strings
 
 lab_1c27:
+      // A = the token's index from tk_sgn. The vector tables hold one entry per
+      // FUNCTION, and the dead function tokens leave no entry, so a token past
+      // that run indexes that many entries too high.
+      cmp   #(tk_mids-tk_sgn+1)   // past mid$, the last function before the run?
+      bcc   lab_1c27a
+      sbc   #(tk_getpixel-tk_mids-1)
+lab_1c27a:
       asl                     // *2 (2 bytes per function address)
       tay                     // copy to index
 

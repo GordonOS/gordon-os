@@ -152,6 +152,21 @@ gxPlot:
     txa
     sta gfxColor
 
+    // A pixel outside the canvas is not drawn, and it is checked HERE because the
+    // address arithmetic below has no bounds of its own: x >= 320 keeps only the
+    // low five bits of the cell offset, so the write lands one cell row down at the
+    // far left (320 bytes is eight raster lines), and a row >= 200 walks off the
+    // end of the row LUT into whatever follows it.
+    lda gfxRow
+    cmp #200
+    bcs gxPiBadSkip            // not drawable -- same exit as a non-bitmap surface
+    lda gfxColHi
+    beq gxPiInCanvas
+    lda gfxCol
+    cmp #64
+    bcs gxPiBadSkip
+gxPiInCanvas:
+
     ldx curTask
     lda screenKind,x
     cmp #BMPMODE_STD

@@ -71,6 +71,11 @@ to `jmp <routine>`. There is no lazy stub. That means:
   (0 = col 0–255, 1 = col 256–319).
 - **Output:** none.
 - **Clobbers:** A, X, Y, `kPtr`; `kArg`+0…+7 when writing to a REU slot.
+- **Notes:** a pixel off the canvas — row ≥ 200, or a column ≥ 320 — is **dropped**,
+  exactly like a pixel on a surface that is not a bitmap. The address arithmetic has no
+  bounds of its own (x ≥ 320 keeps only the low five bits of the cell offset and lands
+  one cell row down at the far left; a row ≥ 200 walks past the row LUT), so the check
+  is the routine's first test.
 
 ```asm
 lda #1                  // white
