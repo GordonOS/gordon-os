@@ -522,9 +522,11 @@ not a multiple of 16, and a triplet at a tempo outside the ten bands
 change the tempo first — and if the piece needs both 16ths and triplets, make the tempo a multiple of
 48 so neither is refused.
 
-One corner a foreign file can carry: a note pair whose duration byte is exactly `$00`. What such a
-pair means is not settled — only the player decides — and this player reads it as a 64th note, so the
-grid draws it as one and writes it back unchanged.
+One corner a foreign file can carry: a note pair whose duration byte is exactly `$00`. It is not a
+length at all — the player tests for it *before* it reads the class and **skips the event**: no time
+passes and the note is never gated, so nothing sounds and the next pair is read at once. The grid
+skips it the same way, so a converted tune can show every one of its bars while a few rows carry no
+note. The pair is left exactly as it is until you put a real length in it.
 
 ## Playing
 

@@ -202,6 +202,7 @@ def simulate(image, trace_limit=0, trace_cmd=False):
     clock = 0
     error = None
     events = 0
+    skipped = 0
     ended = False
 
     try:
@@ -222,6 +223,13 @@ def simulate(image, trace_limit=0, trace_cmd=False):
                     if len(trace) < trace_limit:
                         trace.append((clock, voice.index, at, cmd, opt))
                 if cmd & 3 == 0:
+                    if cmd == 0:
+                        # The player's own rule (sidplay.inc, before its length
+                        # logic): a duration byte of 0 skips the event -- no
+                        # length, no gate -- so no time passes and the next pair
+                        # is read. musedit's walk skips it the same way.
+                        skipped += 1
+                        continue
                     value = model.duration((cmd >> 2) & 7, tempo, cmd & 0xA0, utl, voice.utv)
                     if value is None:
                         raise Stop("voice %d: %s at tempo $%02X is not a length"
@@ -318,6 +326,7 @@ def simulate(image, trace_limit=0, trace_cmd=False):
         "voices": voices,
         "clock": clock,
         "events": events,
+        "skipped": skipped,
         "error": error,
         "ended": ended,
         "capped": events >= MAX_EVENTS,
@@ -397,8 +406,10 @@ def report(path, result, trace, trace_cmd):
         print("  voice %d: %d events, %d notes, tick %d%s"
               % (voice.index + 1, voice.events, voice.notes, voice.tick,
                  "" if voice.on else ", stopped"))
-    print("  total: %d ticks, %d events%s" % (result["clock"], result["events"],
-                                              ", CAPPED (the tune loops)" if result["capped"] else ""))
+    print("  total: %d ticks, %d events%s%s" % (result["clock"], result["events"],
+                                               ", %d skipped (duration 0)" % result["skipped"]
+                                               if result["skipped"] else "",
+                                               ", CAPPED (the tune loops)" if result["capped"] else ""))
     print("  tempo $%02X, UTL %d, UTV %d/%d/%d"
           % (result["tempo"], result["utl"],
              result["voices"][0].utv, result["voices"][1].utv, result["voices"][2].utv))

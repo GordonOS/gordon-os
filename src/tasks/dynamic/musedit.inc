@@ -2124,6 +2124,9 @@ muStepNote:
     lda muSimT
     sta muJifTem
     lda muScmd
+    beq muStepRun               // a duration byte of 0 never reaches the player's
+                                //   length logic: it skips the event -- no time, no
+                                //   gate -- so the walk reads the next pair as well
     jsr muNoteJiffies
     bcc muStepLen
     lda #MU_ERR_LEN             // the player refuses this length and stops
