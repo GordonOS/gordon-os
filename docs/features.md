@@ -203,8 +203,10 @@ See [lib-gfx.md](lib-gfx.md).
   image** from Windows, Linux or macOS — so a tune written on the C64 can reach another
   machine, and a file can be dropped in without rebuilding the image. Both mirror the
   kernel's own rules (screen-code names, 1–11 characters, no zero-length file, appends
-  at `nextFreeOffset`, tombstones kept until `compact`), and both refuse to write while
-  a VICE process holds the image.
+  at `nextFreeOffset`, tombstones kept until `compact`), both refuse to write while
+  a VICE process holds the image, and both fit a longer host name to the slot instead
+  of refusing it — the base gives way, the extension does not (`alongname.xxx` goes in
+  as `alongna.xxx`).
 
 ## 11. The shell and the commands
 

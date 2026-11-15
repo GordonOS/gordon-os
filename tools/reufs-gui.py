@@ -326,7 +326,11 @@ class App:
         def action():
             put = 0
             for path in files:
-                name = os.path.basename(path)
+                wanted = os.path.basename(path)
+                name = reufs.fit_name(wanted)
+                if name != wanted:
+                    self.log("fitted name: '%s' -> '%s' (11 characters, "
+                             "extension kept)" % (wanted, name))
                 with open(path, "rb") as fh:
                     blob = fh.read()
                 existing = self.fs.find(name)
@@ -426,8 +430,11 @@ class App:
 
         def action():
             added = self.fs.import_from(directory, overwrite=True)
-            for name, size in added:
-                self.log("put %-14s %8s" % (name, fmt_size(size)))
+            for host, stored, size in added:
+                if host != stored:
+                    self.log("fitted name: '%s' -> '%s' (11 characters, "
+                             "extension kept)" % (host, stored))
+                self.log("put %-14s %8s" % (stored, fmt_size(size)))
             if added:
                 self.save()
 

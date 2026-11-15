@@ -33,7 +33,9 @@ both sides -- and it is why `musedit.tsk` is stored as
 What this mirrors from the OS (fsxSave and fsxDelete), so a host-side change
 leaves an image the machine would have produced itself:
 
-  * a name is 1-11 characters; empty or longer is refused
+  * a name is 1-11 characters; an empty one is refused, and a longer one is CUT
+    to fit with its extension kept -- `alongname.xxx` stores as `alongna.xxx`
+    (see fit_name), so a host file transfers without renaming it by hand
   * a live duplicate is refused -- delete the old one first, as `save` does
   * a zero-length file cannot exist: the OS reads size == 0 as an EMPTY SLOT,
     and its own save refuses size 0
@@ -52,8 +54,8 @@ a write to an image the emulator has memory-mapped, but Linux and macOS let it
 through -- the emulator then keeps the old inode and the two diverge silently,
 which is worse than an error. So this refuses to CHANGE an image while a VICE
 process is running, on every platform, unless forced. Reading is always allowed:
-the image is mapped read-write, which is how a file is recovered from a wedged
-run (docs/bugs.md records pulling `<base>.wrk` out of one).
+the image is mapped read-write, which is how a file is recovered from a run that
+wrote it and left the machine wedged.
 
 Usage:
     python tools/reufs.py ls
@@ -142,6 +144,28 @@ def check_name(name):
         raise FsError("'%s' is %d characters; the filesystem holds %d, "
                       "extension included" % (name, len(name), NAME_MAX), 3)
     encode_name(name)          # raises for a character it cannot store
+
+
+def fit_name(name):
+    """`name` cut to NAME_MAX with its extension kept.
+
+    A slot holds 11 characters INCLUDING the dot and the extension, and a host
+    file's own name is often longer, so the BASE gives way first: the extension
+    is what tells the OS how to treat the file, while the stem can be short.
+    `alongname.xxx` therefore stores as `alongna.xxx` and `alongnamefile` (no
+    dot to protect) as `alongnamefi`.
+
+    A name that has nothing to protect is cut at NAME_MAX: no dot, a leading
+    dot, a dot with no extension after it, or an extension so long that keeping
+    it would leave no base at all."""
+    if len(name) <= NAME_MAX:
+        return name
+    dot = name.rfind(".")
+    if dot > 0:
+        ext = name[dot + 1:]
+        if 0 < len(ext) <= NAME_MAX - 2:
+            return name[:NAME_MAX - len(ext) - 1] + "." + ext
+    return name[:NAME_MAX]
 
 
 # --- the emulator guard -----------------------------------------------------
@@ -327,7 +351,11 @@ class ReuImage:
         delete is the last thing before the write. A refused replacement must
         leave the old file where it was: deleting first and then discovering
         there is no room would report "not enough room" and destroy the file the
-        caller was trying to replace."""
+        caller was trying to replace.
+
+        A name over NAME_MAX is stored under `fit_name(name)`, so a transfer
+        never needs the host file renamed first."""
+        name = fit_name(name)
         check_name(name)
         if not blob:
             raise FsError("a zero-length file cannot be stored -- the "
@@ -444,7 +472,9 @@ class ReuImage:
 
     def import_from(self, directory, overwrite=False):
         """Add every regular file in `directory` (no recursion: the filesystem
-        has no directories either). Returns [(name, bytes)]."""
+        has no directories either). Returns [(HOST NAME, NAME AS STORED, bytes)]
+        -- the two names differ when the host one was over NAME_MAX and
+        `fit_name` cut it."""
         done = []
         for name in sorted(os.listdir(directory)):
             path = os.path.join(directory, name)
@@ -453,7 +483,7 @@ class ReuImage:
             with open(path, "rb") as fh:
                 blob = fh.read()
             self.put(name, blob, overwrite=overwrite)
-            done.append((name, len(blob)))
+            done.append((name, fit_name(name), len(blob)))
         return done
 
 
@@ -490,6 +520,22 @@ def _selftest():
         raw = encode_name(probe).ljust(NAME_FIELD, b"\x20")
         ok("round trip %s" % probe, decode_name(raw) == probe)
 
+    # a name over the slot's 11 characters gives way in its BASE, never in its
+    # extension: the extension is what tells the OS how to treat the file
+    ok("fit keeps the extension", fit_name("alongname.xxx") == "alongna.xxx")
+    ok("fit with no dot cuts at 11",
+       fit_name("alongnamefile") == "alongnamefi")
+    ok("fit keeps only the last extension",
+       fit_name("alongname.tar.gz") == "alongnam.gz")
+    ok("fit cuts whole when the extension alone leaves no base",
+       fit_name("a.verylongext") == "a.verylonge")
+    ok("fit protects nothing behind a leading dot",
+       fit_name(".verylongname") == ".verylongna")
+    ok("fit leaves a name that already fits", fit_name("musedit.tsk") ==
+       "musedit.tsk" and fit_name("a") == "a")
+    ok("a fitted name still encodes", encode_name(fit_name("alongname.xxx")) ==
+       encode_name("alongna.xxx"))
+
     # a synthetic 4 KB filesystem
     path = os.path.join(tempfile.gettempdir(), "reufs-selftest.bin")
     blob = bytearray(DATA_BASE + 4096)
@@ -519,7 +565,6 @@ def _selftest():
 
     refuses("duplicate name", lambda: fs.put("a.bin", b"x"), 0)
     refuses("empty name", lambda: fs.put("", b"x"), 4)
-    refuses("name too long", lambda: fs.put("abcdefghijkl", b"x"), 3)
     refuses("zero-length file", lambda: fs.put("c.bin", b""), 4)
     refuses("over the 16-bit size", lambda: fs.put("c.bin", b"x" * 65536))
     refuses("no room", lambda: fs.put("c.bin", b"x" * 4000), 1)
@@ -539,8 +584,6 @@ def _selftest():
             lambda: fs.put("a.bin", b"x" * 3800, overwrite=True), 1)
     ok("...and the file it would have replaced is still there",
        fs.find("a.bin") is not None and fs.get("a.bin") == b"NEW")
-    refuses("a replacement whose name is too long",
-            lambda: fs.put("abcdefghijkl", b"x", overwrite=True), 3)
 
     done = fs.delete("b.bin")
     ok("delete tombstones", done.name == "b.bin" and fs.find("b.bin") is None)
@@ -563,6 +606,20 @@ def _selftest():
     scratch.delete("d.bin")
     added = scratch.import_from(out)
     ok("import added both", len(added) == 2)
+    ok("import reports the host and stored names",
+       all(host == stored for host, stored, size in added))
+
+    # A transfer never needs the host file renamed first: the name is fitted on
+    # the way in, and the caller is told what it landed as.
+    long_path = os.path.join(out, "alongname.xxx")
+    with open(long_path, "wb") as fh:
+        fh.write(b"LONG")
+    fitted = scratch.import_from(out, overwrite=True)
+    ok("import fitted a long name",
+       ("alongname.xxx", "alongna.xxx", 4) in fitted)
+    ok("the fitted name is what is stored",
+       scratch.get("alongna.xxx") == b"LONG" and scratch.find("alongname.xxx") is None)
+    os.unlink(long_path)
 
     for p in (path,):
         try:
@@ -608,7 +665,8 @@ def main(argv=None):
     p = sub.add_parser("put", help="add one file to the image")
     p.add_argument("file")
     p.add_argument("--name", default=None,
-                   help="the name to store it under (default: the file's own)")
+                   help="the name to store it under (default: the file's own). "
+                        "A name over 11 characters is cut to fit, extension kept")
     p = sub.add_parser("rm", help="delete one file")
     p.add_argument("name")
     p = sub.add_parser("export", help="write every file into a directory")
@@ -638,10 +696,13 @@ def main(argv=None):
         elif args.cmd == "put":
             with open(args.file, "rb") as fh:
                 blob = fh.read()
-            name = args.name or os.path.basename(args.file)
+            wanted = args.name or os.path.basename(args.file)
+            name = fit_name(wanted)
             slot = fs.put(name, blob, overwrite=True)
             fs.save(force=args.force)
-            print("put %s (%s) in slot %d" % (name, _fmt(len(blob)), slot))
+            note = "" if name == wanted else " as '%s'" % name
+            print("put '%s'%s (%s) in slot %d"
+                  % (wanted, note, _fmt(len(blob)), slot))
         elif args.cmd == "rm":
             e = fs.delete(args.name)
             fs.save(force=args.force)
@@ -653,6 +714,9 @@ def main(argv=None):
         elif args.cmd == "import":
             done = fs.import_from(args.dir, overwrite=True)
             fs.save(force=args.force)
+            for host, stored, size in done:
+                if host != stored:
+                    print("fitted '%s' -> '%s'" % (host, stored))
             print("imported %d file(s) from %s" % (len(done), args.dir))
     except FsError as exc:
         print("error: %s" % exc, file=sys.stderr)

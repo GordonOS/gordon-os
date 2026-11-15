@@ -1247,7 +1247,9 @@ Three rules come from the filesystem itself: a name is **1–11 characters
 including the extension** (`musedit.tsk` is exactly eleven), a **zero-length
 file cannot exist**, and **deleted files keep their space until `compact` runs
 on the machine** — so run `compact` at the shell before copying a large file in
-if the image has had a lot of deletes.
+if the image has had a lot of deletes. A longer name is no obstacle: it is cut
+to fit with the extension kept (`alongname.xxx` goes in as `alongna.xxx`), and
+both tools say so when they do it.
 
 ---
 
