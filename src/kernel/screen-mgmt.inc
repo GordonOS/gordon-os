@@ -71,8 +71,7 @@ surfClearSlot:
     lda #<$0400; sta kArg+3
     lda #>$0400; sta kArg+4
     pla                         // text color nibble
-    jsr kReuFillReu             // color RAM = text color
-    rts
+    jmp kReuFillReu             // color RAM = text color; its rts returns to our caller
 
 // --- allocScreen -- allocate a bitmap surface for curTask ---
 //  Input:  A = mode (0 = hires-text, 1 = mc-graphics)

@@ -3,8 +3,8 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**116B across 21 pockets**) and asserts the pinned pockets.
-> A green build makes **230 asserts**.
+> and their total (**126B across 24 pockets**) and asserts the pinned pockets.
+> A green build makes **234 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
 > injection and the system never boots.
@@ -122,11 +122,11 @@ main.asm  .pc=$0801  →  BASIC loader
 | `$0FC0-$0FC9` | 10B | `main.asm` | `libNameMouse` — the `"mouse.lib"` name string, in the relocation slack above the slot band. `$0FC0` is deliberately not a slot: eight is the VIC's ceiling |
 | `$0FCA-$0FCB` | 2B | | ✓ Free — the rest of that slack |
 | `$0FCC-$13BF` | ~1.0KB | | **Kernel core part 2**: `spawnCore`'s remainder (`$0FCC-$10D8`) + `sysSpawn`/`sysKill` and the rest of the syscall API (hard limit is `reuDirBuf` at `$13D4`, guarded by the `kernelCoreEnd` assert) |
-| `$13C5-$13D3` | 15B | | ✓ Free — the kernel core's growth headroom (`kernelCoreEnd` is at `$13C5`; `main.asm` asserts it stays `<= $13D4`) |
+| `$13C4-$13D3` | 16B | | ✓ Free — the kernel core's growth headroom (`kernelCoreEnd` is at `$13C4`; `main.asm` asserts it stays `<= $13D4`) |
 | `$13D4-$14D3` | 256B | `reuDirBuf` | REU directory page buffer |
 | `$14D4-$1795` | 706B | | REU filesystem code (init, detect, find/dma helpers, `reuLoad`, `reuDmaRange`, `reuLoadAtomic`). With `reuDirBuf` the whole FS block is 962B (`$13D4-$1795`) |
 | `$1796-$1843` | 174B | `syscall.inc` | `spawnCore`'s first 132B + a 3B `jmp` seam back to the remainder at `$0FCC` (`$1796-$181C`, guarded by the `spawnPieceEnd <= $186F` assert), then `warmBootReset` 28B (`$181D-$1838`) and `sprite.lib`'s name string (`$1839-$1843`). **`$1844-$186E` (43B) is free.** See the SEAM note in `syscall.inc` |
-| `$529E-$52CC` | 47B | `sprite.inc` | `warmSpriteReset` 35B (`$529E-$52C0`) + `kbScreenGate` 11B (`$52C1-$52CB`) + 1B free (`$52CC`). `kbScreenGate` is the switch path's first stop: it applies a display change the key scan recorded, or jumps straight back. It lives here because every band it is reached from is pinned. `warmSpriteReset` is the reboot half. A reboot must forget every task's sprite state — the live copy in kernel RAM, `sprLiveOwner`, and the whole per-task REU block region — or the boot task (slot 0, which never goes through the spawn path) would inherit the last session's sprites. Called by `warmBootReset` and by `init.inc`'s cold boot (the REU image persists) |
+| `$529E-$52CC` | 47B | `sprite.inc` | `warmSpriteReset` 34B (`$529E-$52BF`) + 1B free (`$52C0`) + `kbScreenGate` 11B (`$52C1-$52CB`) + 1B free (`$52CC`). `kbScreenGate` is the switch path's first stop: it applies a display change the key scan recorded, or jumps straight back. It lives here because every band it is reached from is pinned. `warmSpriteReset` is the reboot half. A reboot must forget every task's sprite state — the live copy in kernel RAM, `sprLiveOwner`, and the whole per-task REU block region — or the boot task (slot 0, which never goes through the spawn path) would inherit the last session's sprites. Called by `warmBootReset` and by `init.inc`'s cold boot (the REU image persists) |
 | `$186F-$189E` | 48B | | `tasks.inc` — task lookup tables (`taskLo`/`taskHi`, populated at runtime) |
 | `$189F-$1A1A` | 380B | | Static data — lib runtime (`libStartPage/Pages/RefCount`) + `libJumpLo/Hi` + `libInitLo/Hi` (both `LIB_CALLS` = 42 wide) + the spent `LIB_CALLS` growth point + gfx LUTs (`gfxRowLut/gfxCellRowLut`) + font record/glyph scratch + `taskShadowFlag/Hi` |
 | `$1A1B-$1C69` | 591B | `libstubs.inc` | 19 lazy call stubs (time 3 / filesys 9 / string 7) + `libColdSave`/`libColdRestore` + the shared fail trampolines + `libLoadFail` + `libFailExit` + the message. `libStubsEnd` is asserted at `$1C6E`, where `syscall.inc`'s `sysExit` block begins |
@@ -164,7 +164,7 @@ main.asm  .pc=$0801  →  BASIC loader
 | **Scratch** — `$C400-$CFFF` | | | |
 | `$C400-$C7FF` | 1KB | `scratchBuf` | Multi-use C64 scratch: dynamic-loader header staging + char-shadow scroll DMA redirect |
 | `$C800-$CA2E` | ~559B | | `reu.inc` + `math.inc` (DMA routines, byteToDec, mul16/div16/random) — `reu.inc` `$C800-$C964`, `math.inc` `$C965-$CA2E` |
-| `$CA2F-$CA8B` | 93B | `sprite.inc` | `kSpriteCollide` + `clearSlotSprite` (60B, `$CA2F-$CA6A`) + `printGlyphAt`'s tail (32B, `$CA6B-$CA8A`) + 1B free. `kSpriteCollide` is the one sprite call that is **not** a library entry — it reads the collision latches, which are kernel state. `clearSlotSprite` is the spawn hook that zeroes a recycled slot's sprite block and forgets the install if that slot was the live one |
+| `$CA2F-$CA8B` | 93B | `sprite.inc` | `kSpriteCollide` + `clearSlotSprite` (59B, `$CA2F-$CA69`) + 1B free (`$CA6A`) + `printGlyphAt`'s tail (32B, `$CA6B-$CA8A`) + 1B free. `kSpriteCollide` is the one sprite call that is **not** a library entry — it reads the collision latches, which are kernel state. `clearSlotSprite` is the spawn hook that zeroes a recycled slot's sprite block and forgets the install if that slot was the live one |
 | `$CA8C-$CA98` | 13B | `dlEvMaybeSelf` | Sets `dlEvictedSelf` when the task just swapped or killed is the caller; called by `dlEvMark`, `dlEvMarkShared` and `dlEvSwapOrKill`'s kill branch (one `jsr`, so its address is not part of any contract) |
 | `$CA99-$CC75` | 477B | dyn task tables + malloc table + per-task buffers | `dynTaskOriginLo`..`dynTaskCount`, residency records, `poolBitmap`, malloc table, `dynTaskRam*`, per-slot name buffers, `taskTextColor`/`taskCursorColor`/`taskReadStr*` |
 | `$CC76-$CD0B` | 150B | `boot.inc` | Boot task (resolves `gordon.fnt` → `fontRec*`, then `kDynLoad`s the shell) |
@@ -605,7 +605,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$0EFE-$0EFF` | 2B | Free — the gap under the high sprite band (`$0F00-$0FBF` is slots 5-7); the core's last block ends at `$0EFD` |
 | `$0FC0-$0FC9` | 10B | `libNameMouse` — the `"mouse.lib"` name string, in the relocation slack above the high band |
 | `$0FCA-$0FCB` | 2B | Free — the rest of that slack. `$0FC0` is deliberately **not** a slot: eight is the VIC's ceiling |
-| `$13C5-$13D3` | 15B | Free — the kernel core's growth headroom (the core's linear end is `kernelCoreEnd` at `$13C5`). ⚠️ Never park a routine at the bottom of this run: it is the core's only spare space |
+| `$13C4-$13D3` | 16B | Free — the kernel core's growth headroom (the core's linear end is `kernelCoreEnd` at `$13C4`). ⚠️ Never park a routine at the bottom of this run: it is the core's only spare space |
 | `$1844-$186E` | 43B | `printGlyphAt` (40B, `$1844-$186B`) + 4B free — above `sprite.lib`'s name string (`$1839-$1843`, 11B) and `warmBootReset` (28B at `$181D-$1838`), below `taskLo` at `$186F` |
 | `$1C6A-$1C6D` | 4B | Free — the tail of the `$1A1B` stub block, 4B below `sysExit` at `$1C6E` (the block's limit is asserted in `main.asm`) |
 | `$1CBC-$1CBF` | 4B | Free — above `sysExit`+`seClean` (`sysExitMovedEnd <= $1CC0`) |
@@ -616,7 +616,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$56FB-$56FF` | 5B | Free — headroom below the pool, after `rasterCommit` (126B at `$567D-$56FA`) |
 | `$CA1B-$CA2B` | 17B | `warmClearBufRecs` (kernel/warm-boot-reset.inc) — clears every slot's `taskDataSize`/`taskDataPtrLo/Hi` at a warm reboot, `jsr`-ed from `warmBootReset`. Between the REU DMA routines in `reu.inc` (ending `$CA1A`) and the sprite API (`$CA2F`) |
 | `$CA2C-$CA2E` | 3B | Free — the tail of that run |
-| `$CA6B-$CA8B` | 33B | `printGlyphAt`'s tail (32B, `$CA6B-$CA8A`) + 1B free — the pocket after `kSpriteCollide` + `clearSlotSprite` (60B at `$CA2F-$CA6A`), below `dlEvMaybeSelf` (13B at `$CA8C-$CA98`). The routine is split here by SIZE and its two halves are joined by a `jmp` |
+| `$CA6B-$CA8B` | 33B | `printGlyphAt`'s tail (32B, `$CA6B-$CA8A`) + 1B free — the pocket after `kSpriteCollide` + `clearSlotSprite` (59B at `$CA2F-$CA69`, then 1B free at `$CA6A`), below `dlEvMaybeSelf` (13B at `$CA8C-$CA98`). The routine is split here by SIZE and its two halves are joined by a `jmp` |
 | `$CD5C-$CD6C` | 17B | Free (between `dynTaskLibMask` and the scroll-region data; the library-failure policy lives in the `$1A17` stub block) |
 | `$CDCF-$CDDD` | 15B | `kbApplyScreenReq` (14B, `$CDCF-$CDDC`) + `kbScreenReq` (1B at `$CDDD`) — the deferred display switch, applied from the scheduler's switch path so it never lands in a running task's `kArg` block. `sprBlkAddr` + `sprRestoreFrames` are 48B at `$CD9F-$CDCE`, before it |
 | `$CDF5-$CDFD` | 9B | `blitGlyphFb` — the framebuffer glyph blitter, placed here so the code chain keeps its growth room (see `$FC3E`); + 2B free at `$CDFE-$CDFF` |
@@ -624,9 +624,9 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$E105-$E106` | 2B | Free (between the gfx table and the filesys stubs) |
 | `$E119` | 1B | Free (vector headroom) |
 | `$ECBD-$ECDB` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router, filling the pocket above `gfx.inc`'s anchor exactly |
-| `$FC3A-$FC3E` | 5B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
+| `$FC39-$FC3E` | 6B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF5` | 13B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`); `$FFF6-$FFF9` free above the library-entry block and `kLibHold` |
-| **Total (fixed headroom)** | **116B across 21 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 35 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 60 + `sprFrameDma` 86 + `rasterCommit` 126), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
+| **Total (fixed headroom)** | **126B across 24 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 35 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 60 + `sprFrameDma` 86 + `rasterCommit` 126), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
 
 Usable beyond the fixed headroom:
 
@@ -671,7 +671,7 @@ pages.
 | `$0F00-$0FBF` | **Sprite slots 5-7** (3 × 64B, the high band) — the VIC fetches sprite pixels from here, and a task may write a slot's pixels directly. `$0FC0` is deliberately not a slot |
 | `$13D4-$1795` | REU filesystem: `reuDirBuf` (256B) + FS code |
 | `$1796-$181C` | `spawnCore`'s relocated first 132B + the 3-byte `jmp` seam back to the byte-identical remainder at `$0FCC` |
-| `$529E-$52C0` | `warmSpriteReset` (a reboot unpublishes the sprite state, forgets which slot is installed and zeroes every task's REU block; called by `warmBootReset` and by the cold boot) |
+| `$529E-$52BF` | `warmSpriteReset` (a reboot unpublishes the sprite state, forgets which slot is installed and zeroes every task's REU block; called by `warmBootReset` and by the cold boot) |
 | `$186F-$189E` | `tasks.inc` — `taskLo`/`taskHi` lookup tables |
 | `$189F-$1A16` | Static data — lib tables (+ growth reservoir) + gfx LUTs + task font/shadow |
 | `$1A17-$1C6D` | `libstubs.inc` (lazy call stubs) |

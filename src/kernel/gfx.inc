@@ -158,8 +158,7 @@ surfSave:
     lda taskGfxReuBank,x; adc #0; sta kArg+2
     lda #<$d800; sta kPtr
     lda #>$d800; sta kPtr+1
-    jsr kReuFromC64
-    rts
+    jmp kReuFromC64             // kReuFromC64's rts returns to this routine's caller
 
 // --- surfLoad -- DMA task X's slot -> framebuffer + set VIC mode/colors ---
 //  Input: X = task index (slot from taskGfxReu*); X preserved
@@ -188,8 +187,7 @@ surfLoad:
     lda taskGfxReuBank,x; adc #0; sta kArg+2
     lda #<$d800; sta kPtr
     lda #>$d800; sta kPtr+1
-    jsr kReuToC64
-    rts
+    jmp kReuToC64               // kReuToC64's rts returns to this routine's caller
 
 // --- doGfxSwitch -- switch VIC display between surfaces (unified) ---
 //  Input: kArg = fromTask index, X = toTask index

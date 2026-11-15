@@ -333,8 +333,8 @@ clearSlotSprite:
     sta sprPubMask
 sprCsFill:
     lda #0
-    jsr kReuFillReu             // A = 0 -> the block reads as "no sprites"
-    rts
+    jmp kReuFillReu             // A = 0 -> the block reads as "no sprites"; its
+                                //   rts returns to this routine's caller
 .label clearSlotSpriteEnd = *
 
 // ==========================================
@@ -375,8 +375,8 @@ warmSpriteReset:
     lda #>MAX_TASKS*128         // $C00: 24 blocks of 128B
     sta kArg+4
     lda #0
-    jsr kReuFillReu             // A = 0 -> every block reads as "no sprites"
-    rts
+    jmp kReuFillReu             // A = 0 -> every block reads as "no sprites"; its
+                                //   rts returns to this routine's caller
 .label warmSpriteResetEnd = *
 
 // ==========================================

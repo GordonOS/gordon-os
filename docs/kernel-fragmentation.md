@@ -31,7 +31,7 @@ splits a block further where it is useful (the per-file split comes from
 | `$0FC0-$0FC9` | 10B | `main.asm` | `libNameMouse` -- the `"mouse.lib"` name string (`libNameLo/Hi[8]` points at it), in the relocation slack above the band |
 | `$0FCA-$0FCB` | 2B | — | free — the rest of the band's relocation slack |
 | `$0FCC-$13C1` | ~1.0KB | `syscall.inc` | Kernel core part 2 — `spawnCore`'s remainder (its first 132B sit at `$1796`) + the rest of the syscall layer, ending at `kernelCoreEnd` |
-| `$13C5-$13D3` | 15B | — | free — the kernel core's growth headroom (`kernelCoreEnd` is `$13C5`). ⚠️ Never park a routine at the bottom of it: it is the core band's only spare space, and a change larger than it needs a relocation |
+| `$13C4-$13D3` | 16B | — | free — the kernel core's growth headroom (`kernelCoreEnd` is `$13C4`). ⚠️ Never park a routine at the bottom of it: it is the core band's only spare space, and a change larger than it needs a relocation |
 | `$13D4-$14D3` | 256B | `main.asm` | `reuDirBuf` |
 | `$14D4-$1795` | 706B | `reu-fs.inc` | FS code (assembled after `reuDirBuf`) |
 | `$1796-$181C` | 132B | `syscall.inc` | `spawnCore`'s relocated front half + the 3B `jmp` seam into the byte-identical remainder at `$0FCC` |
@@ -49,7 +49,7 @@ splits a block further where it is useful (the per-file split comes from
 | `$4000-$4303` | 772B | `main.asm` | kernel data (kArg, TCB arrays, FS state) |
 | `$4304-$430F` | 12B | `main.asm` | `freeList` |
 | `$4310-$529D` | 3982B | `dynload.inc` | loader + `dlCopyArgs` + lib-lifecycle helpers (nothing may be pinned right after it — it grows) |
-| `$529E-$52C0` | 35B | `sprite.inc` | `warmSpriteReset` — a reboot unpublishes the sprite state, forgets `sprLiveOwner` and zeroes every task's REU block; called by `warmBootReset` and by the cold boot |
+| `$529E-$52BF` | 34B | `sprite.inc` | `warmSpriteReset` — a reboot unpublishes the sprite state, forgets `sprLiveOwner` and zeroes every task's REU block; called by `warmBootReset` and by the cold boot |
 | `$52C1-$52CC` | 12B | — | free |
 | `$52CD-$52DB` | 15B | `kernel.asm` | `dlProbeFit` — asks the allocator whether a free run of X pages exists |
 | `$52DC-$5336` | 91B | `sprite.inc` | `sprInstall` + `sprStateMove`/`sprStateLoad`/`sprDmaSetup` — the per-task sprite hand-over |
@@ -66,7 +66,7 @@ splits a block further where it is useful (the per-file split comes from
 | `$C400-$C7FF` | 1KB | `main.asm` | `scratchBuf` |
 | `$C800-$C964` | 357B | `reu.inc` | DMA routines |
 | `$C965-$CA2E` | 202B | `math.inc` | byteToDec, mul16/div16, random |
-| `$CA2F-$CA6A` | 60B | `sprite.inc` | `kSpriteCollide` (the resident collision reader) + `clearSlotSprite` (zeroes a recycled slot's sprite block at spawn) |
+| `$CA2F-$CA69` | 59B | `sprite.inc` | `kSpriteCollide` (the resident collision reader) + `clearSlotSprite` (zeroes a recycled slot's sprite block at spawn) |
 | `$CA6B-$CA8B` | 33B | `kernel.asm` | `printGlyphAt`'s tail (32B, `$CA6B-$CA8A`) + 1B free -- the routine is split across two runs by SIZE and its halves are joined by a `jmp` |
 | `$CA8C-$CA98` | 13B | `kernel.asm` | `dlEvMaybeSelf` — caller-self detection for eviction (`dlEvMark`/`dlEvMarkShared`) |
 | `$CA99-$CC75` | 477B | `main.asm` | dyn task tables + malloc table + per-task buffers |
@@ -144,12 +144,12 @@ splits a block further where it is useful (the per-file split comes from
 - Largest free pockets (largest first, as `tools/verify-map.ps1` reports them):
   `$02A1-$02BF` (31B), `$020D-$021E`
   `$CD5C-$CD6B` (16B, `gfxSurfPrep`) and `$FFE9-$FFF5` (13B, its tail) are now code, leaving 1B and 4B
-  respectively; next come `$13C5-$13D3` and
+  respectively; next come `$13C4-$13D3` and
   `CDCF-CDDD` (15B each), then a tail of 12B-or-less remnants, for **176B free in
   total** across **25 pockets** (`$1844` and `$CA6B` hold `printGlyphAt`) - excluding
   the 512B of fixed sprite slots (`memory-map.md` has the full list). ⚠️ `$02A1-$02BF`
   and `$020D-$021E` are below `$0801`, so they can never hold kernel code, and
-  nothing may occupy the core's growth headroom at `$13C5-$13D3`. The largest
+  nothing may occupy the core's growth headroom at `$13C4-$13D3`. The largest
   pocket there is 43B, which is why `kLibHold` (42B) had to be written to fit one
   exactly.
   ⚠️ Sprite data can only live in its two bands: `$1000-$1FFF` is char ROM *to the

@@ -17,7 +17,7 @@
 | | |
 |---|---|
 | Free space in the kernel's address space | **116 bytes across 21 pockets** |
-| The kernel core's growth headroom | **15 bytes** (`$13C5-$13D3`, `kernelCoreEnd` to `reuDirBuf`) |
+| The kernel core's growth headroom | **16 bytes** (`$13C4-$13D3`, `kernelCoreEnd` to `reuDirBuf`) |
 | Largest free pocket that can hold kernel code | **9 bytes**. The two larger runs (31 B at `$02A1`, 18 B at `$020D`) are below `$0801` and can never be used at all (VICE autostart takes the PRG's first block as the file start), and the 15-byte run after `kernelCoreEnd` is the core's own growth headroom, reserved for core changes |
 | The `$ECDC-$FC3E` code chain's growth room | **5 bytes** |
 | The `$FF7E` block at the top of RAM | **zero slack** — any growth in the code band collides with it and fails the build |

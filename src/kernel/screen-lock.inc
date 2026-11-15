@@ -23,6 +23,5 @@ unlockScreen:
     lda screenLockKPtrHi,x; sta kPtr+1
     lda screenLockKArg,x; sta kArg
     ldx #0                      // semaphore 0 = screen
-    jsr semSignal
-    rts
+    jmp semSignal               // semSignal's rts returns to this routine's caller
 

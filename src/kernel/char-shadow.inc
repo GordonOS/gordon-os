@@ -103,8 +103,7 @@ seedSlotCursorTail:
     lda #1
     sta kArg+3                  // len = 1 (kArg+4 still 0 from above)
     lda #1
-    jsr kReuFillReu             // tail ON = 1
-    rts
+    jmp kReuFillReu             // tail ON = 1; its rts returns to our caller
 
 // --- pcShadowChar -- mirror the char in kArg+6 to the shadow cell ---
 //  Called from printChar (SEI held) and kReadString's DEL erase (SEI
@@ -133,8 +132,7 @@ pcShadowChar:
     sta $df0a
     lda #$90
     sta $df01
-    jsr reuWait
-    rts
+    jmp reuWait                 // reuWait's rts returns to this routine's caller
 
 // --- pcShadowScroll -- scroll the shadow's region up one row ---
 //  Called from scrollScreenFocused when taskShadowFlag[curTask] != 0
@@ -189,8 +187,7 @@ pcssClear:
     lda #SCREEN_COLS; sta kArg+3
     lda #0; sta kArg+4
     lda #$20
-    jsr kReuFillReu             // X preserved
-    rts
+    jmp kReuFillReu             // X preserved; its rts returns to our caller
 
 // --- charAt -- read a screen code back from the char shadow ---
 //  Input:  A = col (0-39), Y = row (0-24) -- matches kGetCursor's X/Y

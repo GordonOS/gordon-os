@@ -9,8 +9,8 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '116',
-    [Parameter(Mandatory = $false)][string]$ExpectPockets = '21'
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '126',
+    [Parameter(Mandatory = $false)][string]$ExpectPockets = '24'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -119,7 +119,7 @@ $hit = @($runs | Where-Object { $_.Range -eq 'FFEC-FFF9' })
 Check 'probe 52CD      :' (Occupied 0x52cd 0x52db) ('dlProbeFit is 15B in the loader band')
 Check 'sprite name 1839 :' (Occupied 0x1839 0x1843) 'sprite.lib name string (11B); the library is eager, so it needs no cold stub'
 Check 'sprite install 52DC :' (Occupied 0x52dc 0x5336) 'sprInstall + the state mover are 91B in the loader band (the per-task hand-over, up from the gate''s 73B)'
-Check 'sprite warm reset   :' (Occupied 0x529e 0x52c0) 'warmSpriteReset is 35B in the pocket below dlProbeFit ($52CD) -- a reboot must forget every task''s sprite state'
+Check 'sprite warm reset   :' (Occupied 0x529e 0x52bf) 'warmSpriteReset is 34B in the pocket below dlProbeFit ($52CD) -- a reboot must forget every task''s sprite state'
 #  warmBootReset (kernel/warm-boot-reset.inc) lives in its own run at
 #  $181D-$183F, NOT in the core's growth headroom: code parked at the bottom of
 #  that pocket leaves the whole core band without room, and the next core change
@@ -133,7 +133,7 @@ $hit = @($runs | Where-Object { $_.Range -eq '186B-186E' })
 Check 'pocket 186B-186E :' ($hit.Count -eq 1 -and $hit[0].Size -eq 4) ('{0} bytes (printGlyphAt fills $1844 up to here, below taskLo at $186F)' -f ($hit | ForEach-Object { $_.Size }))
 $hit = @($runs | Where-Object { $_.Range -eq 'CA8B-CA8B' })
 Check 'printGlyphAt tail :' ($hit.Count -eq 1 -and $hit[0].Size -eq 1) ('{0} byte left after printGlyphAt''s tail ($CA6B-$CA8A), before dlEvMaybeSelf' -f ($hit | ForEach-Object { $_.Size }))
-#  The core headroom run (15B, pinned below) is the kernel core's only spare
+#  The core headroom run (16B, pinned below) is the kernel core's only spare
 #  space: it is the run the next core change takes, and a change larger than it
 #  needs a relocation. main.asm's `kernelCoreEnd <= $13D4` assert fires when it
 #  runs out.
@@ -143,16 +143,16 @@ Check 'printGlyphAt tail :' ($hit.Count -eq 1 -and $hit[0].Size -eq 1) ('{0} byt
 #  A loader change bigger than that free run needs a relocation.
 #  The pocket under gfx.inc's `$ECDC` anchor holds kPrintCharAt's surface router
 #  The code chain's growth room is the run at the top of the chain,
-#  `$FC3D-$FC3E` (2B): blitGlyphFb (9B) sits in the `$CDF5` pocket rather than in
+#  `$FC39-$FC3E` (6B): blitGlyphFb (9B) sits in the `$CDF5` pocket rather than in
 #  the chain, and what leaves the chain is what the chain can grow by. Growing
 #  past `$FC3E` trips the `.pc = $FC3F` anchor.
 Check 'router ECBD      :' (Occupied 0xECBD 0xECDB) 'paRoute is 31B - the pocket under gfx.inc ($ECDC) exactly full'
 Check 'glyph blit CDF5 :' (Occupied 0xCDF5 0xCDFD) 'blitGlyphFb is 9B in the $CDF5 pocket'
-$hit = @($runs | Where-Object { $_.Range -eq 'FC3D-FC3E' })
+$hit = @($runs | Where-Object { $_.Range -eq 'FC39-FC3E' })
 #  The code-chain growth run below the $FC3F gfx scratch pin: 2B. gfxOp ($ED5D) is one
 #  byte of it -- the pixel write op sits after gfx.inc's pinned data block so that no
 #  address gfx.lib hardcodes moves, which is the one byte of chain room it costs.
-Check 'chain tail        :' ($hit.Count -eq 1 -and $hit[0].Size -eq 2) ('{0} bytes of code-chain growth room below the $FC3F gfx scratch pin' -f ($hit | ForEach-Object { $_.Size }))
+Check 'chain tail        :' ($hit.Count -eq 1 -and $hit[0].Size -eq 6) ('{0} bytes of code-chain growth room below the $FC3F gfx scratch pin' -f ($hit | ForEach-Object { $_.Size }))
 #  The `$E000` band's own slack: jump table group 2 ends at `$E0F2` and the band
 #  holds two more entries there -- kPrintGlyphAt took `$E0F3` and kMouseCall the
 #  last one, `$E0F6`, before the filesys stubs at `$E0F9`. The band now has no
@@ -165,13 +165,13 @@ Check 'mouse name 0FC0  :' (Occupied 0x0FC0 0x0FC9) 'libNameMouse is 10B in the 
 #  $1C6E, which main.asm asserts as `libStubsEnd <= $1C6E`.
 $hit = @($runs | Where-Object { $_.Range -eq '1C6A-1C6D' })
 Check 'stub tail 1C6A   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 4) ('{0} bytes free between libStubsEnd ($1C6A) and sysExit ($1C6E)' -f ($hit | ForEach-Object { $_.Size }))
-$hit = @($runs | Where-Object { $_.Range -eq '13C5-13D3' })
-Check 'core headroom     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 15) ('{0} bytes free after kernelCoreEnd ($13C5), before reuDirBuf' -f ($hit | ForEach-Object { $_.Size }))
+$hit = @($runs | Where-Object { $_.Range -eq '13C4-13D3' })
+Check 'core headroom     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 16) ('{0} bytes free after kernelCoreEnd ($13C4), before reuDirBuf' -f ($hit | ForEach-Object { $_.Size }))
 $hit = @($runs | Where-Object { $_.Range -eq '5337-533F' })
 Check 'loader headroom   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 9) ('{0} bytes free after sprInstall ($52DC-$5336), before the font helpers' -f ($hit | ForEach-Object { $_.Size }))
 Check 'sprite helpers CD9F:' (Occupied 0xcd9f 0xcdce) 'sprBlkAddr + sprRestoreFrames are 48B in the $CD9F pocket'
 Check 'sprite state CFA4 :' (Occupied 0xcfa4 0xcfff) 'the per-task sprite state (24B sheet records + 39B shadow + 8B frame indices) then the kernel-only bytes -- 92B'
-Check 'sprite API CA2F    :' (Occupied 0xca2f 0xca6a) 'kSpriteCollide + clearSlotSprite are 60B above the pinned dyn tables'
+Check 'sprite API CA2F    :' (Occupied 0xca2f 0xca69) 'kSpriteCollide + clearSlotSprite are 59B above the pinned dyn tables'
 Check 'dlEvMaybeSelf     :' (Occupied 0xCA8C 0xCA98) 'dlEvMaybeSelf is 13B at the top of the free run after sprite.inc, not in the core growth headroom'
 #  The four loader-band helpers share one band: $5340 font-help, $53F2 pool-top,
 #  $5457 cursor-helpers, $5482 slot-shadow (32B), ending flush at $54A1. The SID

@@ -412,12 +412,12 @@ scNoGrow:
 //  sysSpawn (1) -- syscall wrapper for spawnCore
 // ==========================================
 sysSpawn:
-    jsr spawnCore
-    rts                         // stay SEI'd -- the caller (loader) re-enables
-                                // IRQs only after dlRegister completes, so
-                                // the spawned task cannot be scheduled with
-                                // its registration half-done (warm-reboot
-                                // hang: IRQ switched to the new task mid-return)
+    jmp spawnCore               // spawnCore's rts returns straight to the caller,
+                                //   so the SEI is still up: the loader re-enables
+                                //   IRQs only after dlRegister completes, and the
+                                //   spawned task cannot be scheduled with its
+                                //   registration half-done (a warm-reboot hang
+                                //   would follow an IRQ that switched to it here)
 
 // ==========================================
 //  sysKill (2) -- kill task X
