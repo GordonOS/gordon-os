@@ -21,7 +21,7 @@ On Windows say `python`; on Linux and macOS `python3`.
 
 ![the file manager: the host on the left, the REU filesystem on the right](img/reufs.png)
 
-*As it opens: the image's 144 files on the right, the current folder on the
+*As it opens: the image's 145 files on the right, the current folder on the
 left, and a log across the bottom.*
 
 ## Before you start: close VICE
@@ -67,9 +67,9 @@ data offset, and the header shows `N file(s) — used of capacity, free`. A log
 across the bottom records every action and every refusal, and a refusal also
 raises a dialog — nothing fails silently.
 
-![mytune.mus just copied in: the log reads put ... -> slot 145, image written](img/reufs-put.png)
+![mytune.mus just copied in: the log reads put ... -> slot 147, image written](img/reufs-put.png)
 
-*After **Put**: the new file is in the image at slot 145 and the log says what
+*After **Put**: the new file is in the image at slot 147 and the log says what
 happened, including the write itself.*
 
 Double-clicking an image file is a shortcut for **Get**.
@@ -101,9 +101,9 @@ python3 reufs.py selftest
 `ls` prints one line per file and a total:
 
 ```
-musedit.tsk       21.0 KB  offset 109766
+musedit.tsk       21.0 KB  offset 88282
 ...
-144 file(s), 3.7 MB used of 15.3 MB, 11.6 MB free
+145 file(s), 3.7 MB used of 15.3 MB, 11.6 MB free
 ```
 
 `put` and `import` **replace silently** — they are for scripts, where a prompt

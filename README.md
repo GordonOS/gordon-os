@@ -729,6 +729,8 @@ gordon-os/
 │   │                      export/import on any image, and the library the GUI uses
 │   ├── reufs-gui.py       Two-pane file manager over it: host left, image right,
 │   │                      Put/Get/Delete — tkinter, so Windows, Linux and macOS
+│   ├── window-shot.py     Documentation screenshots of a host window — the window
+│   │                      only, cropped to its visible frame (Windows)
 │   ├── check-pool-budget.ps1 Gate — a task's live pool footprint (its code + the
 │   │                      libraries it holds) vs the 109-page pool
 │   ├── check-links.py     Lint — relative links in the tracked Markdown resolve
