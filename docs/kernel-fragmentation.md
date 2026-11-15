@@ -25,8 +25,8 @@ splits a block further where it is useful (the per-file split comes from
 | Address | Size | File | What's there |
 |---|---|---|---|
 | `$0801-$080C` | 12B | `main.asm` | BASIC stub |
-| `$0810-$0EFF` | 1776B | `init.inc` + `scheduler.inc` + `irq.inc` + `syscall.inc` (the dispatcher and its 28B jump table, which ends at `$0EFF`) | Kernel core part 1 |
-| `$0EFB-$0EFF` | 5B | — | free — the gap under the high sprite band |
+| `$0810-$0E60` | 1617B | `init.inc` + `scheduler.inc` + `irq.inc` + `syscall.inc` (the dispatcher and its 28B jump table, which ends at `$0EFF`) | Kernel core part 1 |
+| `$0E61-$0EFF` | 159B | — | free — the core chain's growth room under the high sprite band |
 | `$0F00-$0FBF` | 192B | (VIC) | **sprite slots 5-7** — three 64B VIC sprite data blocks the VIC fetches pixels from. Not free, and not kernel RAM |
 | `$0FC0-$0FC9` | 10B | `main.asm` | `libNameMouse` -- the `"mouse.lib"` name string (`libNameLo/Hi[8]` points at it), in the relocation slack above the band |
 | `$0FCA-$0FCB` | 2B | — | free — the rest of the band's relocation slack |
@@ -147,7 +147,7 @@ splits a block further where it is useful (the per-file split comes from
   `$176F-$1795` (39B, the FS code's tail before `spawnCore`); then the two below
   `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B), and the core's growth
   headroom `$13C4-$13D3` (16B); after those a tail of 9B-or-less remnants, for
-  **287B free in total** across **26 pockets** (`$1844` and `$CA6B` hold
+  **439B free in total** across **26 pockets** (`$1844` and `$CA6B` hold
   `printGlyphAt`) - excluding the 512B of fixed sprite slots (`memory-map.md` has
   the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
   never hold kernel code, and nothing may occupy the core's growth headroom at

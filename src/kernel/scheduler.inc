@@ -25,23 +25,8 @@ switchTask:
     lda srcPtr; sta taskSrcPtrLo,x
     lda srcPtr+1; sta taskSrcPtrHi,x
     // save kArg/kResult to REU (8 bytes at $4000)
-    //  `task x 8` IS the low byte: REU_KARG_BASE is page-aligned and
-    //  MAX_TASKS x 8 <= 256 (asserted), so no add and no carry chain is needed
-    //  -- and none is possible to get wrong, so the base MUST stay page-aligned:
-    //  a low-byte add would cost `clc / adc #<base` here plus 2 more in the
-    //  hi-byte add.
-    txa; asl; asl; asl            // task x 8
-    sta $df04
-    lda #>REU_KARG_BASE
-    sta $df05
-    lda #0; sta $df06
-    lda #<kArg; sta $df02
-    lda #>kArg; sta $df03
-    lda #8; sta $df07
-    lda #0; sta $df08; sta $df0a
-    lda #$90; sta $df01           // C64->REU, immediate
-svKargWait:
-    lda $df00; and #$40; beq svKargWait
+    lda #$90                    // C64->REU
+    jsr kArgDma
 
     //  --- the pixel op does not cross a switch (gfxOp) ---
     //  It is kernel state that a drawing call reads, so it must not outlive the task
@@ -65,17 +50,8 @@ svKargWait:
     ldx curTask
     lda taskZpLen,x
     beq svZpDone
-    lda taskZpBase,x; sta $df02    // C64 addr lo = ZP base
-    lda #$00; sta $df03            // C64 addr hi (ZP is always $00xx)
-    lda taskZpReuLo,x; sta $df04   // REU shadow addr lo
-    lda taskZpReuHi,x; sta $df05   // REU shadow addr hi
-    lda #$00; sta $df06            // REU bank 0
-    lda taskZpLen,x; sta $df07     // length lo
-    lda #$00; sta $df08            // length hi (max 240)
-    lda #REU_CTRL_INC; sta $df0a   // increment mode
-    lda #$90; sta $df01            // C64->REU, immediate
-svZpWait:
-    lda $df00; and #REU_ST_EOB; beq svZpWait
+    lda #$90                       // C64->REU, immediate
+    jsr zpDma
 svZpDone:
 
     jsr saveStackReu
@@ -107,7 +83,7 @@ svCurSave:
     lda #0; sta $df08; sta $df0a
     lda #$90; sta $df01           // C64->REU
 svWaitCurSave:
-    lda $df00; and #REU_ST_EOB; beq svWaitCurSave
+    jsr reuWait                 // REU_ST_EOB is what reuWait polls
     jmp svSaveCurOn
 svSaveCurDisplayed:
     lda cursorCol; sta GFX_MATRIX_BASE + GFX_CURSOR_COL
@@ -126,7 +102,7 @@ svSaveCurOn:
     lda #0; sta $df08; sta $df0a
     lda #$90; sta $df01           // C64->REU
 svWaitCurOnSave:
-    lda $df00; and #REU_ST_EOB; beq svWaitCurOnSave
+    jsr reuWait
     jmp svNoCurSave
 svSaveOnFocused:
     lda cursorOn;  sta GFX_MATRIX_BASE + GFX_CURSOR_ON
@@ -191,7 +167,7 @@ svCurRest:
     lda #0; sta $df08; sta $df0a
     lda #$91; sta $df01           // REU->C64
 svWaitCurRest:
-    lda $df00; and #REU_ST_EOB; beq svWaitCurRest
+    jsr reuWait
     jmp svRestCurOn
 svRestCurDisplayed:
     lda GFX_MATRIX_BASE + GFX_CURSOR_COL; sta cursorCol
@@ -210,7 +186,7 @@ svRestCurOn:
     lda #0; sta $df08; sta $df0a
     lda #$91; sta $df01           // REU->C64
 svWaitCurOnRest:
-    lda $df00; and #REU_ST_EOB; beq svWaitCurOnRest
+    jsr reuWait
     jmp svNoCurRest
 svRestOnFocused:
     lda GFX_MATRIX_BASE + GFX_CURSOR_ON;  sta cursorOn
@@ -220,17 +196,8 @@ svNoCurRest:
     ldx curTask
     lda taskZpLen,x
     beq svZpRestDone
-    lda taskZpBase,x; sta $df02    // C64 addr lo = ZP base
-    lda #$00; sta $df03
-    lda taskZpReuLo,x; sta $df04
-    lda taskZpReuHi,x; sta $df05
-    lda #$00; sta $df06
-    lda taskZpLen,x; sta $df07
-    lda #$00; sta $df08
-    lda #REU_CTRL_INC; sta $df0a
-    lda #$91; sta $df01            // REU->C64, immediate
-svZpRestWait:
-    lda $df00; and #REU_ST_EOB; beq svZpRestWait
+    lda #$91                       // REU->C64, immediate
+    jsr zpDma
 svZpRestDone:
     // restore kernel ZP for this task
     lda taskKPtrLo,x; sta kPtr
@@ -238,19 +205,8 @@ svZpRestDone:
     lda taskSrcPtrLo,x; sta srcPtr
     lda taskSrcPtrHi,x; sta srcPtr+1
     // restore kArg/kResult from REU (8 bytes at $4000)
-    //  Same aligned-base trick as the save path -- see the note there.
-    txa; asl; asl; asl            // task x 8
-    sta $df04
-    lda #>REU_KARG_BASE
-    sta $df05
-    lda #0; sta $df06
-    lda #<kArg; sta $df02
-    lda #>kArg; sta $df03
-    lda #8; sta $df07
-    lda #0; sta $df08; sta $df0a
-    lda #$91; sta $df01           // REU->C64, immediate
-svKargRestWait:
-    lda $df00; and #$40; beq svKargRestWait
+    lda #$91                    // REU->C64
+    jsr kArgDma
     // restore task-private data pointer (re-entrant task support)
     lda taskDataPtrLo,x; sta dataPtr
     lda taskDataPtrHi,x; sta dataPtr+1
@@ -258,10 +214,23 @@ svRestoreStack:
     jmp restoreStack            // restoreStack's rts goes to irqRet, never returns here
 
 // ==========================================
-//  saveStackReu -- DMA: $0100+saveSP -> REU_STACK_BASE + taskx256 + saveSP
-//  Only saves the used portion of the stack.
+//  stackDma -- DMA the USED portion of the task stack to/from its REU image
+//  In:  Y = $90 (C64 -> REU, switch-away) or $91 (REU -> C64, switch-in)
+//       saveSP = the SP to transfer from/to, curTask = the task
+//  Out: $0100+saveSP..$01FF transferred to/from REU_STACK_BASE + task*256.
+//
+//  WARNING: this routine is entered by `jmp`, never by `jsr`, and it polls the
+//  REU INLINE rather than calling reuWait. On the switch-in half the transfer
+//  covers $0100+saveSP..$01FF -- the stack the CPU is standing on -- so a JSR
+//  frame or a callee's return address there is overwritten by the incoming
+//  image mid-flight. The exit is what makes it safe: SP is reset to the
+//  RESTORED value first (`txs`) and only then does the `rts` pop, which is how
+//  the switch-in half returns into the incoming task's context at all.
+//  For the same reason the direction rides in Y and is moved to A only at the
+//  trigger -- parking it on the stack would place it inside the copied range.
+//  Clobbers A
 // ==========================================
-saveStackReu:
+stackDma:
     lda #$00
     sta $df0a                   // address control: increment
     lda saveSP
@@ -286,9 +255,69 @@ saveStackReu:
     lda #$01
     sbc #$00
     sta $df08                   // length hi (1 if saveSP=0, else 0)
-    lda #$90                    // C64->REU, immediate
+    tya
     sta $df01
+sdWait:
+    lda $df00                   // inline, not reuWait -- see the warning above
+    and #REU_ST_EOB
+    beq sdWait
+    cpy #$91                    // switch-in half: adopt the RESTORED SP now
+    bne sdDone
+    ldx saveSP
+    txs
+sdDone:
     rts
+
+// ==========================================
+//  kArgDma -- DMA the 8-byte kArg/kResult block for task X to/from its shadow
+//  In:  A = $90 (C64 -> REU) or $91 (REU -> C64); X = task index
+//  The shadow address is `task x 8` at a page-aligned base, so the shift IS the
+//  low byte (MAX_TASKS x 8 <= 256, asserted) -- no add and no carry chain, which
+//  is why REU_KARG_BASE must stay page-aligned.
+//  Clobbers A
+// ==========================================
+kArgDma:
+    pha
+    txa; asl; asl; asl            // task x 8
+    sta $df04
+    lda #>REU_KARG_BASE
+    sta $df05
+    lda #0; sta $df06
+    lda #<kArg; sta $df02
+    lda #>kArg; sta $df03
+    lda #8; sta $df07
+    lda #0; sta $df08; sta $df0a
+    pla
+    sta $df01
+    jmp reuWait                 // reuWait's rts returns to our caller
+
+// ==========================================
+//  zpDma -- DMA task X's declared ZP window to/from its REU shadow
+//  In:  A = $90 (C64 -> REU) or $91 (REU -> C64); X = the task
+//       taskZpLen[x] must be non-zero -- the caller owns that test, because a
+//       zero window is the common case and the test is cheaper there
+//  Clobbers A
+// ==========================================
+zpDma:
+    pha
+    lda taskZpBase,x; sta $df02    // C64 addr lo = ZP base
+    lda #$00; sta $df03            // C64 addr hi (ZP is always $00xx)
+    lda taskZpReuLo,x; sta $df04   // REU shadow addr lo
+    lda taskZpReuHi,x; sta $df05   // REU shadow addr hi
+    lda #$00; sta $df06            // REU bank 0
+    lda taskZpLen,x; sta $df07     // length lo
+    lda #$00; sta $df08            // length hi (max 240)
+    lda #REU_CTRL_INC; sta $df0a   // increment mode
+    pla
+    sta $df01
+    jmp reuWait                    // reuWait's rts returns to our caller
+
+// ==========================================
+//  saveStackReu -- switch-away half of the stack transfer
+// ==========================================
+saveStackReu:
+    ldy #$90                    // C64->REU, immediate
+    jmp stackDma
 
 // ==========================================
 //  findNextAlive -- round-robin, skip DEAD
@@ -332,39 +361,11 @@ restoreStack:
     // fall through to restoreStackReu
 
 // ==========================================
-//  restoreStackReu -- DMA: REU_STACK_BASE + taskx256 + saveSP -> $0100+saveSP
-//  Only restores the portion that was saved (uses saveSP from savedSP).
+//  restoreStackReu -- switch-in half: transfer, then run on the restored stack
 // ==========================================
 restoreStackReu:
-    lda #$00
-    sta $df0a                   // address control: increment
-    lda saveSP
-    sta $df02                   // C64 low  = $0100 + saveSP
-    lda #$01
-    sta $df03                   // C64 high = $01
-    ldx curTask                 // reload X
-    lda taskStackReuLo,x
-    clc
-    adc saveSP
-    sta $df04                   // REU low  = base + saveSP
-    lda taskStackReuHi,x
-    adc #$00
-    sta $df05                   // REU high
-    lda #0
-    sta $df06                   // bank 0
-    // length = $0100 - saveSP
-    sec
-    lda #$00
-    sbc saveSP
-    sta $df07                   // length lo
-    lda #$01
-    sbc #$00
-    sta $df08                   // length hi (1 if saveSP=0, else 0)
-    lda #$91                    // REU->C64, immediate
-    sta $df01
-    ldx saveSP
-    txs
-    rts
+    ldy #$91                    // REU->C64, immediate
+    jmp stackDma                // entered without a frame -- see stackDma
 
 // ==========================================
 //  reschedule -- skip save, find next, restore ZP + stack
