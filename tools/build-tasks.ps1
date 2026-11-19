@@ -65,6 +65,14 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & python "$PSScriptRoot/check-musedit-index.py"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+# Every kArg-block argument of an entry, at every call site. The block is shared
+# scratch and a caller that sets only some of an entry's inputs passes the last
+# kernel call's bytes as the rest -- which is how kSidPlay's start-jiffy pair was
+# left unset at four call sites and every tune began part-way in (bugs.md #211).
+# The assembler cannot see it: the inputs are prose in the entry's header.
+& python "$PSScriptRoot/check-lib-call-args.py"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
 # KickAssembler jar location - see tools/toolpaths.ps1
 . "$PSScriptRoot/toolpaths.ps1"                   # machine paths: $KickAssJar
 $kick = $KickAssJar
