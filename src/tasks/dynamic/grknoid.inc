@@ -2996,7 +2996,9 @@ gkMtPlay:
     lda #0                      // no transpose: sid.lib answers the machine's own pitch
     sta kArg+2                  //   shift itself (+1 in this field is one octave DOWN)
     lda #0
-    sta kArg+3                  // no semitone offset
+    sta kArg+3                  // no semitone offset, and no fast-forward -- kArg+4/
+    sta kArg+4                  //   +5 is how many jiffies kSidPlay plays silently
+    sta kArg+5                  //   first, so an unset pair starts the tune part-way
     lda #1                      // mode: the tune is paged from the REU
     jsr kSidPlay                // blocks: the tune, a hush, or a refusal
     bcs gkMtBusy                // refused: the buffer still holds this tune, ask again later

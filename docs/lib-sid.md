@@ -93,7 +93,10 @@ from a garbage filesystem offset into them.
   **Set both on every call** — they are read at the call, and an unset
   byte is whatever the last task left in the `kArg` block.
   `kArg+4`/`kArg+5` = **the jiffies to play silently first**, little-endian,
-  `0` = start at the tune's first row. This is how a caller starts part-way through
+  `0` = start at the tune's first row. **A caller that wants the first row must write
+  0 to both** — the same rule as the transposes: unset, they hold whatever the last
+  kernel call left in the block (`kReuFindFile`/`kReuLoad`/`kLibHold` all clobber
+  `kArg..kArg+5`), and the tune starts part-way in. This is how a caller starts part-way through
   the tune: the format has no seek, so the pass runs from the first row with the
   volume nibble masked, one jiffy after another as fast as the CPU allows, until it
   has played that many — every command takes effect, so the sound state is the tune's

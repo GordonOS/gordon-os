@@ -134,6 +134,12 @@ sidCode:
 //                        ($FF = one octave up: added to the player's halving count)
 //                        ON TOP OF the automatic speed compensation
 //          kArg+3      = transpose, semitones: signed, 0 = none, -12 = one octave down
+//          kArg+4      = start jiffy, low byte: the jiffies played SILENTLY before the
+//          kArg+5      = start jiffy, high byte: music is heard (0 = the first row).
+//                        The format has no seek, so the pass runs from the first row
+//                        with the volume masked -- a caller that does not want that
+//                        MUST write 0 to both. Unset, they hold whatever the last
+//                        kernel call left in the block, and the tune starts part-way in
 //  Output: C = 0 the tune was played and the SID hushed
 //          C = 1 refused -- another task is already playing
 //  Clobbers: A, X, Y, kArg+0/+1 (the loop sleeps through kArg+1)

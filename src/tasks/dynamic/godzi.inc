@@ -875,8 +875,10 @@ gzMusicThread:
     sta kArg+1                   // 0 = THE PLAYER repeats the tune when it ends,
     lda #0                       // no transpose: sid.lib answers the machine's own
     sta kArg+2                   //   pitch shift itself (+1 is one octave DOWN)
-    lda #0                       // no semitone offset
-    sta kArg+3
+    lda #0                       // no semitone offset, and no fast-forward --
+    sta kArg+3                   //   kArg+4/+5 is how many jiffies kSidPlay plays
+    sta kArg+4                   //   silently first, so an unset pair starts the
+    sta kArg+5                   //   tune part-way in
     lda #1                       // mode: the tune is paged from the REU
     jsr kSidPlay                 //   so this loop never has to watch for that
     bcc gzMusicThread            // returned: hushed, or the tune finished

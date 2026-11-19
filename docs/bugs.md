@@ -57,6 +57,36 @@ itself is **not** exercised by a live test: reaching slot 6 needs seven concurre
 pool cannot hold alongside the tasks that would scroll, so the fix is verified by the instruction
 sequence and by the unchanged non-carry path.
 
+## Bug #211 — `sidplay` started every tune part-way in: four callers never set `kSidPlay`'s start-jiffy input 🟠 ✅ FIXED (2026-11-19)
+
+**Symptoms.** `run sidplay <tune>` began the music an arbitrary distance from its first row, while the
+same tune played from the beginning inside `musedit`. The three games were hit by the same thing:
+`godzi`, `gortris` and `grknoid` all start their music through this call.
+
+**Root cause.** `kSidPlay` reads a **sixth input** — `kArg+4`/`kArg+5`, the jiffies to play silently
+before the music is heard — and runs the pass up to it with the volume masked, because the format has no
+seek. That input arrived with musedit's streamed player (`12b13a5`), and `musedit` sets it from its own
+playhead, which is why it behaved. The other five call sites — `sidplay`'s RAM and streamed halves,
+`godzi`, `gortris`, `grknoid` — write `kArg` … `kArg+3` and stop, so both bytes held whatever the last
+kernel call left in the block, and `kReuFindFile`, `kReuLoad` and `kLibHold` all clobber
+`kArg..kArg+5`. The tune fast-forwarded a garbage number of jiffies before the first audible note.
+
+**Fix.** Both bytes are written as 0 at all five sites (6 bytes each, 12 for `sidplay`), and
+`sid.asm`'s own input list now names them. The library header stopped at `kArg+3` while
+`docs/lib-sid.md` documented the pair, and that gap is what let the call sites drift.
+
+**Rule.** **An input added to a shared calling convention must be set at every existing call site in the
+same commit.** A `kArg` byte the caller does not write is another task's data — "the block is
+legitimately clobbered by ANY task's kernel call" cuts both ways — so a new field is a change to every
+call site, not to the one being written. And a documented input must appear in every description of the
+entry: a header that stops short of the doc file hides exactly this.
+
+**Verified.** Build green (88 asserts, 0 failed). The four tasks grow by 6 bytes each (12 for `sidplay`)
+and keep their page counts: `sidplay` 4, `godzi` 5, `gortris` 30, `grknoid` 23, sparing
+128 / 28 / 35 / 163 B, and the pool budget is unchanged at 109 pages with `basic` at 108 (margin 1).
+REU image reseeded (`check-reu-current`: all 49 binaries byte-identical in the image); ASCII and link
+gates clean. The live start-of-tune check in VICE has not been run.
+
 ## Bug #209 — `SHIFT+N` and `SHIFT+P` moved the window during playback and left the follow behind 🟡 ✅ FIXED (2026-11-08)
 
 **Symptoms.** Starting the tune and then stepping a bar with `SHIFT+N`/`SHIFT+P` moved the grid while

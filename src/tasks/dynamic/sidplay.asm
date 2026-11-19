@@ -215,8 +215,10 @@ spLoaded:
     sta kArg+1
     lda spPitch                  // semitones: the player's own wrap turns a whole
     sta kArg+3                   //   +/-12 into the octave step for us
-    lda #0                       // no octave term of our own
-    sta kArg+2
+    lda #0                       // no octave term of our own, and no fast-forward:
+    sta kArg+2                   //   kArg+4/+5 is how many jiffies kSidPlay plays
+    sta kArg+4                   //   silently before the music is heard, so an unset
+    sta kArg+5                   //   pair starts the tune part-way in
     lda #0                       // mode: the image is in RAM at kPtr
     jsr kSidPlay
     bcc spFreeExit               // played, and the SID is hushed
@@ -302,8 +304,10 @@ spStrMemOk:
     sta kArg+1
     lda spPitch
     sta kArg+3
-    lda #0                       // no octave term of our own
-    sta kArg+2
+    lda #0                       // no octave term of our own, and no fast-forward:
+    sta kArg+2                   //   kArg+4/+5 is how many jiffies kSidPlay plays
+    sta kArg+4                   //   silently before the music is heard, so an unset
+    sta kArg+5                   //   pair starts the tune part-way in
     lda #1                       // mode: paged from the REU
     jsr kSidPlay
     bcs spStrFail

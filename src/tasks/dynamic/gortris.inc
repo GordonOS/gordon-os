@@ -1408,7 +1408,9 @@ gtMusicThread:
     lda #0                      // no transpose: sid.lib answers the machine's own
     sta kArg+2                  //   pitch shift itself (+1 here is one octave DOWN)
     lda #0
-    sta kArg+3                  // no semitone offset
+    sta kArg+3                  // no semitone offset, and no fast-forward -- kArg+4/
+    sta kArg+4                  //   +5 is how many jiffies kSidPlay plays silently
+    sta kArg+5                  //   first, so an unset pair starts the tune part-way
     lda #1                      // mode: the tune is paged from the REU
     jsr kSidPlay                //   The loop lives HERE, not in the file: tetris.mus
                                 //   is a single pass that ends in HLT (no HED/TAL), so
