@@ -134,29 +134,27 @@ pcShadowChar:
     sta $df01
     jmp reuWait                 // reuWait's rts returns to this routine's caller
 
-// --- pcShadowScroll -- scroll the shadow's region up one row ---
+// --- pcShadowScroll -- scroll the shadow's region the same way as the surface ---
 //  Called from scrollScreenFocused when taskShadowFlag[curTask] != 0
-//  (SEI held, cursorOn = 0). Moves rows (T+1)..B up one and blanks
-//  row B with $20. X = curTask, preserved.
+//  (SEI held, cursorOn = 0). Reads the rows scrollScreenFocused derived --
+//  kArg+6/+7 (T and R) are still live and scrSrc/scrDst/scrBlank are set --
+//  so the shadow can never disagree with the framebuffer about the direction.
+//  Moves R rows one place and blanks the vacated row with $20. X = curTask,
+//  preserved.
 pcShadowScroll:
-    lda taskScrollTop,x
-    sta kArg+6                  // T
-    lda taskScrollBottom,x
-    sec
-    sbc kArg+6                  // R = B - T
-    sta kArg+7                  // R
-    beq pcssClear               // R == 0 -> blank row B only
+    lda kArg+7
+    beq pcssClear               // R == 0 -> blank the vacated row only
 
-    // move rows (T+1)..B up one: R*40 bytes via scratchBuf
+    // move R rows one place: R*40 bytes via scratchBuf
     ldy kArg+7                  // R
     lda gfxCellRowLutLo,y
     sta kArg+3
     lda gfxCellRowLutHi,y
     sta kArg+4                  // R*40
-    ldy kArg+6                  // T
-    lda gfxCellRowLutLo+1,y     // (T+1)*40 lo (shadow lo = 0)
+    ldy scrSrc
+    lda gfxCellRowLutLo,y
     sta kArg
-    lda gfxCellRowLutHi+1,y
+    lda gfxCellRowLutHi,y
     clc
     adc taskShadowHi,x          // + shadow page hi
     sta kArg+1
@@ -165,18 +163,18 @@ pcShadowScroll:
     lda #<$C400; sta kPtr
     lda #>$C400; sta kPtr+1
     jsr kReuToC64               // shadow source -> scratchBuf
-    lda kArg                    // source lo
-    sec
-    sbc #SCREEN_COLS            // - one row
-    sta kArg                    // dest lo
-    lda kArg+1                  // source hi (shadow hi included)
-    sbc #0
-    sta kArg+1                  // dest hi
+    ldy scrDst
+    lda gfxCellRowLutLo,y
+    sta kArg
+    lda gfxCellRowLutHi,y
+    clc
+    adc taskShadowHi,x
+    sta kArg+1
     jsr kReuFromC64             // scratchBuf -> shadow dest
 
 pcssClear:
-    // blank row B (40B) -> $20
-    ldy taskScrollBottom,x      // B
+    // blank the vacated row (40B) -> $20
+    ldy scrBlank
     lda gfxCellRowLutLo,y
     sta kArg
     lda gfxCellRowLutHi,y

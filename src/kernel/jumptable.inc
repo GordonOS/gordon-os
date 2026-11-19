@@ -99,6 +99,12 @@
 .const kFreeBitmap     = kFreeScreen
 .const kSetScrollRegion = $E0E7
 .const kGetScrollRegion = $E0EA
+//  kScrollRegionDown -- scroll the task's region DOWN one row, blanking the top
+//  row: the mirror of kScrollScreen, which only scrolls up. No arguments, like
+//  kScrollScreen (the region is the task's own, and the cursor is left where the
+//  caller put it). NOT a $E000 table entry: the table is full, so this is a
+//  3-byte stub in the $FFF6 pocket (src/kernel/kernel.asm).
+.const kScrollRegionDown = $FFF6
 .const kBlitChar       = $E0ED
 .const kBlitCharRev    = $E0F0
 .const kPrintGlyphAt   = $E0F3   // printGlyphAt, reached from the $1844/$CA6B pockets

@@ -145,9 +145,11 @@ wcDone:
 
 // --- scrollScreenFocused -- scroll the DISPLAYED surface's region ---
 //  Called from scrollScreen under SEI with cursorOn = 0 (dispatcher owns
-//  both). Scrolls rows T..B up one (T/B = taskScrollTop/Bottom[curTask]),
-//  blanks row B. R == 0 (single-row region) skips the move and just
-//  blanks row B. Clobbers A, X, Y, kPtr, kArg block.
+//  both). Moves the region's rows one place, up or down per scrollStep, and
+//  blanks the row the content vacated: up moves rows T+1..B to T..B-1 and
+//  blanks B, down moves T..B-1 to T+1..B and blanks T. R == 0 (single-row
+//  region) skips the move and just blanks that row. Clobbers A, X, Y, kPtr,
+//  kArg block.
 scrollScreenFocused:
     jsr eraseCursor             // un-XOR the block cursor before the move
 
@@ -158,9 +160,13 @@ scrollScreenFocused:
     sec
     sbc kArg+6                  // A = B - T = R
     sta kArg+7                  // R
-    beq ssfClear                // R == 0 -> blank row B only
+    jsr scrollRows              // scrSrc/scrDst/scrBlank, and consume the direction
+    ldy kArg+7
+    bne ssfPixels
+    jmp ssfClear                // R == 0 -> blank the vacated row only
+ssfPixels:
 
-    // --- pixels: rows (T+1)..B -> rows T..(B-1), R*320 bytes ---
+    // --- pixels: R rows one place, R*320 bytes ---
     ldy kArg+7                  // R
     lda gfxRowLutLo,y           // R*320 lo ($2000 lo byte = 0)
     sta kArg+3
@@ -168,40 +174,36 @@ scrollScreenFocused:
     sec
     sbc #>$2000
     sta kArg+4                  // R*320 hi
-    ldy kArg+6                  // T
-    iny                         // T+1
+    ldy scrSrc
     lda gfxRowLutLo,y
     sta kPtr
     lda gfxRowLutHi,y
-    sta kPtr+1                  // source = $2000 + (T+1)*320
+    sta kPtr+1                  // source row
     lda #<REU_BOUNCE; sta kArg
     lda #>REU_BOUNCE; sta kArg+1
     lda #0; sta kArg+2
     sta kArg+5
     jsr kReuFromC64             // source -> bounce
-    ldy kArg+6                  // T
+    ldy scrDst
     lda gfxRowLutLo,y
     sta kPtr
     lda gfxRowLutHi,y
-    sta kPtr+1                  // dest = $2000 + T*320
+    sta kPtr+1                  // dest row
     jsr kReuToC64               // bounce -> dest
 
 ssfClear:
-    // --- blank bottom pixel row B ---
-    lda kArg+6                  // T
-    clc
-    adc kArg+7                  // + R = B
-    tay
+    // --- blank the vacated pixel row ---
+    ldy scrBlank
     lda gfxRowLutLo,y
     sta kPtr
     lda gfxRowLutHi,y
-    sta kPtr+1                  // $2000 + B*320
+    sta kPtr+1                  // $2000 + that row*320
     lda #<$0140; sta kArg
     lda #>$0140; sta kArg+1     // 320
     lda #0
-    jsr kReuFillC64             // blank row B pixels
+    jsr kReuFillC64             // blank its pixels
 
-    // --- matrix: rows (T+1)..B -> rows T..(B-1), R*40 bytes ---
+    // --- matrix: R rows one place, R*40 bytes ---
     lda kArg+7
     beq ssfClearMatrix          // R == 0 -> skip matrix move
     ldy kArg+7                  // R
@@ -209,45 +211,41 @@ ssfClear:
     sta kArg+3
     lda gfxCellRowLutHi,y
     sta kArg+4                  // R*40
-    ldy kArg+6                  // T
-    iny
+    ldy scrSrc
     lda gfxCellRowLutLo,y
     sta kPtr
     lda gfxCellRowLutHi,y
     clc
     adc #>$0400
-    sta kPtr+1                  // source = $0400 + (T+1)*40
+    sta kPtr+1                  // source row
     lda #<REU_BOUNCE; sta kArg
     lda #>REU_BOUNCE; sta kArg+1
     lda #0; sta kArg+2
     sta kArg+5
     jsr kReuFromC64
-    ldy kArg+6                  // T
+    ldy scrDst
     lda gfxCellRowLutLo,y
     sta kPtr
     lda gfxCellRowLutHi,y
     clc
     adc #>$0400
-    sta kPtr+1                  // dest = $0400 + T*40
+    sta kPtr+1                  // dest row
     jsr kReuToC64
 
 ssfClearMatrix:
-    // --- blank bottom matrix row B ---
-    lda kArg+6                  // T
-    clc
-    adc kArg+7                  // + R = B
-    tay
+    // --- blank the vacated matrix row ---
+    ldy scrBlank
     lda gfxCellRowLutLo,y
     sta kPtr
     lda gfxCellRowLutHi,y
     clc
     adc #>$0400
-    sta kPtr+1                  // $0400 + B*SCREEN_COLS
+    sta kPtr+1                  // $0400 + that row*SCREEN_COLS
     lda #SCREEN_COLS; sta kArg
     lda #0; sta kArg+1
     ldx curTask
     lda taskGfxBg0,x
-    jsr kReuFillC64             // blank row B matrix (bg0)
+    jsr kReuFillC64             // blank that row's matrix (bg0)
 
     // --- char shadow (region-aware) ---
     ldx curTask                 // kReuFillC64 clobbers X

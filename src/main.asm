@@ -427,6 +427,10 @@ taskShadowHi:      .fill MAX_TASKS, 0
 .assert "sprite: frame code fits below the data heap ($1D40)", (sprFrameEnd <= $1D40) ? 1 : 0, 1
 .assert "sprite: tables fit below I/O ($D000)", (sprDataEnd <= $D000) ? 1 : 0, 1
 .assert "sprite: raster commit clears scrollScreenSlot", (scrollSlotEnd <= $567D) ? 1 : 0, 1
+//  kScrollRegionDown's stub sits in the $FFF6 pocket; the NMI/IRQ vectors begin
+//  at $FFFA, so the stub block must end by then.
+.assert "kernel: kScrollRegionDown stub moved", kScrollRegionDown, $FFF6
+.assert "kernel: kScrollRegionDown stub fits below the vectors ($FFFA)", (kScrollRegionDownEnd <= $FFFA) ? 1 : 0, 1
 .assert "sprite: raster commit fits below the pool ($5700)", (rasterCommitEnd <= $5700) ? 1 : 0, 1
 .assert "sprite: API fits below the pinned dyn tables ($CA99)", (sprApiEnd <= $CA99) ? 1 : 0, 1
 .assert "sprite: install fits the loader band before font-help", (sprInstallEnd <= $5340) ? 1 : 0, 1

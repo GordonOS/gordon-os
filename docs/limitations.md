@@ -16,7 +16,7 @@
 
 | | |
 |---|---|
-| Free space in the kernel's address space | **588 bytes across 27 pockets** |
+| Free space in the kernel's address space | **493 bytes across 28 pockets** |
 | The kernel core's growth headroom | **13 bytes** (`$13C7-$13D3`, `kernelCoreEnd` to `reuDirBuf`) |
 | Largest free pocket that can hold kernel code | **9 bytes**. The two larger runs (31 B at `$02A1`, 18 B at `$020D`) are below `$0801` and can never be used at all (VICE autostart takes the PRG's first block as the file start), and the 15-byte run after `kernelCoreEnd` is the core's own growth headroom, reserved for core changes |
 | The `$ECDC-$FC3E` code chain's growth room | **5 bytes** |
@@ -63,7 +63,7 @@ task code, program RAM, `kMalloc` blocks and libraries — and it is boxed:
 
 - `$2000-$3FFF` beneath it is the **live framebuffer**;
 - `$C400` above it is `scratchBuf`;
-- below it, `scrollScreenSlot`'s band leaves 131 bytes — less than one page.
+- below it, the below-pool band leaves 19 bytes — nowhere near a page.
 
 So it cannot simply be made bigger. What that means in practice:
 
@@ -456,7 +456,7 @@ These are designed or planned, not present. Each is documented in
 
 | Limitation | The way around it |
 |---|---|
-| Kernel address space full (588B / 27 pockets) | put new capability in a library; reuse the 102 calls that exist; a resident addition is a planned relocation |
+| Kernel address space full (493B / 28 pockets) | put new capability in a library; reuse the 102 calls that exist; a resident addition is a planned relocation |
 | Pool is 27.25 KB, page-granular | reentrant tasks share code; data goes to the REU; single-shot tasks that exit; pin only what must not move |
 | Pool needs *adjacent* pages | treat `? no space in pool` as placement — kill what you do not need, or reboot; prefer small re-runnable tasks |
 | `pool` cannot show fragmentation | read the `pg` column against a fresh boot |

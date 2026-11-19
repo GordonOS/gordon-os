@@ -226,6 +226,39 @@ Scroll the current surface's **scroll region** up by one row (default the whole 
 
 ---
 
+### `kScrollRegionDown` — `$FFF6`
+
+The mirror of `kScrollScreen`: scroll the current surface's **scroll region**
+**down** by one row — row B−1→B, …, row T→T+1, then blanks row **T**. Same
+region, same two surfaces, same char-shadow mirror.
+
+| | |
+|---|---|
+| **Input** | — |
+| **Output** | — |
+| **Clobbers** | A |
+| **Modifies** | `kPtr`, `srcPtr` |
+
+```asm
+    jsr kScrollRegionDown   ; open a line at the top of the region
+```
+
+> **All-bitmap model:** both scroll directions are one move described three
+> ways — `scrSrc`, `scrDst` and `scrBlank`, derived once per call from the
+> region and the direction. Up moves `T+1..B` to `T..B−1` and blanks `B`; down
+> moves `T..B−1` to `T+1..B` and blanks `T`. The direction is a one-shot latch
+> (`scrollStep`, `$FF` up / `$01` down) that the scroll itself consumes, so it
+> only exists inside an SEI'd window and no task can inherit it.
+>
+> **Not a `$E000` table entry** — that table and the `$E107` vector headroom are
+> both full, so this is a 3-byte stub in the `$FFF6` pocket (the routine itself
+> is below the pool, beside `scrollScreenSlot`).
+>
+> The cursor is **not** clamped: unlike the auto-scroll in `printChar`, there is
+> no wrap to pull back, so the cursor stays where the caller left it.
+
+---
+
 ### `kEnableCursor` — `$E012`
 
 Enable the blinking block cursor. The IRQ handler toggles visibility every `BLINK_RATE` ticks. Sets `cursorOn` for the running task; the scheduler persists it to the surface matrix tail, so state survives context switches and view changes. The blink code reads cursor state from the DISPLAYED surface's tail — correct on all surfaces.

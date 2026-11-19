@@ -521,6 +521,24 @@ gfxSurfPrepTail:
 .label gfxSurfPrepTailEnd = *
 
 // ==========================================
+//  kScrollRegionDown -- the entry stub, in the $FFF6 pocket
+// ==========================================
+//  The $E000 table is full (its only free byte is $E119) and the $E107 vector
+//  headroom is spent on kStrcmp/kFillMatrix/kSetGfxMode/kFillColorRam/kFpCall/
+//  kReuDmaRange, so this entry is a plain stub in the last free bytes of the
+//  $FFxx band -- above gfxSurfPrep's tail, below the NMI vector which is the PRG
+//  block's very first *and* last fixed item. A stub rather than the routine's
+//  own address keeps the ABI fixed while the below-pool band it lives in grows.
+//  No arguments: it scrolls the current task's region down one row (see
+//  scrollRegionDown, below the pool).
+.pc = $FFF6
+
+kScrollRegionDown:
+    jmp scrollRegionDown
+
+.label kScrollRegionDownEnd = *
+
+// ==========================================
 //  blitGlyphFb -- framebuffer glyph blitter, in the $CDF5 pocket.
 //  Input: srcPtr = glyph bytes, X = col (0-39), Y = row (0-24); X preserved.
 //  Clobbers: A, Y, kArg..kArg+3, kPtr. One caller: printGlyph.

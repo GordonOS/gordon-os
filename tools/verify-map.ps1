@@ -9,8 +9,8 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '588',
-    [Parameter(Mandatory = $false)][string]$ExpectPockets = '27'
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '493',
+    [Parameter(Mandatory = $false)][string]$ExpectPockets = '28'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -113,8 +113,12 @@ Check 'scratch FC3F-FF7D:' (Occupied 0xfc3f 0xff7d) 'one contiguous gfx.lib scra
 Check 'lib entries FF7E  :' (Occupied 0xff7e 0xffe8) 'sid.lib + ipc.lib entries + cold stubs + both names (104B) + kLibHold (3B)'
 #  sprite.lib has no entry here and no cold stub: it is eager, and its four
 #  call entries are the first four stubs in the $CDDE block (sprite.inc).
-$hit = @($runs | Where-Object { $_.Range -eq 'FFF6-FFF9' })
-Check 'pocket FFF6-FFF9 :' ($hit.Count -eq 1 -and $hit[0].Size -eq 4) ('{0} bytes free above kLibHold (gfxSurfPrep tail 13B at $FFE9)' -f ($hit | ForEach-Object { $_.Size }))
+#  kScrollRegionDown's 3-byte stub takes $FFF6-$FFF8 -- the $E000 table and the
+#  $E107 vector headroom are both full, so the last free bytes of the $FFxx band
+#  are where a new entry goes, above gfxSurfPrep's tail and below the vectors.
+Check 'entry FFF6      :' (Occupied 0xfff6 0xfff8) 'kScrollRegionDown stub (3B, jmp scrollRegionDown)'
+$hit = @($runs | Where-Object { $_.Range -eq 'FFF9-FFF9' })
+Check 'pocket FFF9     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 1) ('{0} byte free above the kScrollRegionDown stub, below the vectors' -f ($hit | ForEach-Object { $_.Size }))
 $hit = @($runs | Where-Object { $_.Range -eq 'FFEC-FFF9' })
 Check 'probe 52CD      :' (Occupied 0x52cd 0x52db) ('dlProbeFit is 15B in the loader band')
 Check 'sprite name 1839 :' (Occupied 0x1839 0x1843) 'sprite.lib name string (11B); the library is eager, so it needs no cold stub'
@@ -145,7 +149,8 @@ Check 'printGlyphAt tail :' ($hit.Count -eq 1 -and $hit[0].Size -eq 1) ('{0} byt
 #  `$FC39-$FC3E` (6B): blitGlyphFb (9B) sits in the `$CDF5` pocket rather than in
 #  the chain, and what leaves the chain is what the chain can grow by. Growing
 #  past `$FC3E` trips the `.pc = $FC3F` anchor.
-Check 'router ECBD      :' (Occupied 0xECBD 0xECDB) 'paRoute is 31B - the pocket under gfx.inc ($ECDC) exactly full'
+$hit = @($runs | Where-Object { $_.Range -eq 'ECD9-ECDB' })
+Check 'router ECD9      :' ($hit.Count -eq 1 -and $hit[0].Size -eq 3) ('{0} bytes free above paRoute, under gfx.inc ($ECDC)' -f ($hit | ForEach-Object { $_.Size }))
 Check 'glyph blit CDF5 :' (Occupied 0xCDF5 0xCDFD) 'blitGlyphFb is 9B in the $CDF5 pocket'
 $hit = @($runs | Where-Object { $_.Range -eq 'FBE0-FC3E' })
 #  The code-chain growth run below the $FC3F gfx scratch pin: 2B. gfxOp ($ED5D) is one
@@ -166,10 +171,11 @@ $hit = @($runs | Where-Object { $_.Range -eq '1C6A-1C6D' })
 Check 'stub tail 1C6A   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 4) ('{0} bytes free between libStubsEnd ($1C6A) and sysExit ($1C6E)' -f ($hit | ForEach-Object { $_.Size }))
 $hit = @($runs | Where-Object { $_.Range -eq '13C7-13D3' })
 Check 'core headroom     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 13) ('{0} bytes free after kernelCoreEnd ($13C7), before reuDirBuf' -f ($hit | ForEach-Object { $_.Size }))
-#  The below-pool band's spare run: scrollScreenSlot ends at $55FF and sprite.inc
-#  places rasterCommit at $567D, so this gap belongs to neither of them.
-$hit = @($runs | Where-Object { $_.Range -eq '5600-567C' })
-Check 'below-pool 5600   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 125) ('{0} bytes between scrollScreenSlot ($55FF) and rasterCommit ($567D)' -f ($hit | ForEach-Object { $_.Size }))
+#  The below-pool band's spare run: scrollScreenSlot and the scroll-direction
+#  helpers end at $5669 and sprite.inc places rasterCommit at $567D, so this gap
+#  belongs to neither of them.
+$hit = @($runs | Where-Object { $_.Range -eq '566A-567C' })
+Check 'below-pool 566A   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 19) ('{0} bytes between the scroll code ($5669) and rasterCommit ($567D)' -f ($hit | ForEach-Object { $_.Size }))
 #  reu-fs.inc's tail: the FS code ends at $176E and syscall.inc places
 #  spawnCore's relocated front half at $1796, so this run is free.
 $hit = @($runs | Where-Object { $_.Range -eq '176F-1795' })
