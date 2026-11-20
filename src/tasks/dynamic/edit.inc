@@ -2462,7 +2462,7 @@ edEnsureVisible:
     sec
     sbc #1
     sta (dataPtr),y              // winTop--
-    jsr edScrollDown
+    jsr kScrollRegionDown        // the kernel moves rows 0..22 -> 1..23, blanks row 0
     ldy #ED_WIN
     lda (dataPtr),y
     jsr edDrawLine               // redraw the new top row
@@ -2492,80 +2492,6 @@ edEvBelow:
     adc #23
     jsr edDrawLine               // redraw the new bottom row
 edEvRts:
-    rts
-
-// --- edScrollDown -- scroll the editor's body (rows 0..23) down one row ---
-//  Editor-local: `kScrollScreen` scrolls a region up only, and only the editor
-//  wants a down-scroll. The editor scrolls only while displayed (key input
-//  needs kbFocus) and uses no char shadow, so it DMAs the framebuffer and
-//  matrix directly: rows 0..22 -> 1..23 via the REU bounce, row 0 blanked.
-//  SEI'd; erases the live cursor block first (edSyncCursor repositions it).
-//  Clobbers A, X, Y, kPtr, kArg.
-edScrollDown:
-    sei                          // atomic vs the 60 Hz blink + F-key switches
-    jsr kBlinkReset              // erase the live cursor block
-    lda #<ED_REU_BOUNCE
-    sta kArg
-    lda #>ED_REU_BOUNCE
-    sta kArg+1                   // bounce (REU bank 0)
-    lda #0
-    sta kArg+2                   // bank 0
-    lda #<$1CC0                  // 23 rows x 320 pixels
-    sta kArg+3
-    lda #>$1CC0
-    sta kArg+4
-    lda #<$2000
-    sta kPtr
-    lda #>$2000
-    sta kPtr+1                   // source = framebuffer row 0
-    jsr kReuFromC64              // framebuffer -> bounce
-    lda #<$2140
-    sta kPtr
-    lda #>$2140
-    sta kPtr+1                   // dest = framebuffer row 1
-    jsr kReuToC64                // bounce -> framebuffer+320
-    lda #<$2000                  // blank pixel row 0 (black)
-    sta kPtr
-    lda #>$2000
-    sta kPtr+1
-    lda #<$0140
-    sta kArg
-    lda #>$0140
-    sta kArg+1
-    lda #0
-    jsr kReuFillC64
-    lda #<ED_REU_BOUNCE          // matrix: 23 rows x 40 bytes
-    sta kArg
-    lda #>ED_REU_BOUNCE
-    sta kArg+1
-    lda #0
-    sta kArg+2
-    sta kArg+5
-    lda #<$0398
-    sta kArg+3
-    lda #>$0398
-    sta kArg+4
-    lda #<$0400
-    sta kPtr
-    lda #>$0400
-    sta kPtr+1                   // source = matrix row 0
-    jsr kReuFromC64
-    lda #<$0428
-    sta kPtr
-    lda #>$0428
-    sta kPtr+1                   // dest = matrix row 1
-    jsr kReuToC64
-    lda #<$0400                  // blank matrix row 0 (bg0 = black)
-    sta kPtr
-    lda #>$0400
-    sta kPtr+1
-    lda #40
-    sta kArg
-    lda #0
-    sta kArg+1
-    lda #$00
-    jsr kReuFillC64
-    cli
     rts
 
 // edLastNonSpace -- A = append position of the cursor line (column after the

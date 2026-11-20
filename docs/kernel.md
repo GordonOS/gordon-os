@@ -236,7 +236,7 @@ region, same two surfaces, same char-shadow mirror.
 |---|---|
 | **Input** | — |
 | **Output** | — |
-| **Clobbers** | A |
+| **Clobbers** | A, X, Y |
 | **Modifies** | `kPtr`, `srcPtr` |
 
 ```asm

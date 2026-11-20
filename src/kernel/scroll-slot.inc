@@ -242,7 +242,7 @@ srUp:
 //  The whole thing runs under SEI: that closes the window in which this task
 //  could be killed with the latch set, and it is what lets the entry decide
 //  whether a scroll will happen at all before it sets the latch.
-//  Clobbers A (kScrollScreen's own contract).
+//  Clobbers A, X, Y, kPtr (kScrollScreen's own contract).
 scrollRegionDown:
     sei
     ldx curTask
