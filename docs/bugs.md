@@ -57,6 +57,34 @@ itself is **not** exercised by a live test: reaching slot 6 needs seven concurre
 pool cannot hold alongside the tasks that would scroll, so the fix is verified by the instruction
 sequence and by the unchanged non-carry path.
 
+## Bug #212 — `edit`'s scroll leaves the tail of the previous line on the row that arrives 🟡 REPORTED (2026-11-20)
+
+**Symptoms.** With a document taller than the window, walking the cursor down so the view scrolls
+leaves the **bottom row** holding the new line's first characters over the previous line's tail:
+`line 027 ========== 025025025025` where the row should read `line 027 ========== 027027027027`. The
+row's label is right, so it reads as a corrupted line rather than a failed repaint. Later scrolls
+push the row up and it keeps the mixed content.
+
+**Not the down-scroll work.** Reproduced identically on `938f962`, which predates
+`kScrollRegionDown` and `edit`'s use of it, with the same file and the same key sequence -- so it
+predates both commits on `kernel-down-scroll` and is unrelated to the direction parameterization of
+`scrollScreenFocused`/`scrollScreenSlot`/`pcShadowScroll`.
+
+**Repro.** A 170-line file of 31-character lines, `run edit bigtest.txt`, then CRSR down ($84) past
+row 23 until the window scrolls; the arriving bottom row shows the mix. Every *down-scroll* row
+(the new path) came out correct in the same session: 30 CRSR down then 30 CRSR up returned the whole
+24-row grid to the baseline capture.
+
+**Where to look (not yet root-caused).** `edDrawLine` draws the line with `kBlitChar` and is the
+only writer for the arriving row; the label lands and the tail does not, so the suspicion is the
+draw's length -- the record length it pads/loops with (`ED_TMPL`) or the `edSelCache` record it is
+handed -- rather than the move itself. The move is not implicated: the same band move is correct on
+the down path, where the arriving row is the TOP one.
+
+**Rule to keep.** A row repaint must cover the whole 40-cell width, not the length of the record it
+happens to be drawing: a short line over a long one leaves the long one's tail, and a row that is
+drawn *partially* looks like corrupted data rather than a stale cell.
+
 ## Bug #211 — `sidplay` started every tune part-way in: four callers never set `kSidPlay`'s start-jiffy input 🟠 ✅ FIXED (2026-11-19)
 
 **Symptoms.** `run sidplay <tune>` began the music an arbitrary distance from its first row, while the

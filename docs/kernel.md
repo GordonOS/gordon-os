@@ -236,8 +236,8 @@ region, same two surfaces, same char-shadow mirror.
 |---|---|
 | **Input** | — |
 | **Output** | — |
-| **Clobbers** | A, X, Y |
-| **Modifies** | `kPtr`, `srcPtr` |
+| **Clobbers** | A, X, Y, the `kArg` block |
+| **Modifies** | `kPtr` |
 
 ```asm
     jsr kScrollRegionDown   ; open a line at the top of the region
