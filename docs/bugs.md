@@ -57,33 +57,52 @@ itself is **not** exercised by a live test: reaching slot 6 needs seven concurre
 pool cannot hold alongside the tasks that would scroll, so the fix is verified by the instruction
 sequence and by the unchanged non-carry path.
 
-## Bug #212 — `edit`'s scroll leaves the tail of the previous line on the row that arrives 🟡 REPORTED (2026-11-20)
+## Bug #212 — the streamed load advanced by a clobbered length, so every chunk began with re-read or emptied lines 🟠 ✅ FIXED (2026-11-20)
 
-**Symptoms.** With a document taller than the window, walking the cursor down so the view scrolls
-leaves the **bottom row** holding the new line's first characters over the previous line's tail:
-`line 027 ========== 025025025025` where the row should read `line 027 ========== 027027027027`. The
-row's label is right, so it reads as a corrupted line rather than a failed repaint. Later scrolls
-push the row up and it keeps the mixed content.
+**Symptoms.** A document taller than the window showed corrupted lines as it scrolled: the row that
+arrived at the bottom read `line 027 ========== 025025025025` -- its own label over another line's
+text -- and other lines came out duplicated or empty. The line counter and size field drifted with
+them (`l:26` on what should have been line 27). Reproduced on `938f962`, so it predates the
+down-scroll work: the up-scroll only *exposed* it, because that is the path that draws a line the
+document has never shown before.
 
-**Not the down-scroll work.** Reproduced identically on `938f962`, which predates
-`kScrollRegionDown` and `edit`'s use of it, with the same file and the same key sequence -- so it
-predates both commits on `kernel-down-scroll` and is unrelated to the direction parameterization of
-`scrollScreenFocused`/`scrollScreenSlot`/`pcShadowScroll`.
+**Root cause.** `editLoad` reads the file in 128-byte windows through `kReuReadAt`, which returns the
+bytes actually read in `kArg+6/+7`, and the byte loop advanced the stream with
+`pos += kArg+6 / kArg+7`. That same loop can **allocate the next record chunk**
+(`elGrowChunkIfNeeded` -> `elGrowChunk` -> `kMalloc`), and `kMalloc` clobbers the whole kArg block. So
+the first window exhaustion after a growth advanced by whatever `kMalloc` left there: the next read
+started at a wrong offset, and the loader re-emitted a couple of lines, skipped others, or landed
+between a CR and its NUL.
 
-**Repro.** A 170-line file of 31-character lines, `run edit bigtest.txt`, then CRSR down ($84) past
-row 23 until the window scrolls; the arriving bottom row shows the mix. Every *down-scroll* row
-(the new path) came out correct in the same session: 30 CRSR down then 30 CRSR up returned the whole
-24-row grid to the baseline capture.
+The damage lands in a chunk's first records, which is how it was found -- dumping each chunk's records
+showed boundary after boundary wrong:
 
-**Where to look (not yet root-caused).** `edDrawLine` draws the line with `kBlitChar` and is the
-only writer for the arriving row; the label lands and the tail does not, so the suspicion is the
-draw's length -- the record length it pads/loops with (`ED_TMPL`) or the `edSelCache` record it is
-handed -- rather than the move itself. The move is not implicated: the same band move is correct on
-the down path, where the arriving row is the TOP one.
+    chunk 0  001 002 003 004     (chunk 0 needs no growth, so it was clean)
+    chunk 1  025 026 027 026
+    chunk 2  047 === 047 048     (=== is an empty record)
+    chunk 5  113 121 113 114     (a jump forward, then a replay)
+    chunk 6  135 134 135 136     (a jump back)
 
-**Rule to keep.** A row repaint must cover the whole 40-cell width, not the length of the record it
-happens to be drawing: a short line over a long one leaves the long one's tail, and a row that is
-drawn *partially* looks like corrupted data rather than a stale cell.
+`RECS_PER_CHUNK` is 24, so a 170-line file has seven growths -- and its 170 lines arrived as 172
+records.
+
+**Fix.** `elAdvPos` adds the window's length from **`ED_SCR`**, where `elRefill` already stashed it,
+rather than from the kArg block, and both exhaustion paths (the ordinary one and the CR-pending one)
+call it. A window read is at most 128 bytes, so the length is one byte wide and the carry into
+`ED_POS+1` is the whole 16-bit add. edit 10,030 -> **10,028 bytes** (two inline copies of the advance
+became one helper), 40 pages, 212 bytes spare.
+
+**Verified in VICE** with a 170-line, 5,780-byte file: every record of all eight chunks is contiguous
+(`1..170` -- no duplicate, no empty, no jump; the only slots that do not match are past the document's
+end), and the display checks out row by row -- six consecutive up-scroll captures each show 24 rows
+whose labels are sequential and whose text tail matches the row's own line number, and a 30-line
+down-scroll leaves rows that are equally complete.
+
+**Rule.** **A value a later loop iteration needs must be copied out of the kArg block before anything
+that can call the kernel.** `kArg` is scratch for every kernel call -- including the `kMalloc` a loop
+can trigger -- so a cached length, pointer or argument read from it survives only until the next call,
+and the failure it causes is a *silent* offset: the stream still parses, it just parses the wrong
+bytes.
 
 ## Bug #211 — `sidplay` started every tune part-way in: four callers never set `kSidPlay`'s start-jiffy input 🟠 ✅ FIXED (2026-11-19)
 

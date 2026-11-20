@@ -3630,6 +3630,31 @@ elGrowOk:
     clc
     rts
 
+// --- elAdvPos -- ED_POS += the window's actual length ---
+//  The length is read from ED_SCR, where elRefill stashed it, and NOT from
+//  kArg+6/+7: this loop can allocate a chunk (elGrowChunk -> kMalloc), and
+//  kMalloc clobbers the whole kArg block. Advancing the stream by whatever
+//  kMalloc left there re-reads or skips a few lines at the start of every new
+//  chunk -- the visible symptom was a duplicated or emptied line per 24, and a
+//  line whose tail belonged to a different record.
+//  A window read is at most 128 bytes, so the length is one byte wide.
+//  Clobbers A, Y.
+elAdvPos:
+    ldy #ED_POS
+    lda (dataPtr),y
+    clc
+    ldy #ED_SCR
+    adc (dataPtr),y
+    ldy #ED_POS
+    sta (dataPtr),y
+    bcc elAdvRts
+    ldy #ED_POS+1
+    lda (dataPtr),y
+    adc #0
+    sta (dataPtr),y
+elAdvRts:
+    rts
+
 // --- elTrunc -- the load hit MAX_LINES: say so, then stop reading ----------
 //  Both of the byte loop's "document full" exits come here instead of a bare
 //  rts. A file longer than MAX_LINES is loaded up to the limit and the rest is
@@ -3752,15 +3777,7 @@ elByteLp:
     cmp (dataPtr),y
     bcc elReadByte
     // window exhausted -> pos += actual, refill
-    ldy #ED_POS
-    lda (dataPtr),y
-    clc
-    adc kArg+6
-    sta (dataPtr),y
-    iny
-    lda (dataPtr),y
-    adc kArg+7
-    sta (dataPtr),y
+    jsr elAdvPos
     jmp elRefill
 elReadByte:
     ldy #ED_SCR+1
@@ -3796,15 +3813,7 @@ elHaveByte:
     lda #$0D                     // window exhausted -> CR pending, refill
     ldy #ED_CARRY
     sta (dataPtr),y
-    ldy #ED_POS
-    lda (dataPtr),y
-    clc
-    adc kArg+6
-    sta (dataPtr),y
-    iny
-    lda (dataPtr),y
-    adc kArg+7
-    sta (dataPtr),y
+    jsr elAdvPos
     jmp elRefill
 elPeek:
     ldy #ED_SCR+1
