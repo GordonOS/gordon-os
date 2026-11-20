@@ -95,7 +95,7 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1263 total call sites** found across `src/`.
+- **1256 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
@@ -109,18 +109,18 @@ API surface this document is inventorying.
 | [`kSetCursor`](#ksetcursor) | `$E009` | 53 | 14 | Set the kernel cursor position (X=col, Y=row). The only screen routine that preserves all registers. |
 | [`kSwitchView`](#kswitchview) | `$E054` | 31 | 18 | Switch the VIC-II display to another task's screen -- changes only what's shown, not where the caller writes. |
 | [`kReadKey`](#kreadkey) | `$E018` | 28 | 14 | Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@'). |
-| [`kReuFromC64`](#kreufromc64) | `$E06C` | 28 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
 | [`kReuFillReu`](#kreufillreu) | `$E072` | 27 | 11 | Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address). |
+| [`kReuFromC64`](#kreufromc64) | `$E06C` | 26 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
 | [`kReuDirPageDma`](#kreudirpagedma) | `$E0B4` | 25 | 2 | DMA one 256-byte page of the REU-FS directory between REU and the bounce buffer (internal helper behind directory scans). |
-| [`kReuToC64`](#kreutoc64) | `$E069` | 25 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
-| [`kBlinkReset`](#kblinkreset) | `$E0C0` | 24 | 13 | Erase the live blink cursor block at its saved position and force the next blink to redraw at the current cursor -- call after moving the cursor. |
+| [`kBlinkReset`](#kblinkreset) | `$E0C0` | 23 | 13 | Erase the live blink cursor block at its saved position and force the next blink to redraw at the current cursor -- call after moving the cursor. |
+| [`kReuToC64`](#kreutoc64) | `$E069` | 23 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
 | [`kLockScreen`](#klockscreen) | `$E045` | 22 | 22 | Acquire the screen semaphore, saving `kPtr`/`kArg` across the wait; yields and retries if another task holds it. Must be paired with `kUnlockScreen`. |
 | [`kShareScreen`](#ksharescreen) | `$E05A` | 22 | 22 | Attach the current task to another task's surface so both write to the same memory (e.g. an overlay like a clock on the shell). |
 | [`kUnlockScreen`](#kunlockscreen) | `$E048` | 21 | 21 | Release the screen semaphore, restoring `kPtr`/`kArg` and signalling waiters. |
 | [`kAllocScreen`](#kallocscreen) | `$E04E` | 20 | 17 | Allocate a 10KB REU surface slot for the current task, cleared to pixels=0/bg0; colours come from `kArg`. |
 | [`kEnableCursor`](#kenablecursor) | `$E012` | 19 | 7 | Enable the blinking block cursor for the running task; persisted to the surface's matrix tail so it survives context switches. |
-| [`kReuFillC64`](#kreufillc64) | `$E06F` | 19 | 7 | Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address). |
 | [`kDisableCursor`](#kdisablecursor) | `$E015` | 18 | 16 | Disable the blinking block cursor for the running task; persisted to the surface's matrix tail. |
+| [`kReuFillC64`](#kreufillc64) | `$E06F` | 17 | 7 | Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address). |
 | [`kSurfDisplayed`](#ksurfdisplayed) | `$E0BD` | 16 | 4 | Report whether a task's surface is the one currently shown on the VIC framebuffer, vs sitting in its REU slot in the background. |
 | [`kRandom`](#krandom) | `$E033` | 15 | 4 | Generate a pseudo-random byte from a Galois LFSR (`randomSeed`). |
 | [`kClearScreen`](#kclearscreen) | `$E000` | 14 | 6 | Fill the screen with spaces and home the cursor to (0,0). |
@@ -402,27 +402,6 @@ Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (us
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
-### kReuFromC64
-
-``$E06C`` — **28 calls** across 12 file(s)
-
-DMA-copy a block from C64 memory to the REU (both addresses increment).
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 6 |
-| `src/kernel/scroll-region.inc` | 3 |
-| `src/libs/filesys.asm` | 3 |
-| `src/libs/gfx.asm` | 3 |
-| `src/tasks/dynamic/grpaint.inc` | 3 |
-| `src/kernel/char-shadow.inc` | 2 |
-| `src/kernel/scroll-slot.inc` | 2 |
-| `src/kernel/text-blit.inc` | 2 |
-| `src/kernel/gfx.inc` | 1 |
-| `src/kernel/sprite.inc` | 1 |
-| `src/kernel/syscall.inc` | 1 |
-| `src/tasks/cmd/compact.inc` | 1 |
-
 ### kReuFillReu
 
 ``$E072`` — **27 calls** across 11 file(s)
@@ -443,6 +422,27 @@ Fill a REU memory region with a constant byte (fixed C64 source address, increme
 | `src/kernel/screen-io.inc` | 1 |
 | `src/tasks/dynamic/ehbasic.asm` | 1 |
 
+### kReuFromC64
+
+``$E06C`` — **26 calls** across 12 file(s)
+
+DMA-copy a block from C64 memory to the REU (both addresses increment).
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/kernel/scroll-region.inc` | 3 |
+| `src/libs/filesys.asm` | 3 |
+| `src/libs/gfx.asm` | 3 |
+| `src/tasks/dynamic/grpaint.inc` | 3 |
+| `src/kernel/char-shadow.inc` | 2 |
+| `src/kernel/scroll-slot.inc` | 2 |
+| `src/kernel/text-blit.inc` | 2 |
+| `src/kernel/gfx.inc` | 1 |
+| `src/kernel/sprite.inc` | 1 |
+| `src/kernel/syscall.inc` | 1 |
+| `src/tasks/cmd/compact.inc` | 1 |
+
 ### kReuDirPageDma
 
 ``$E0B4`` — **25 calls** across 2 file(s)
@@ -454,34 +454,15 @@ DMA one 256-byte page of the REU-FS directory between REU and the bounce buffer 
 | `src/libs/filesys.asm` | 17 |
 | `src/tasks/cmd/compact.inc` | 8 |
 
-### kReuToC64
-
-``$E069`` — **25 calls** across 10 file(s)
-
-DMA-copy a block from the REU to C64 memory (both addresses increment).
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 6 |
-| `src/libs/gfx.asm` | 5 |
-| `src/tasks/dynamic/grpaint.inc` | 4 |
-| `src/kernel/scroll-region.inc` | 3 |
-| `src/kernel/scroll-slot.inc` | 2 |
-| `src/kernel/char-shadow.inc` | 1 |
-| `src/kernel/gfx.inc` | 1 |
-| `src/kernel/reu-fs.inc` | 1 |
-| `src/kernel/sprite.inc` | 1 |
-| `src/tasks/cmd/compact.inc` | 1 |
-
 ### kBlinkReset
 
-``$E0C0`` — **24 calls** across 13 file(s)
+``$E0C0`` — **23 calls** across 13 file(s)
 
 Erase the live blink cursor block at its saved position and force the next blink to redraw at the current cursor -- call after moving the cursor.
 
 | File | Calls |
 |---|---:|
-| `src/tasks/dynamic/edit.inc` | 7 |
+| `src/tasks/dynamic/edit.inc` | 6 |
 | `src/tasks/dynamic/gortris.inc` | 2 |
 | `src/tasks/dynamic/granim.inc` | 2 |
 | `src/tasks/dynamic/grknoid.inc` | 2 |
@@ -494,6 +475,25 @@ Erase the live blink cursor block at its saved position and force the next blink
 | `src/tasks/dynamic/sidplay.asm` | 1 |
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
+
+### kReuToC64
+
+``$E069`` — **23 calls** across 10 file(s)
+
+DMA-copy a block from the REU to C64 memory (both addresses increment).
+
+| File | Calls |
+|---|---:|
+| `src/libs/gfx.asm` | 5 |
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/tasks/dynamic/grpaint.inc` | 4 |
+| `src/kernel/scroll-region.inc` | 3 |
+| `src/kernel/scroll-slot.inc` | 2 |
+| `src/kernel/char-shadow.inc` | 1 |
+| `src/kernel/gfx.inc` | 1 |
+| `src/kernel/reu-fs.inc` | 1 |
+| `src/kernel/sprite.inc` | 1 |
+| `src/tasks/cmd/compact.inc` | 1 |
 
 ### kLockScreen
 
@@ -629,22 +629,6 @@ Enable the blinking block cursor for the running task; persisted to the surface'
 | `src/tasks/dynamic/gortris.inc` | 1 |
 | `src/tasks/dynamic/grknoid.inc` | 1 |
 
-### kReuFillC64
-
-``$E06F`` — **19 calls** across 7 file(s)
-
-Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address).
-
-| File | Calls |
-|---|---:|
-| `src/libs/gfx.asm` | 4 |
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/kernel/gfx.inc` | 3 |
-| `src/kernel/init.inc` | 3 |
-| `src/kernel/screen-io.inc` | 2 |
-| `src/kernel/scroll-region.inc` | 2 |
-| `src/kernel/screen-mgmt.inc` | 1 |
-
 ### kDisableCursor
 
 ``$E015`` — **18 calls** across 16 file(s)
@@ -669,6 +653,22 @@ Disable the blinking block cursor for the running task; persisted to the surface
 | `src/tasks/dynamic/shell.inc` | 1 |
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
+
+### kReuFillC64
+
+``$E06F`` — **17 calls** across 7 file(s)
+
+Fill a C64 memory region with a constant byte (fixed REU source address, incrementing C64 address).
+
+| File | Calls |
+|---|---:|
+| `src/libs/gfx.asm` | 4 |
+| `src/kernel/gfx.inc` | 3 |
+| `src/kernel/init.inc` | 3 |
+| `src/kernel/screen-io.inc` | 2 |
+| `src/kernel/scroll-region.inc` | 2 |
+| `src/tasks/dynamic/edit.inc` | 2 |
+| `src/kernel/screen-mgmt.inc` | 1 |
 
 ### kSurfDisplayed
 

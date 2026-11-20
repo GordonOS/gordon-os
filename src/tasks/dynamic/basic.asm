@@ -1076,15 +1076,38 @@ gxDoShadow:
     jsr kSetCharShadow
     rts
 
-// --- SCROLLBY n -- scroll the current region n rows (0-24) ---
+// --- SCROLLBY n -- scroll the current region |n| rows ---
+//  Positive scrolls UP (content towards the top, bottom row blanked) through
+//  kScrollScreen, negative scrolls DOWN (content towards the bottom, top row
+//  blanked) through kScrollRegionDown, 0 does nothing. gxNum leaves a signed
+//  16-bit value in itemph:itempl, so the direction is itemph's sign bit and the
+//  magnitude is the low byte negated -- |n| <= 24, so it always fits one byte.
 gxSbCount: .byte 0
+gxSbDown:  .byte 0
 gxDoScrollby:
-    jsr gxNum                 // n
+    jsr gxNum                 // n -> itemph:itempl (signed)
     lda itempl
+    ora itemph
     beq gxSbDone              // 0 -> nothing
+    ldy #0                    // Y = 0 up, 1 down
+    bit itemph
+    bpl gxSbPos
+    iny
+    lda itempl
+    eor #$ff
+    clc
+    adc #1                    // negate: low byte = |n|
+gxSbPos:
     sta gxSbCount
+    sty gxSbDown
 gxSbLoop:
+    lda gxSbDown
+    bne gxSbDn
     jsr kScrollScreen
+    jmp gxSbNext
+gxSbDn:
+    jsr kScrollRegionDown
+gxSbNext:
     dec gxSbCount
     bne gxSbLoop
 gxSbDone:
