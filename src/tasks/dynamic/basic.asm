@@ -1117,6 +1117,8 @@ gxSbDone:
 gxPatCol: .byte 0
 gxPatRow: .byte 0
 gxPatLen: .byte 0
+gxPatIdx: .byte 0
+gxPatCh:  .byte 0
 gxDoPrintAt:
     jsr gxNum; lda itempl; sta gxPatCol       // col
     jsr lab_1c01
@@ -1125,26 +1127,23 @@ gxDoPrintAt:
     jsr gxNum; lda itempl; jsr kSetTextColor  // colour
     jsr lab_1c01
     jsr lab_evex              // evaluate string expression
-    jsr lab_evst              // A=len, X/Y=ptr (ASCII)
-    stx itempl                // string pointer -> itempl/itemph ($11/$12)
-    sty itemph
+    jsr lab_evst              // A=len, ut1_pl/ut1_ph = working-file offset
     sta gxPatLen
+    lda #0
+    sta gxPatIdx
 gxPatLoop:
     lda gxPatLen
     beq gxPatDone
-    ldy #0
-    lda (itempl),y            // ASCII char
+    ldy gxPatIdx              // index into the string
+    jsr readStrByte           // A = ASCII char (REU working file)
     jsr ascii_to_screen       // -> screen code
-    pha                       // save screen code (kPrintCharAt clobbers A)
-    inc itempl                // advance string pointer
-    bne gxPatAdv
-    inc itemph
-gxPatAdv:
+    sta gxPatCh               // kPrintCharAt clobbers A
     ldx gxPatCol              // X = col
     ldy gxPatRow              // Y = row
-    pla                       // A = screen code
+    lda gxPatCh               // A = screen code
     jsr kPrintCharAt
     inc gxPatCol
+    inc gxPatIdx
     dec gxPatLen
     jmp gxPatLoop
 gxPatDone:
@@ -1158,15 +1157,14 @@ gxDoGChar:
     jsr gxNum; jsr gxChkY; lda itempl; sta gxArgBuf+2                            // y
     jsr lab_1c01
     jsr lab_evex              // string expression (ch)
-    jsr lab_evst              // A=len, X/Y=ptr
-    stx itempl                // itempl/itemph = string pointer
-    sty itemph
+    jsr lab_evst              // A=len, ut1_pl/ut1_ph = working-file offset
     ldy #0
-    lda (itempl),y            // first char (ASCII)
+    jsr readStrByte           // first char (ASCII, REU working file)
     jsr ascii_to_screen       // -> screen code
     sta gxGcChar              // stash (gxNum clobbers X)
     jsr lab_1c01              // ","
-    jsr gxNum                 // colour
+    jsr gxNum                 // colour -> itempl (gxNum leaves A = hi byte)
+    lda itempl
     pha
     jsr gxArgCopy7
     ldx gxGcChar              // X = char
@@ -1180,6 +1178,7 @@ gxTexXh:  .byte 0
 gxTexY:   .byte 0
 gxTexCol: .byte 0
 gxTexLen: .byte 0
+gxTexIdx: .byte 0
 gxDoGText:
     jsr gxNum; jsr gxChkX; lda itempl; sta gxTexX; lda itemph; sta gxTexXh  // x
     jsr lab_1c01
@@ -1188,15 +1187,15 @@ gxDoGText:
     jsr gxNum; lda itempl; sta gxTexCol                          // colour
     jsr lab_1c01
     jsr lab_evex              // string expression
-    jsr lab_evst              // A=len, X/Y=ptr
-    stx itempl                // itempl/itemph = string pointer
-    sty itemph
+    jsr lab_evst              // A=len, ut1_pl/ut1_ph = working-file offset
     sta gxTexLen
+    lda #0
+    sta gxTexIdx
 gxTexLoop:
     lda gxTexLen
     beq gxTexDone
-    ldy #0
-    lda (itempl),y            // ASCII char
+    ldy gxTexIdx              // index into the string
+    jsr readStrByte           // A = ASCII char (REU working file)
     jsr ascii_to_screen       // -> screen code
     tax                       // X = char
     lda gxTexX;   sta kArg    // x lo
@@ -1204,10 +1203,7 @@ gxTexLoop:
     lda gxTexY;   sta kArg+2  // y
     lda gxTexCol              // A = colour
     jsr kGfxChar
-    inc itempl                // advance string pointer
-    bne gxTexAdv
-    inc itemph
-gxTexAdv:
+    inc gxTexIdx              // advance the string index
     lda gxTexX                // x += 8 (glyph pitch)
     clc
     adc #8

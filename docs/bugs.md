@@ -21,6 +21,64 @@
 
 ---
 
+## Bug #213 — `printat`, `gchar` and `gtext` read their string out of C64 RAM, so they printed garbage 🟠 ✅ FIXED (2026-11-20)
+
+**Symptoms.** `printat 0,3,1,"ABC"` printed three characters of nonsense (`j@@`) where `print "ABC"`
+printed `ABC`, and `gtext`/`gchar` drew garbage glyphs. The character *count* was always right, which is
+what made it look like a parsing fault rather than a memory one.
+
+**Root cause.** In this port no string ever stays where it was typed: `lab_mvst` copies even an
+immediate-mode literal into the **REU working file** (`copyStringC64`), and the descriptor pushed at
+`lab_rtst` is *(length, working-file offset)*. Every consumer therefore reads bytes through
+`readStrByte` -> `fioRead` -> `kReuReadAt` at `ut1_pl/ut1_ph + Y`. The three graphics statements did
+
+    lda (itempl),y            ; a plain C64 RAM load of a *file offset*
+
+so they printed whatever lived at that address in main memory. For `"ABC"` RAM held `$6A $00 $00` --
+visible as `j@@`, because `ascii_to_screen` maps `$6A` to screen code `$0A` (`j`) and passes `$00`
+through as `@`.
+
+**Fix.** All three keep `lab_evst`'s `ut1_pl/ut1_ph`, count the length down, and read one byte per
+character with `readStrByte`. `printat`/`gtext` need an index byte for it (`gxPatIdx`, `gxTexIdx`):
+`Y` cannot be the index *and* the row/pitch left of a call. basic 16,371 -> 16,377 bytes of code
+both bugs together, 108 pool pages, margin 1.
+
+**Verified in VICE.** `10 cls / 20 printat 0,3,1,"ABC" / 30 gtext 0,80,1,"DEF" /
+40 gchar 8,160,"Q",1 / 50 end` then `run`: cells (0..2, row 3) hold font glyphs 65/66/67, cells
+(0..2, row 10) 68/69/70, and cell (1, row 20) 81 -- `A B C`, `D E F` and `Q`, matched against
+`charsets/gordon.fnt`. Direct mode checks the same path from the input buffer:
+`a$="XY"` + `printat 20,5,1,a$` puts `XY` at column 20 of row 5, and
+`printat 25,7,2,"DIRECT"` puts `DIRECT` at column 25 of row 7.
+
+**Rule.** **A string byte is never in C64 memory: read it through `readStrByte`, because the descriptor
+is an offset into the REU working file.** A RAM load of that offset still returns *something*, which is
+why the failure looks like a text bug -- the right number of the wrong characters -- rather than a
+bad pointer.
+
+## Bug #214 — `gchar` pushed `gxNum`'s high byte as the colour, so the glyph was drawn in colour 0 (hires "clear") 🟠 ✅ FIXED (2026-11-20)
+
+**Symptoms.** `gchar 8,160,"Q",1` drew nothing at all, while `gtext 0,168,1,"Q"` drew `Q` from the same
+font at the same colour -- found while verifying bug #213, and hidden by it until the string bytes
+became correct.
+
+**Root cause.** `gxNum` ends in `lab_f2fx`, which returns **A = the high byte** and `Y` = the low byte
+(the value itself is in `itemph:itempl`). `gchar`'s colour was taken straight from `A`:
+
+    jsr gxNum                 ; colour
+    pha                       ; pushes the HIGH byte -- 0 for every colour 0..255
+
+so `kGfxChar` was handed colour 0, which in hires is "clear" (`mode 0`: 0 = clear, 1 = set): each plot
+was a no-op. Every sibling handler loads the value first (`jsr gxNum; lda itempl; pha`, as `line`,
+`box`, `circle` and `ellipse` do), which is why only `gchar` was affected.
+
+**Fix.** `lda itempl` before the `pha` (+3 bytes, inside the same 16,377).
+
+**Verified in VICE.** Cell (1, row 20) of the framebuffer holds font glyph 81 (`Q`) after
+`gchar 8,160,"Q",1`.
+
+**Rule.** **`gxNum`'s result is in `itemph:itempl`; `A` is only its high half, so it is zero for every
+argument below 256.** A caller that wants the value must read `itempl` (or both bytes), never `A`.
+
 ## Bug #210 — `scrollScreenSlot` dropped the `$2000` plane's carry, so a high slot scrolled another surface's cell matrix 🟡 ✅ FIXED (2026-11-15)
 
 **Symptoms.** A background surface scrolled its colour matrix into the wrong 16 KB. Nothing visible at
