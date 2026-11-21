@@ -1072,8 +1072,10 @@ the sound of a Dalek or a struck bell rather than of a note, and moving the modu
 the whole timbre rather than tuning it.
 
 **The modulator must run, but it must not be heard** — otherwise it doubles the melody in its own
-voice. The format has a command for exactly that: `3-O 1` mutes voice 3's output *without stopping
-its oscillator*, so voice 3 can do the modulating in silence.
+voice. The format has a command for exactly that: `3-O 1` in voice 3's lane sets the chip's
+voice-3-disconnect bit, so voice 3 keeps its oscillator (and so keeps supplying the second frequency)
+while its output stays out of the mix. `3-O 0` puts it back — the demonstrations below use that to let
+voice 3 be heard once the ring-modulated voice is on its way.
 
 Two of them ship with the machine — the Sidplayer demonstration tunes from the Compute's Gazette Sid
 Collection, whose credit is in [`../NOTICE`](../NOTICE) — so you can open them and walk down their
@@ -1304,7 +1306,7 @@ A pulse-width tremolo instead: the width jumps between its written value and tha
 | `UTV` | 0-255 | **this voice's** utility length, the per-voice twin of `UTL` (see *Tempo*, above) |
 | `FLG` | 0-255 | the tune's **flag byte**: the player publishes it as `sidFlag`, a fixed byte any task can read, so a program running alongside the music can follow it (change the border, start an animation, switch a screen). See *FLG, the tune's flag* below |
 | `AUX` | 0-255 | the "auxiliary" escape hatch: each player gives it its own meaning, and GordonOS's gives it none — **no effect**. See *Commands that are kept but do nothing here* |
-| `3-O` | 0 or 1 | switches voice 3 off, freeing it for sound effects |
+| `3-O` | 0 or 1 | disconnects **voice 3's output** from the chip's mixer, or reconnects it. Its oscillator keeps running, so voice 3 can modulate voice 1 in silence. `3-O 1` = off |
 | `HLT` | — | stops this voice. Every voice must end on it |
 
 `UTV` sits at the end of the picker rather than beside `UTL`, which surprises people looking for it:
@@ -1319,10 +1321,25 @@ destination without a marker, and there is no numbering to keep in step with a b
 deleted (see *Jumping to a bar*, above). A tune that carries `MS#` markers keeps them, and they cost it
 nothing.
 
-`3-O 1` is the one MISC command that changes what the other lanes sound like: it stops voice 3's own
-notes so a sound effect can have the voice. Every voice ends on its `HLT`, and the editor keeps it —
-it cannot be deleted, only pushed down, because removing it would leave that voice's stream running
-into the next one's bytes.
+`3-O 1` is the one MISC command that changes what another lane sounds like, and it does it in a way
+worth knowing exactly: it sets **bit 7 of the SID's volume/filter register** (`$D418`), which
+**disconnects voice 3 from the audio output** while leaving its oscillator running. It does not stop
+voice 3 and it does not stop the player writing voice 3's registers — the note still plays, it is just
+not mixed in. `3-O 0` puts it back. `VOL` and `F-M` write other bits of that same register and leave
+this one alone, so a later `VOL` does not undo it.
+
+That gives it two uses:
+
+- **A modulator nobody hears.** Voice 1's ring modulation and sync take their second frequency from
+  voice 3, so with `3-O 1` in voice 3's lane, voice 3 supplies the modulator and stays silent. This is
+  what `ringmod` does; *Sync and ring modulation* above has the detail.
+- **Voice 3 for something else.** A tune that uses two voices leaves voice 3 free, and `3-O 1` keeps
+  it quiet while a program — a game's sound effects, say — drives the chip's third voice. That only
+  works once the tune's own voice-3 lane has **stopped** (`HLT`), because until then the player keeps
+  rewriting voice 3's frequency and control registers under whatever the other program wrote.
+
+Every voice ends on its `HLT`, and the editor keeps it — it cannot be deleted, only pushed down,
+because removing it would leave that voice's stream running into the next one's bytes.
 
 `FLG` and `AUX` are the format's two hooks out to the player's host. `FLG` reaches
 one here — see *FLG, the tune's flag* below. `AUX` does not: it jumped to a routine
@@ -1528,7 +1545,8 @@ If you know what you want musically, this is the map:
 | repeat a section | `HED` … `TAL` |
 | reuse a passage without copying it | `DEF` … `END`, played by `CALL` |
 | a delayed or gated voice | `UTL` / `UTV` with the utility note lengths |
-| a sound effect on voice 3 | `3-O` frees voice 3 while the tune runs |
+| a silent modulator for `RNG`/`SNC` | `3-O 1` in voice 3 — it mutes voice 3's output and its oscillator keeps running |
+| a sound effect on voice 3 | stop that lane (`HLT`) and `3-O 1`, then drive the chip's third voice from the program |
 
 ### Commands that are kept but do nothing here
 
