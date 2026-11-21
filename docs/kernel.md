@@ -246,9 +246,18 @@ region, same two surfaces, same char-shadow mirror.
 > **All-bitmap model:** both scroll directions are one move described three
 > ways — `scrSrc`, `scrDst` and `scrBlank`, derived once per call from the
 > region and the direction. Up moves `T+1..B` to `T..B−1` and blanks `B`; down
-> moves `T..B−1` to `T+1..B` and blanks `T`. The direction is a one-shot latch
-> (`scrollStep`, `$FF` up / `$01` down) that the scroll itself consumes, so it
-> only exists inside an SEI'd window and no task can inherit it.
+> moves `T..B−1` to `T+1..B` and blanks `T`. The direction is `scrollStep`
+> (`$FF` up / `$01` down): the `kScrollRegionDown` entry sets it, the scroll
+> reads it, and the entry clears it again on return — all inside one SEI'd
+> window, so no task can inherit a direction. It must not be cleared earlier:
+> `scrollScreenSlot` needs it to decide which way to walk the rows.
+>
+> **The displayed surface and the char shadow move the whole block** through the
+> REU bounce, which is overlap-safe in either direction. The background slot
+> cannot — REU cannot copy to REU — so it moves one row at a time, starting at
+> the far end of the move (`T` upwards for an up scroll, `B` downwards for a
+> down one) and working back towards the vacated row, each source read before
+> the move can overwrite it.
 >
 > **Not a `$E000` table entry** — that table and the `$E107` vector headroom are
 > both full, so this is a 3-byte stub in the `$FFF6` pocket (the routine itself

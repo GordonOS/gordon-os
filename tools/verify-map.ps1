@@ -9,7 +9,7 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '493',
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '481',
     [Parameter(Mandatory = $false)][string]$ExpectPockets = '28'
 )
 
@@ -172,10 +172,10 @@ Check 'stub tail 1C6A   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 4) ('{0} byte
 $hit = @($runs | Where-Object { $_.Range -eq '13C7-13D3' })
 Check 'core headroom     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 13) ('{0} bytes free after kernelCoreEnd ($13C7), before reuDirBuf' -f ($hit | ForEach-Object { $_.Size }))
 #  The below-pool band's spare run: scrollScreenSlot and the scroll-direction
-#  helpers end at $5669 and sprite.inc places rasterCommit at $567D, so this gap
+#  helpers end at $5675 and sprite.inc places rasterCommit at $567D, so this gap
 #  belongs to neither of them.
-$hit = @($runs | Where-Object { $_.Range -eq '566A-567C' })
-Check 'below-pool 566A   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 19) ('{0} bytes between the scroll code ($5669) and rasterCommit ($567D)' -f ($hit | ForEach-Object { $_.Size }))
+$hit = @($runs | Where-Object { $_.Range -eq '5676-567C' })
+Check 'below-pool 5676   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 7) ('{0} bytes between the scroll code ($5675) and rasterCommit ($567D)' -f ($hit | ForEach-Object { $_.Size }))
 #  reu-fs.inc's tail: the FS code ends at $176E and syscall.inc places
 #  spawnCore's relocated front half at $1796, so this run is free.
 $hit = @($runs | Where-Object { $_.Range -eq '176F-1795' })

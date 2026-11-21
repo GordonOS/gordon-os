@@ -21,6 +21,26 @@
 
 ---
 
+## Bug #215 — `scrollScreenSlot` moved every background scroll UP, because `scrollRows` consumed the direction before the slot loop read it 🟠 ✅ FIXED (2026-11-20)
+
+**Symptoms.** A task whose surface is in its REU slot — anything not currently displayed — scrolled the wrong way, and a *down* scroll could destroy the surface instead of moving it. Foreground scrolling was always correct, which is how it survived the first round of testing: `edit` and BASIC were the displayed task in every check.
+
+**Root cause.** Two faults, both in the direction plumbing:
+
+1. `scrollStep` is the direction (`$FF` up, `$01` down) and `scrollRows` **reset it to `$FF` as it consumed it**. `scrollScreenSlot` reads `scrollStep` *after* calling `scrollRows`, so it always saw `$FF` and walked the rows as if the scroll were upwards. The default value happens to be the up value, so the up path was right by accident and only the down path was wrong.
+2. The slot loop iterated **sources** forwards, moving row `r` to `r + scrollStep`. That is overlap-safe upwards (destination below source) but not downwards: iteration 2 read row `T+1` after iteration 1 had already overwritten it with row `T`. The displayed surface and the char shadow were immune — they move the whole block through the REU bounce, which is order-independent.
+
+**Fix.** The direction is now owned by the `kScrollRegionDown` entry: it sets `scrollStep`, calls `scrollScreen`, and clears it on return, all under one SEI, so nothing else can observe it. `scrollRows` reads it and leaves it alone. `scrollScreenSlot` walks **destinations**, starting at the far end of the move — `T` upwards, `B` downwards — and derives each source as `dest - scrollStep`, so a source is always read before a move can reach it. Net effect on the code: `scrollSlotEnd` `$5669` → `$5676`, free space **494 → 481 B across 28 pockets**, below-pool run `$5676-$567C` (7 B).
+
+**Verified in VICE**, region 5..18 with markers `A..L` printed on rows 6..17, one scroll per run and the display switched with `kbScreenReq` (indices derived from `screenAlloc`/`screenOwner`, `kbFocus` confirming each switch):
+
+    foreground  scrollby -1   A..L at 7..18
+    background  scrollby -1   A..L at 7..18   scrSrc=05 scrDst=06 scrBlank=05
+    background  scrollby  1   A..L at 5..16   scrSrc=06 scrDst=05 scrBlank=18
+    control (switch away/back, no scroll)  A..L still at 6..17
+
+**Rule.** **A state byte that a callee "consumes" must not be read by anything the callee returns into.** A one-shot flag is safe only while the reader is the code that resets it; here the reset ran inside `scrollRows` and the reader was a routine two frames further down that control never returns to. And a **row-by-row copy must start at the end of the move that keeps sources alive** — the far end and work back — which for a two-direction move means the start row differs per direction, not just the step. A block copy through a bounce buffer has no such rule, which is exactly why the displayed path hid the fault.
+
 ## Bug #213 — `printat`, `gchar` and `gtext` read their string out of C64 RAM, so they printed garbage 🟠 ✅ FIXED (2026-11-20)
 
 **Symptoms.** `printat 0,3,1,"ABC"` printed three characters of nonsense (`j@@`) where `print "ABC"`

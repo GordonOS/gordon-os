@@ -9,8 +9,9 @@
 // --- scrollScreenSlot -- scroll the BACKGROUND surface's slot region ---
 //  Called from scrollScreen under SEI with cursorOn = 0. The slot lives
 //  in REU, so each row round-trips through C64 scratchBuf (REU can't do
-//  REU->REU). Moves rows (T+1)..B up one, blanks row B. R == 0 blanks
-//  row B only. X = curTask (reloaded -- the dispatcher's surfDisplayed
+//  REU->REU). Moves the region's rows one place, up or down per the
+//  direction, and blanks the row the content vacated. R == 0 blanks that
+//  row only. X = curTask (reloaded -- the dispatcher's surfDisplayed
 //  clobbers X on the sharee path). Clobbers A, X, Y, kPtr, kArg,
 //  scrollSeedBuf.
 scrollScreenSlot:
@@ -32,12 +33,28 @@ sssNoShadow:
     bne sssMove                 // R != 0 -> do the move
     jmp sssClear                // R == 0 -> blank the vacated row only (far)
 sssMove:
-
-    ldy scrSrc                  // first source row: T+1 scrolling up, T down
+    //  The loop walks DESTINATIONS and derives each source as dest - scrollStep.
+    //  The walk must start at the far end of the move and head back towards the
+    //  vacated row -- T upwards when scrolling up, B downwards when scrolling
+    //  down -- so every source row is read before a move can overwrite it.
+    //  Walking sources from scrSrc instead would, on a down scroll, read row r+1
+    //  after it had already been overwritten with row r's content.
+    ldy scrDst                  // up: T
+    lda scrollStep
+    bmi sssStart                // $FF -> up, scrDst is the far end
+    lda kArg+6                  // down: start at B = T + R
+    clc
+    adc kArg+7
+    tay
+sssStart:
     sty sssRow
 sssLoop:
-    // --- pixel row r -> row r+step (320B via scratchBuf) ---
+    // --- pixel row dst-src -> row dst (320B via scratchBuf) ---
     ldy sssRow
+    tya
+    sec
+    sbc scrollStep              // the source row for this destination
+    tay
     lda gfxRowLutLo,y           // r*320 lo ($2000 lo byte = 0)
     sta scrollSeedBuf
     lda gfxRowLutHi,y           // r*320 hi + $20
@@ -52,17 +69,13 @@ sssLoop:
     lda #>$C400; sta kPtr+1
     jsr kReuToC64               // slot source -> scratchBuf
     ldy sssRow
-    tya
-    clc
-    adc scrollStep              // the destination row
-    tay
     lda gfxRowLutLo,y
     sta scrollSeedBuf
     lda gfxRowLutHi,y
     sec
     sbc #>$2000
     sta scrollSeedBuf+1
-    jsr sssAddr                 // kArg = slot + (r+step)*320 (dest)
+    jsr sssAddr                 // kArg = slot + dst*320 (dest)
     lda #<$0140; sta kArg+3
     lda #>$0140; sta kArg+4
     lda #0; sta kArg+5
@@ -70,8 +83,12 @@ sssLoop:
     lda #>$C400; sta kPtr+1
     jsr kReuFromC64             // scratchBuf -> slot dest
 
-    // --- matrix row r -> row r+step (40B via scratchBuf) ---
+    // --- matrix row dst-src -> row dst (40B via scratchBuf) ---
     ldy sssRow
+    tya
+    sec
+    sbc scrollStep
+    tay
     lda gfxCellRowLutLo,y
     sta scrollSeedBuf
     lda gfxCellRowLutHi,y
@@ -84,15 +101,11 @@ sssLoop:
     lda #>$C400; sta kPtr+1
     jsr kReuToC64
     ldy sssRow
-    tya
-    clc
-    adc scrollStep
-    tay
     lda gfxCellRowLutLo,y
     sta scrollSeedBuf
     lda gfxCellRowLutHi,y
-    sta scrollSeedBuf+1         // (r+step)*40
-    jsr sssAddrPlane            // kArg = slot + $2000 + (r+step)*40 (dest)
+    sta scrollSeedBuf+1         // dst*40
+    jsr sssAddrPlane            // kArg = slot + $2000 + dst*40 (dest)
     lda #SCREEN_COLS; sta kArg+3
     lda #0; sta kArg+4
     sta kArg+5
@@ -100,11 +113,10 @@ sssLoop:
     lda #>$C400; sta kPtr+1
     jsr kReuFromC64
 
-    // --- next source row, R rows in all ---
-    ldy sssRow
-    tya
-    clc
-    adc scrollStep
+    // --- next destination row, R rows in all ---
+    lda sssRow
+    sec
+    sbc scrollStep              // towards the vacated row
     sta sssRow
     dec kArg+7
     beq sssClear                // forward and close: the loop itself is behind us
@@ -188,10 +200,20 @@ sapDone:
 //      scrBlank  the row the content vacated (blanked after the move)
 //
 //  scrollStep is the signed row offset from a source row to its destination:
-//  $FF for an up scroll, $01 for a down one. It is a ONE-SHOT LATCH -- the
-//  default is $FF and scrollRows puts it back there as it reads it, so the
-//  value only exists inside an SEI'd window and no task can inherit it. A
-//  direction left standing would turn every later up scroll into a down one.
+//  $FF for an up scroll, $01 for a down one. It is the DEFAULT for an up scroll
+//  and the kScrollRegionDown entry sets it to $01 for the length of one scroll,
+//  clearing it again once scrollScreen has returned -- the whole thing runs
+//  under SEI, so no task can observe the value in between, and a direction left
+//  standing would turn every later up scroll into a down one. It must NOT be
+//  cleared by scrollRows: scrollScreenSlot reads it to decide which way to walk
+//  the rows, and clearing it there made every background scroll move UP.
+//  The block copies (the displayed surface and the char shadow) move scrSrc to
+//  scrDst in one go through the REU bounce, which is overlap-safe either way.
+//  scrollScreenSlot cannot do that -- REU cannot copy to REU -- so it walks the
+//  rows one at a time, starting at the far end of the move (T upwards when
+//  scrolling up, B downwards when scrolling down) and working back towards the
+//  vacated row, deriving each source as dest - scrollStep. A source row is then
+//  always read before a move can overwrite it.
 scrollStep:   .byte $FF
 scrSrc:       .byte 0
 scrDst:       .byte 0
@@ -200,14 +222,12 @@ sssRow:       .byte 0
 
 // --- scrollRows -- derive scrSrc/scrDst/scrBlank from the region ---
 //  In:  kArg+6 = T, kArg+7 = R (= B - T), scrollStep = the direction.
-//  Out: scrSrc, scrDst, scrBlank; scrollStep back to $FF. X and Y preserved.
-//  Clobbers: A.
+//  Out: scrSrc, scrDst, scrBlank. X and Y preserved. Clobbers: A.
+//  scrollStep is read, not consumed -- the caller owns it (see the note above).
 scrollRows:
     tya
     pha
-    ldy scrollStep              // the direction, read before the latch is cleared
-    lda #$ff
-    sta scrollStep              // consumed: back to the up-scroll default
+    ldy scrollStep              // the direction
     lda kArg+6                  // T
     cpy #$80                    // $FF (up) is >= $80; $01 (down) is not
     bcs srUp
@@ -240,17 +260,19 @@ srUp:
 //  kScrollScreen -- the region is the task's own, and the cursor is left where
 //  the caller put it, because there is no wrap to clamp.
 //  The whole thing runs under SEI: that closes the window in which this task
-//  could be killed with the latch set, and it is what lets the entry decide
-//  whether a scroll will happen at all before it sets the latch.
+//  could be killed with scrollStep set, and it lets the entry decide whether a
+//  scroll will happen at all before it sets the direction.
 //  Clobbers A, X, Y, kPtr, the kArg block (kScrollScreen's own contract).
 scrollRegionDown:
     sei
     ldx curTask
     lda screenAlloc,x
-    beq srdDone                 // no surface -> nothing consumes a latch: do not set one
+    beq srdDone                 // no surface -> nothing to scroll: do not set a direction
     lda #1
     sta scrollStep
-    jsr scrollScreen            // SEI'd inside; reaches a routine that consumes it
+    jsr scrollScreen            // reads scrollStep; SEI'd inside
+    lda #$ff
+    sta scrollStep              // back to the up-scroll default, still under SEI
 srdDone:
     clc
     cli
