@@ -378,6 +378,24 @@ its duration from the `UTL` command (all voices) or the `UTV` command (this voic
 its own duration bits — useful for a delayed or gated voice. Both forms round-trip as ordinary
 notes.
 
+**`UTL 0` is 256 jiffies**, like every other byte-valued length here: the player decrements and
+tests, so zero means "all the way round". A tune that never sets `UTL` starts at **12 jiffies**,
+which is an eighth triplet at 100 quarter notes a minute, and the value stays put until a `UTL`
+changes it.
+
+That is what the utility length is really for: **a length the tempo cannot express.** An eighth
+triplet needs a third of a quarter's jiffies, and many tempi do not divide by three. Take a tempo
+whose quarter is 28 jiffies: three notes in that quarter cannot be 9⅓ each, so put `UTL 9` in front
+of two of them and `UTL 10` before the third — 9 + 9 + 10 = 28, and the triplet is exact.
+The same arithmetic writes sixteenths in a tempo that refuses them, and a **grace note**: shorten
+the note before it and enter the grace note with the remainder.
+
+Because the value is a count of *jiffies* and not of rows, a **tempo change does not restate it**:
+the same 12 jiffies is a different fraction of a beat at a different tempo, so a triplet or grace
+note built this way has to be recomputed when the `TEM` under it changes. That is also why these
+lengths are set by commands rather than stored in the note — one `UTL` moves every note written
+with that length.
+
 ### Sharps, flats, and pitches that cross an octave
 
 A note key enters a black key as the **sharp** of the letter below it (`C#4`) — that is how the editor
@@ -762,6 +780,11 @@ minute, the slowest the table goes. And because the operand is a plain byte, a t
 "in 6/8" or "swing": what you get is a steady row clock, and the feel comes from where you put the
 notes.
 
+**A tune need not open with a `TEM`.** The player starts at `$90` — `TEM 144`, 100 quarter notes a
+minute — and holds that until the first `TEM` arrives, so a tune with no tempo line plays at that
+speed. `VOL` and `UTL` start the same way, at 8 (`mf`) and at 12 jiffies: see
+[Volume](#volume--vol-bmp) and [Utility lengths](#utility-lengths).
+
 `UTL` is the global utility length; its per-voice twin `UTV` lives at the end of the picker (it is
 in the *Misc* group, below). Both are for notes whose length comes from elsewhere, and that is
 what makes a delayed or gated voice possible: enter notes with key `8` or `9`, and move one `UTL`
@@ -857,6 +880,30 @@ run of `BMP`s: each bump moves in a visible step, while a release glides.
 
 The format's own table describes the down value as "volume − group", i.e. dropping several steps at
 once; in this player both values move exactly one step.
+
+#### Dynamics, from sheet music to `VOL`
+
+Sheet music marks loudness with letter pairs. The chip's 0–15 range maps onto them like this:
+
+| marking | `VOL` | |
+|---|---|---|
+| `fff` | 12 | as loud as it is safe to go |
+| `ff` | 11 | |
+| `f` | 10 | |
+| `mf` | 8 | what a tune starts at when it sets no volume |
+| `mp` | 7 | |
+| `p` | 5 | |
+| `pp` | 4 | |
+| `ppp` | 3 | |
+
+**12 is the practical ceiling.** Higher levels drive the chip hard enough that a busy three-voice
+arrangement distorts, which is why the loudest marking stops at 12 rather than at 15.
+
+A **crescendo or decrescendo** is a run of `BMP 0` or `BMP 1` every few bars: the volume moves in
+steps, which is what a *gradual* marking asks for, and a fade-out at the end of a repeating section
+is the same run of `BMP 1`. Where the change can be a single drop, the one long `RLS` described
+above is smoother. Either way, as with `VOL`, keep it in **one lane only** — two lanes bumping on
+the same row move the volume twice.
 
 ### Repeat — `HED`, `TAL`
 
