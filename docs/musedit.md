@@ -1123,6 +1123,14 @@ a semitone count: `TPS 15` is -95 and `TPS 176` is +95, and `RTP`'s 91 is "no ch
 *Signed operands* above has the details, and the practical way to write an interval in between is to
 copy a line that already transposes the way you want.
 
+There is no fractional transpose. The byte's three low bits are a count of octaves, not a fraction, so
+`TPS` and `RTP` move a voice by whole semitones and no operand gives half of one. Half a semitone is a
+`DTN` instead: 50 cents is about 3% of the note's own frequency word, which is `DTN 130` around middle
+C, `DTN 260` an octave higher and `DTN 65` an octave lower. Because it is a frequency offset rather
+than an interval, the same number is a wider detune the lower the note, so one `DTN` cannot hold a
+fixed quarter tone across a wide range — and the player picks its frequency table by video standard,
+so the size of the interval varies by a few percent between a PAL and an NTSC machine.
+
 ```
 VDP 8
 VRT 4
