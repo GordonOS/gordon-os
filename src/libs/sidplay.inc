@@ -41,7 +41,11 @@ SID_STATUS:             .byte 0                         // bit 0-2  Enable/Disab
                                                         // Bit 5    END reached, but no DEF
                                                         // Bit 6    ?
                                                         // Bit 7    IRQ In progress.  This makes sure that the IRQ Cannot run on top of itself while the IRQ is already running
-FLAG_STATUS:            .byte 0                         // START OF WORK MEMORY
+FLAG_STATUS:            .byte 0                         // START OF WORK MEMORY. The original kept
+                                                        //   the FLG operand here for its own screen;
+                                                        //   this port publishes it as `sidFlag`
+                                                        //   instead, so this byte is padding that
+                                                        //   keeps the work area's origin stable
 WorkTypeOctNote:        .byte 0,0,0
 WorkNoteDuration:       .byte 0,0,0
 WorkMeasureLo:          .byte 0,0,0
@@ -1439,13 +1443,13 @@ rc__1000110:            lsr
                         // Command: FLG Flag
                         // Pattern: 01000110
                         // Stack has the Flag Value
-//  FLG's value went to FLAG_STATUS for the original's own screen (FLG 1 in voice 1
-//  asked the player to print the next line of the tune's .wds words file). This port
-//  has no screen and no .wds support, and nothing reads FLAG_STATUS, so the store is
-//  commented out. The flag itself is still decoded and still consumed, and a reader
-//  that wants it reads the pair from the .mus image.
+//  The flag is this player's one channel out to a task: the operand lands in the
+//  published byte `sidFlag` (src/tasks/kernel-data.inc), which any task can read.
+//  In the original the value was polled by the host program running alongside the
+//  tune (the original's own screen used FLG 1 to print the next line of the tune's
+//  .wds words file). Zeroed when a player claims the SID, so a tune starts at 0.
 rc_01000110_FLG:        pla
-//                      sta FLAG_STATUS
+                        sta sidFlag
                         rts
 
                         // Command: PVD Pulse Vibrato Depth

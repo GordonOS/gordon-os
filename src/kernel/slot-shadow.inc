@@ -63,6 +63,18 @@ cssRts:
 .pc = $54AA
     .byte 0
 
+// --- the tune's flag byte, published to tasks ---
+//  The operand of the last FLG command the running tune executed. The SID player
+//  (src/libs/sidplay.inc) is its only writer and `kSidPlay` zeroes it when it claims
+//  the SID; nothing in the kernel reads it. It is published here, beside the tick
+//  counter, because both are bytes the kernel owns and tasks read at a fixed address
+//  -- a reader is not the task that plays the tune, which is why the byte cannot live
+//  in the player's own work memory (one shared copy per library).
+//  It takes the last byte of the free run below the sprite state, so the rest of
+//  that run ($CF96-$CFA2) stays one piece.
+.pc = $CFA3
+sidFlagByte:     .byte 0
+
 //  NOTE: a new task's PER-TASK SPRITE state needs the same treatment, and it
 //  lives in `clearSlotSprite` -- in src/kernel/sprite.inc, beside the sprite
 //  code that reads it, because this band is exactly full (see main.asm's

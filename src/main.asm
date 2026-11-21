@@ -422,7 +422,7 @@ taskShadowHi:      .fill MAX_TASKS, 0
 .assert "sprite: install helpers clear the scroll-region data", (scrollSeedBuf + 2 <= $CD9F) ? 1 : 0, 1
 .assert "sprite: install helpers fit below the entry stubs ($CDDE)", (sprInstallHelpEnd <= $CDDE) ? 1 : 0, 1
 .assert "sprite: sheet code + stubs fit below char-shadow ($CE00)", (sprStubEnd <= $CE00) ? 1 : 0, 1
-.assert "sprite: char-shadow stays below the sprite tables ($CFA4)", (charShadowEnd <= $CFA4) ? 1 : 0, 1
+.assert "sprite: char-shadow stays below the tune flag byte ($CFA3)", (charShadowEnd <= $CFA3) ? 1 : 0, 1
 .assert "libstubs must not grow past sysExit's block at $1C6E", (libStubsEnd <= $1C6E) ? 1 : 0, 1
 .assert "sprite: frame code fits below the data heap ($1D40)", (sprFrameEnd <= $1D40) ? 1 : 0, 1
 .assert "sprite: tables fit below I/O ($D000)", (sprDataEnd <= $D000) ? 1 : 0, 1
@@ -505,6 +505,7 @@ taskShadowHi:      .fill MAX_TASKS, 0
 .assert "kernel-data.inc alias: sprShadow moved", sprShReg, $CFBC
 .assert "kernel-data.inc alias: sprFrameIdx moved", sprFrameIdx, $CFE3
 .assert "kernel-data.inc alias: frameCount moved", sprFrameCount, $CFFF
+.assert "tune flag byte sits at $CFA3", sidFlagByte, $CFA3
 .assert "sprite-shadow.inc alias: SPR_SLOT0 changed", SPRITE_SLOT0, $02C0
 .assert "sprite-shadow.inc alias: SPR_SLOT4 changed", SPRITE_SLOT4, $03C0
 .assert "sprite-shadow.inc alias: SPR_SLOT5 changed", SPRITE_SLOT5, $0F00

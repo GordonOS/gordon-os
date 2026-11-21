@@ -121,6 +121,14 @@
 //  per-tick animation is sampled unevenly. Compare for CHANGE only -- 8-bit, and
 //  it wraps.
 .const frameCount         = $CFFF
+//  The tune's flag byte: the operand of the last FLG command the running tune
+//  executed. Zeroed when a player claims the SID, so a tune always starts at 0.
+//  It is a LEVEL, not a queue -- a reader that polls sees only the newest value,
+//  and two changes between polls collapse into one. Nothing in the kernel reads
+//  it; a task reads it to follow the music (change the border, start an
+//  animation, switch a screen) exactly as the original player's host programs
+//  did. Only one tune plays at a time, so the byte is never ambiguous.
+.const sidFlag            = $CFA3
 
 .const taskLo            = $186F
 .const taskHi            = $1887

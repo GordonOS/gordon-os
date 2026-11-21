@@ -2591,6 +2591,13 @@ ZP itself. `sidplay.tsk` is the reference consumer:
 > written later, and `kLibHold` is one-way), unlike `sidplay.tsk`, which hands it
 > back as soon as the tune is in RAM. See `src/tasks/dynamic/gortris.inc`.
 
+A tune's `FLG` command is the one thing `sid.lib` publishes for tasks other than
+the player: its operand lands in `sidFlag` (`$CFA3`, named in
+`src/tasks/kernel-data.inc`), zeroed when a player claims the SID. Any task may
+read it — a game can switch a palette or a screen at a chosen point in its tune —
+and it is a **level**, not a queue, so two `FLG`s between two polls collapse into
+the second. See [lib-sid.md](lib-sid.md).
+
 `ipc.lib` (lib 6, bit 6, lazy) is **four byte channels between tasks**, each with
 a 128-byte ring in the library's own shared data — the kernel pays nothing for it:
 no syscall, no kernel buffer, no resident code beyond the two 3-byte entry stubs.

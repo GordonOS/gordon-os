@@ -171,6 +171,11 @@ See [lib-gfx.md](lib-gfx.md).
   from the machine's declared speed, so the same call is right on any machine.
 - **The SID is a claimed resource.** A second player is refused, `kill` silences the
   chip for a task that declared `sid.lib`, and `sidrst` is the manual fallback.
+- **A tune can drive a task.** `FLG` is no longer a dead command: its operand is
+  published as `sidFlag` (`$CFA3`), a byte any task can read, so a game or demo can
+  change its palette or switch a screen at a chosen point in the music. It is zeroed
+  when a player claims the SID, and it is a level rather than a queue — a reader sees
+  the newest value, not every change.
 - **`musedit` edits those tunes on the machine**: a three-voice grid with the note and its
   duration on one row, a playhead that follows the music line by line through the kernel's
   REU row scroll, three coloured dots on an eight-octave piano showing what each voice is

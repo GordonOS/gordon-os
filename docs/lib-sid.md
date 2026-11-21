@@ -307,6 +307,32 @@ counts for the video standard.
   player" half is only wanted while a player is alive. `kill.com` pokes the very
   same 25 registers for the same reason — see "Cleaning up after a kill".
 
+## The tune's flag — `FLG`, published to tasks
+
+A `.mus` file's `FLG` command writes its operand to **`sidFlag`**, a fixed
+kernel-data byte at `$CFA3` that `src/tasks/kernel-data.inc` names for every task
+build:
+
+```asm
+        lda sidFlag             ; the last FLG the running tune executed
+        cmp #3                  ; tune-defined: "verse over, chorus next"
+        bne noChange
+```
+
+- **Any task can read it**, not only the one holding the library — that is the
+  point of putting it in kernel data rather than in the player's work memory. It
+  is the host-poll channel the original player gave its host program: a routine
+  running alongside the music watched the byte and changed the border, ran an
+  animation or printed a line of words.
+- **`kSidPlay` zeroes it when it claims the SID**, so every tune starts at 0 and a
+  reader never sees the value a previous tune left behind. Nothing zeroes it when
+  a tune *ends*, so the last value stays readable after the player has returned.
+- ⚠️ **It is a LEVEL, not a queue.** Two `FLG` commands between polls collapse into
+  the second one, so a reader cannot count events with it. For "do this at that
+  point in the tune" it is exact; for "do this for every note" it is not.
+- ⚠️ **It is not "a tune is playing".** `sidOwner` is the authority for that, and it
+  is not published. A stale flag left by a stopped tune looks like a live one.
+
 ## Ownership, and why a stale owner heals
 
 `sidOwner` holds the slot of the playing task (`$FF` = free) and `sidStop` is

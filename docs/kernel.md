@@ -578,6 +578,14 @@ Read a line of keyboard input into a caller-provided buffer. Characters are echo
 > jiffy delay in `kArg` and the repeat count in `kArg+1` (`0` = forever), blocks
 > by yielding each jiffy, and returns with `C=1` if another task already owns the
 > chip. See [lib-sid.md](lib-sid.md).
+>
+> **The tune's `FLG` command is published to tasks.** Its operand is written to
+> `sidFlag` (`$CFA3`, named in `src/tasks/kernel-data.inc`), so any task can read
+> the tune's flag — the host-poll channel the original player offered, where a
+> program running alongside the music watched the byte and changed the border or
+> ran an animation. `kSidPlay` zeroes it when it claims the SID, so a tune always
+> starts at 0. It is a **level**, not a queue: a reader that polls sees only the
+> newest value, so two changes between polls collapse into one.
 
 ### `kStrlen` — `$E021`
 

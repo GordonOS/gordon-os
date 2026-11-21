@@ -65,6 +65,15 @@
 //  player never runs its hush and a plain boolean flag would lock the SID for
 //  the rest of the session.
 //
+//  WARNING: `FLG` IS SUPPORTED -- THE TUNE'S FLAG IS PUBLISHED TO TASKS. A tune's `FLG`
+//  writes its operand to `sidFlag` ($CFA3), a fixed kernel-data byte named in
+//  src/tasks/kernel-data.inc, so ANY task may read it rather than only the one holding
+//  the library. That is the host-poll contract the original player offered: a program
+//  running alongside the music watched the byte and moved the border, ran an animation
+//  or printed a line of words. `sidPlay` zeroes it when it claims the SID, so a tune
+//  always starts at 0, and it is a LEVEL -- a reader that polls sees only the newest
+//  value, and two changes between polls collapse into one.
+//
 //  WARNING: THE REPEATS ARGUMENT. `0` = repeat forever (kSidPlay then returns only
 //  when hush asks it to stop), `1` = play once (the default, and what the task
 //  passes when the user gives no third argument), `2`-`255` = that many plays.
@@ -143,7 +152,9 @@ sidCode:
 //  Output: C = 0 the tune was played and the SID hushed
 //          C = 1 refused -- another task is already playing
 //  Clobbers: A, X, Y, kArg+0/+1 (the loop sleeps through kArg+1)
-//  Returns with the SID silent and `sidOwner` released.
+//  Returns with the SID silent and `sidOwner` released. Claiming the SID also
+//  zeroes the published tune flag (`sidFlag`), so a reader never sees the value a
+//  previous tune left behind.
 //  WARNING: NOTHING may touch the player's state until the SID is OURS. The mode byte and the
 //  config copy below are library data that a RUNNING player dereferences on every command, so
 //  a caller that is about to be refused must not have written them -- the owner test comes
@@ -168,6 +179,7 @@ sidClaim:
     sta sidOwner
     lda #0
     sta sidStop                  // a fresh player has nothing to stop for
+    sta sidFlag                  // ...and no tune has written its flag yet
     plp
     pla                          // A = the mode, now that it may be acted on
     cmp #1                       // ONLY an exact 1 asks for the REU. Anything else -- a
@@ -389,6 +401,12 @@ sidFoldHi:   .byte 0             //   (the caller's start row, in the tune's clo
 // base -- the kernel's tickCount sits immediately after at $54AA, so a reader that
 // counts one field too far reads a free-running counter and a row rate ten times out.
 .const SID_POS_TICK = SID_POS_BLOCK + 6
+
+// The flag byte a tune's FLG command writes. It is NOT here: it is kernel data at
+// $CFA3, published to tasks as `sidFlag` in src/tasks/kernel-data.inc, so that any
+// task can read it rather than only the one holding the library. This player is
+// the only writer, `sidPlay` zeroes it when it claims the SID, and nothing in the
+// kernel reads it.
 
 .import source "sidplay.inc"
 

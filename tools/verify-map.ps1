@@ -9,7 +9,7 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '481',
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '480',
     [Parameter(Mandatory = $false)][string]$ExpectPockets = '28'
 )
 
@@ -184,6 +184,10 @@ $hit = @($runs | Where-Object { $_.Range -eq '5337-533F' })
 Check 'loader headroom   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 9) ('{0} bytes free after sprInstall ($52DC-$5336), before the font helpers' -f ($hit | ForEach-Object { $_.Size }))
 Check 'sprite helpers CD9F:' (Occupied 0xcd9f 0xcdce) 'sprBlkAddr + sprRestoreFrames are 48B in the $CD9F pocket'
 Check 'sprite state CFA4 :' (Occupied 0xcfa4 0xcfff) 'the per-task sprite state (24B sheet records + 39B shadow + 8B frame indices) then the kernel-only bytes -- 92B'
+#  The tune flag byte takes the TOP of the free run below the sprite state, so the
+#  rest of the run stays one piece and a task has a published byte to read.
+Check 'tune flag CFA3   :' (Occupied 0xcfa3 0xcfa3) 'sidFlag -- the FLG command writes it, tasks read it'
+Check 'pocket CF96      :' (($hit = @($runs | Where-Object { $_.Range -eq 'CF96-CFA2' })).Count -eq 1 -and $hit[0].Size -eq 13) ('{0} bytes below the tune flag ($CFA3) and the sprite state ($CFA4)' -f ($hit | ForEach-Object { $_.Size }))
 Check 'sprite API CA2F    :' (Occupied 0xca2f 0xca69) 'kSpriteCollide + clearSlotSprite are 59B above the pinned dyn tables'
 Check 'dlEvMaybeSelf     :' (Occupied 0xCA8C 0xCA98) 'dlEvMaybeSelf is 13B at the top of the free run after sprite.inc, not in the core growth headroom'
 #  The four loader-band helpers share one band: $5340 font-help, $53F2 pool-top,
