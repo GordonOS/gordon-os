@@ -44,6 +44,8 @@ C64 could not. (`sidplay` is the simple case: it loads the one tune it is given 
 - [When musedit says no](#when-musedit-says-no)
 - [What the `.mus` format supports, and what it does not](#what-the-mus-format-supports-and-what-it-does-not)
 - [Limits you might meet](#limits-you-might-meet)
+- [Appendix: instrument recipes](#appendix-instrument-recipes)
+- [Where some of this comes from](#where-some-of-this-comes-from)
 
 ## Before you start
 
@@ -1557,4 +1559,210 @@ And the format's own ceilings, which you will meet long after the two above:
 - **A 7-character tune name**, because the editor appends `.mus` (or `.wrk`) to it and the REU
   filesystem's names stop at 11 characters.
 
+## Appendix: instrument recipes
 
+Thirty-five starting points, one per instrument: somewhere to begin a lane from rather than a sound to
+match note for note. Each row is a set of the commands the sections above describe, and it goes in the
+lane that wants the sound, before the notes that should use it. The notes do not change, so a lane is
+re-voiced by writing one row over another.
+
+A dash is **not** a zero. It means no command is written for that field, so the field keeps whatever it
+already held — which is what keeps a row short, and why a row can be dropped onto a voice that already
+has its own waveform, filter or vibrato without resetting them. `DEFAULT` is the row that fills in the
+most: it resets the envelope, the waveform, the filter and the modulation, so writing it puts a voice
+back to the player's own starting state.
+
+Three notes on the numbers:
+
+- **`WAV` and `F-M` are written as the numbers those commands take.** `WAV` 4 is pulse, 1 is triangle
+  and 2 is sawtooth; `F-M` 1 is low-pass, 2 band-pass, 4 high-pass, and 3 is low-pass plus band-pass.
+- **The signed fields are the value you type**, so `AUT 246` is -10, `AUT 236` is -20 and `AUT 216` is
+  -40; the *Signed operands, and how they are written* section above has the rest of the pattern.
+- **`TPS` is the packed interval**, not a semitone count: `TPS 14` is no transpose, `TPS 12` is an octave
+  up, `TPS 179` is an octave down and `TPS 126` is seven semitones up. `DTN` beside it is a plain
+  number.
+
+### Envelope and waveform
+
+| Instrument | ATK | DCY | SUS | REL | PNT | WAV | P-W | P-S |
+|---|---|---|---|---|---|---|---|---|
+| DEFAULT | 2 | 0 | 15 | 5 | 4 | 4 | 2048 | 0 |
+| VIOLIN | 0 | 0 | – | – | 4 | 4 | 800 | – |
+| CELLO | 5 | 0 | 12 | 4 | 4 | 4 | 2048 | – |
+| BASS (pluck) | 1 | 10 | 0 | 10 | 1 | 4 | 1800 | – |
+| HARP | 0 | 9 | 0 | 0 | 1 | 1 | – | – |
+| BANJO | 1 | 8 | 0 | 0 | 1 | 4 | 100 | – |
+| MANDOLIN | 1 | 8 | 0 | 0 | 1 | 4 | 500 | – |
+| BAZOOKI | 1 | 10 | 0 | 0 | 1 | 4 | 1000 | – |
+| LUTE | 0 | 8 | 0 | 0 | 1 | 1 | – | – |
+| KOTO | 0 | 8 | 0 | 0 | 1 | 4 | 300 | – |
+| SITAR | 2 | 10 | 12 | 12 | 7 | 4 | 100 | 10 |
+| FLUTE | 3 | 0 | 14 | 4 | 1 | 1 | – | – |
+| PICCOLO | 3 | 0 | 14 | 4 | 1 | 1 | – | – |
+| RECORDER-ALTO | 3 | 0 | 14 | 4 | 1 | 1 | – | – |
+| CLARINET | 3 | 0 | 14 | 4 | 1 | 4 | 2048 | – |
+| OBOE | 7 | 0 | 15 | 2 | 1 | 4 | 700 | – |
+| BASSOON | 7 | 8 | 14 | 4 | 1 | 4 | 700 | – |
+| BAGPIPE | 2 | 0 | 15 | 5 | 1 | 4 | 200 | – |
+| HARMONICA | 5 | 0 | 8 | 4 | 4 | 4 | 2048 | – |
+| ACCORDION | 2 | 0 | 15 | 4 | 4 | 2 | – | – |
+| SHAWM | 2 | 2 | 14 | 2 | 1 | 4 | 100 | – |
+| TRUMPET | 5 | 0 | 15 | 4 | 1 | 2 | – | – |
+| TROMBONE | 9 | 0 | 15 | 4 | 1 | 2 | – | – |
+| TUBA | 9 | 0 | 15 | 4 | 1 | 2 | – | – |
+| HARPSICHORD 4' | 0 | 12 | 8 | 9 | 8 | 4 | 100 | – |
+| HARPSICHORD 8' | 0 | 12 | 8 | 9 | 8 | 4 | 300 | – |
+| ORGAN: FLUTE | 3 | 0 | 14 | 4 | 1 | 1 | – | – |
+| ORGAN: PRINCIPAL | 3 | 2 | 10 | 4 | 1 | 4 | 2048 | – |
+| ORGAN: REED | 3 | 0 | 14 | 4 | 1 | 4 | 200 | – |
+| ORGAN: TRUMPET | 3 | 0 | 15 | 4 | 1 | 2 | – | – |
+| CALLIOPE | 0 | 12 | 13 | 5 | 4 | 4 | 2048 | – |
+| FINGER DRUM | 0 | 9 | 0 | 0 | 1 | 1 | – | – |
+| BELLS | 0 | 10 | 0 | 10 | 1 | 1 | – | – |
+| CHIMES | 0 | 10 | 0 | 10 | 16 | 4 | 2048 | – |
+| WOOD BLOCK | 0 | 2 | 0 | – | – | 1 | – | – |
+
+`P-W` only means something on a pulse waveform, which is why the triangle rows carry it as a dash and
+`DEFAULT`'s 2048 is the square wave the others start from. `SUS 0` on a plucked instrument is not a
+mistake: the note is heard through its decay.
+
+### Filter
+
+| Instrument | F-M | AUT | RES | FLT | F-S |
+|---|---|---|---|---|---|
+| DEFAULT | – | 0 | 0 | 0 | 0 |
+| VIOLIN | – | – | – | – | – |
+| CELLO | – | – | – | – | – |
+| BASS (pluck) | 1 | 246 | 9 | 1 | – |
+| HARP | 3 | 255 | 15 | 1 | – |
+| BANJO | 2 | 3 | 12 | 1 | 5 |
+| MANDOLIN | 4 | 236 | 12 | 1 | – |
+| BAZOOKI | 4 | 236 | 12 | 1 | 5 |
+| LUTE | 1 | 216 | 15 | 1 | – |
+| KOTO | 1 | 246 | 15 | 1 | 20 |
+| SITAR | 4 | 236 | 15 | 1 | 5 |
+| FLUTE | – | – | – | – | – |
+| PICCOLO | – | – | – | – | – |
+| RECORDER-ALTO | – | – | – | – | – |
+| CLARINET | – | – | – | – | – |
+| OBOE | 2 | 236 | 15 | 1 | – |
+| BASSOON | 2 | 236 | 15 | 1 | – |
+| BAGPIPE | – | – | – | – | – |
+| HARMONICA | – | – | – | – | – |
+| ACCORDION | – | – | – | – | – |
+| SHAWM | 2 | 5 | 15 | 1 | – |
+| TRUMPET | 1 | 20 | 15 | 1 | 1 |
+| TROMBONE | 1 | 1 | 15 | 1 | – |
+| TUBA | 1 | 10 | 15 | 1 | – |
+| HARPSICHORD 4' | – | – | – | – | – |
+| HARPSICHORD 8' | – | – | – | – | – |
+| ORGAN: FLUTE | – | – | – | – | – |
+| ORGAN: PRINCIPAL | – | – | – | – | – |
+| ORGAN: REED | – | – | – | – | – |
+| ORGAN: TRUMPET | – | – | – | – | – |
+| CALLIOPE | – | – | – | – | – |
+| FINGER DRUM | – | – | – | – | – |
+| BELLS | – | – | – | – | – |
+| CHIMES | – | – | – | – | – |
+| WOOD BLOCK | – | – | – | – | – |
+
+`FLT 1` is what puts the voice through the filter, so every row that sets a mode or a resonance sets it
+too. `AUT` is key-follow: the rows that carry it have a cutoff that tracks the note, which is what keeps
+a low line dark and a high one bright without a sweep.
+
+### Pulse sweep, vibrato and tuning
+
+| Instrument | SNC | RNG | VDP | VRT | TPS | DTN |
+|---|---|---|---|---|---|---|
+| DEFAULT | 0 | 0 | 0 | 0 | 14 | – |
+| VIOLIN | – | – | 30 | 2 | 12 | – |
+| CELLO | – | – | 20 | 2 | 179 | – |
+| BASS (pluck) | – | – | – | – | 179 | – |
+| HARP | – | – | – | – | – | – |
+| BANJO | – | – | – | – | – | – |
+| MANDOLIN | – | – | – | – | – | – |
+| BAZOOKI | – | – | – | – | – | – |
+| LUTE | – | – | – | – | – | – |
+| KOTO | – | – | – | – | – | – |
+| SITAR | – | – | – | – | – | – |
+| FLUTE | – | – | – | – | – | – |
+| PICCOLO | – | – | – | – | 12 | – |
+| RECORDER-ALTO | – | – | – | – | – | – |
+| CLARINET | – | – | – | – | – | – |
+| OBOE | – | – | – | – | – | – |
+| BASSOON | – | – | – | – | 179 | – |
+| BAGPIPE | – | – | – | – | – | 70 |
+| HARMONICA | – | – | 20 | 2 | – | – |
+| ACCORDION | – | – | – | – | – | 70 |
+| SHAWM | – | – | – | – | – | – |
+| TRUMPET | – | – | – | – | – | – |
+| TROMBONE | – | – | – | – | – | – |
+| TUBA | – | – | – | – | – | – |
+| HARPSICHORD 4' | – | – | – | – | – | – |
+| HARPSICHORD 8' | – | – | – | – | – | – |
+| ORGAN: FLUTE | – | – | – | – | – | – |
+| ORGAN: PRINCIPAL | – | – | – | – | – | – |
+| ORGAN: REED | – | – | – | – | – | – |
+| ORGAN: TRUMPET | – | – | – | – | – | – |
+| CALLIOPE | – | – | – | – | 12 | 70 |
+| FINGER DRUM | – | – | – | – | – | – |
+| BELLS | – | 1 | – | – | 126 | – |
+| CHIMES | – | – | – | – | – | 70 |
+| WOOD BLOCK | – | – | – | – | – | – |
+
+`SNC` is the empty column: not one of these rows uses sync, because sync is a two-voice effect rather
+than a property of one instrument — the neighbour's oscillator does the switching, which is what the
+*Sync and ring modulation* section above is about. Ring modulation (`RNG`) is the same kind of switch,
+and only the bells use it.
+
+### How a few of them are built
+
+- **The plucked strings** — `BASS`, `HARP`, `BANJO`, `MANDOLIN`, `BAZOOKI`, `LUTE` — are one recipe:
+  `SUS 0` with a decay of 8 to 10, and `PNT 1` so the gate is held for the note's whole length and the
+  note dies of its own decay rather than of the release. `BASS` adds a low-pass with `AUT 246`, `HARP`
+  and `LUTE` are that envelope on a triangle, and `KOTO` is the same envelope on a narrow pulse
+  (`P-W 300`).
+- **The winds** — `FLUTE`, `PICCOLO`, `RECORDER-ALTO`, `CLARINET`, `OBOE`, `BASSOON` — hold a high
+  sustain, so the note speaks at one level for as long as it lasts, and put the character in the
+  waveform: triangle for flute, recorder and piccolo, a 50% pulse for the clarinet, and a narrow pulse
+  (`P-W 700`) with a slow attack for the double reeds.
+- **The brass** — `TRUMPET`, `TROMBONE`, `TUBA` — is sawtooth with a slower attack (`ATK 5` to `9`),
+  which is the rise you hear at the start of a note, plus a low-pass that follows the keyboard.
+- **`SITAR`** is the loudest use of the filter here: high-pass at `RES 15` with a pulse sweep of
+  `P-S 10` and a fast decay, so the buzz moves while the note dies.
+- **`BELLS`** is the one row that turns `RNG 1` on: the voice is ring-modulated against another and
+  transposed seven semitones, so the two frequencies do not line up and the tone clangs rather than
+  blends.
+- **`DTN 70`** on `BAGPIPE`, `ACCORDION`, `CALLIOPE` and `CHIMES` is a slight sharp detune. Two voices
+  on one line, one of them detuned and (for the calliope) an octave up, is the cheapest way to thicken
+  a drone.
+
+One row written out in full, `SITAR`, shows what a line of the tables turns into — an envelope, a
+waveform, and a filter that sweeps:
+
+```
+ATK 2
+DCY 10
+SUS 12
+REL 12
+PNT 7
+WAV 4
+P-W 100
+P-S 10
+F-M 4
+AUT 236
+RES 15
+FLT 1
+F-S 5
+```
+
+## Where some of this comes from
+
+`musedit` writes the command format of a C64 music player from the mid-1980s, and part of what this
+guide says about it is drawn from the book that documents that player — *All About the Commodore 64,
+Volume Two* by Craig Chamberlain (COMPUTE! Publications, 1985). The instrument recipes in the appendix,
+what a tune starts out with, the dynamics-to-`VOL` table and the utility-length arithmetic all come
+from there.
+
+Everything about names, controls and behaviour is this system's own, and where the book and our player
+differ the guide follows the player.
