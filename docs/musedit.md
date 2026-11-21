@@ -289,6 +289,10 @@ A bar the tune never reaches answers `? no such bar` and leaves the view alone. 
 lands on the row's **own line** — the note line, not one of the command lines above it — with the
 window following, so you arrive where the music is, ready to edit it.
 
+A jump needs no marker in the tune. `MS#` measure markers exist for an editor that could only search
+for a number you had written on the grid (see *Misc*, below); this one counts the bars as it walks, so
+every bar is a destination.
+
 ## Entering notes
 
 The piano at the bottom of the screen is how notes go in.
@@ -1296,7 +1300,7 @@ A pulse-width tremolo instead: the width jumps between its written value and tha
 
 | name | operand | what it does |
 |---|---|---|
-| `MS#` | 0-999 | a measure marker: the tune's own numbering of its sections. This player has no display for it, so it is written and kept but has no effect on the sound |
+| `MS#` | 0-999 | a measure marker: the tune's own numbering of its bars, which is a jump target for an editor that searches for it. Nothing in this player reads it, so it is written and kept but has no effect on the sound |
 | `UTV` | 0-255 | **this voice's** utility length, the per-voice twin of `UTL` (see *Tempo*, above) |
 | `FLG` | 0-255 | sets the player's flag byte — **no effect in GordonOS** |
 | `AUX` | 0-255 | the "auxiliary" escape hatch: each player gives it its own meaning, and GordonOS's gives it none — **no effect**. See *Commands that are kept but do nothing here* |
@@ -1306,10 +1310,14 @@ A pulse-width tremolo instead: the width jumps between its written value and tha
 `UTV` sits at the end of the picker rather than beside `UTL`, which surprises people looking for it:
 the two do the same thing, one for all voices and one for the lane it is written in.
 
-`MS#` is a label rather than a control. The original player printed the measure number on its own
-screen; this one has no such display, and nothing reads the value, so a `MS#` is preserved, drawn on
-its own line and otherwise ignored. It is still worth keeping: it is how a tune marks its own
-sections, and the editor's line for it costs no time.
+`MS#` is a label rather than a control. Its job was navigation: you numbered a tune's measures by hand,
+wrote a marker before each one, and the editor could search for a number and move there. Nothing in
+this player reads the value, so a `MS#` is preserved, drawn on its own line and otherwise ignored.
+
+Nothing here needs it either. A bar jump counts the bars as the tune walks them, so any bar is a
+destination without a marker, and there is no numbering to keep in step with a bar that was inserted or
+deleted (see *Jumping to a bar*, above). A tune that carries `MS#` markers keeps them, and they cost it
+nothing.
 
 `3-O 1` is the one MISC command that changes what the other lanes sound like: it stops voice 3's own
 notes so a sound effect can have the voice. Every voice ends on its `HLT`, and the editor keeps it —
@@ -1517,9 +1525,9 @@ file, and three of them are offered by the picker like any other:
   screen to print the next line of a `.wds` words file; this player has no screen and no `.wds`
   support, and nothing reads the flag, so the value is decoded and dropped. It is written like any
   other command, so a tune that carries one keeps it.
-- **`MS#`** — the tune's own measure number, which the original player printed while the music
-  ran. Nothing in this player reads it, so it is a label: written, kept, and drawn on its own line
-  in the grid, with no effect on the sound.
+- **`MS#`** — a measure marker: the tune's own numbering of its bars, which the original editor
+  searched to move about a voice. Nothing in this player reads it, and a bar jump needs no marker, so
+  it is a label: written, kept, and drawn on its own line in the grid, with no effect on the sound.
 
 ### What the format has no room for
 
