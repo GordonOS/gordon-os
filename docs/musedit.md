@@ -1302,7 +1302,7 @@ A pulse-width tremolo instead: the width jumps between its written value and tha
 |---|---|---|
 | `MS#` | 0-999 | a measure marker: the tune's own numbering of its bars, which is a jump target for an editor that searches for it. Nothing in this player reads it, so it is written and kept but has no effect on the sound |
 | `UTV` | 0-255 | **this voice's** utility length, the per-voice twin of `UTL` (see *Tempo*, above) |
-| `FLG` | 0-255 | sets the player's flag byte — **no effect in GordonOS** |
+| `FLG` | 0-255 | the player's flag byte: the host program read it back, so it could sync its own visuals to the music (a border change, an animation, a line of words). Nothing in this player reads it — **no effect in GordonOS** |
 | `AUX` | 0-255 | the "auxiliary" escape hatch: each player gives it its own meaning, and GordonOS's gives it none — **no effect**. See *Commands that are kept but do nothing here* |
 | `3-O` | 0 or 1 | switches voice 3 off, freeing it for sound effects |
 | `HLT` | — | stops this voice. Every voice must end on it |
@@ -1324,7 +1324,12 @@ notes so a sound effect can have the voice. Every voice ends on its `HLT`, and t
 it cannot be deleted, only pushed down, because removing it would leave that voice's stream running
 into the next one's bytes.
 
-`FLG` and `AUX` are offered, written and kept although this player does nothing with them; see
+`FLG` and `AUX` are the format's two hooks out to the player's host, and neither reaches anything here.
+`FLG` left a value for the host to poll; `AUX` jumped to a routine the host had installed. In this
+player the flag is not stored at all and `AUX` jumps to a bare `RTS`, and neither can be aimed at a
+task: the hook is a byte in the player's own work memory, inside the one shared copy that every task
+playing a tune uses, so a task that wrote it would be steering all of them. Both are still offered,
+written and kept; see
 [Commands that are kept but do nothing here](#commands-that-are-kept-but-do-nothing-here).
 
 ### The one command with no line: `JIF`
@@ -1521,10 +1526,13 @@ file, and three of them are offered by the picker like any other:
   64+ for velocity and 128-255 for a program (tone) change. GordonOS's player defines none of
   them, so every value is decoded and dropped — but the pair is written and preserved, so a
   tune made for those players keeps the numbers it was written with.
-- **`FLG`** — sets the player's flag byte. In the original it was how a tune asked the *editor's*
-  screen to print the next line of a `.wds` words file; this player has no screen and no `.wds`
-  support, and nothing reads the flag, so the value is decoded and dropped. It is written like any
-  other command, so a tune that carries one keeps it.
+- **`FLG`** — sets the player's flag byte, which was a channel out of the tune to whatever was running
+  alongside it: the player stored the operand and the host program read it back, so a routine of your
+  own could change the border, start an animation or print a line of words at a chosen point in the
+  music. (The original's own screen used `FLG 1` to print the next line of the tune's `.wds` file.)
+  `AUX` is the other half of that idea: it called a routine you installed rather than setting a byte.
+  Nothing in this player reads the flag, so the value is decoded and dropped — the pair is preserved
+  and written back, so a tune that carries one keeps it.
 - **`MS#`** — a measure marker: the tune's own numbering of its bars, which the original editor
   searched to move about a voice. Nothing in this player reads it, and a bar jump needs no marker, so
   it is a label: written, kept, and drawn on its own line in the grid, with no effect on the sound.
