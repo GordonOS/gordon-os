@@ -22,7 +22,7 @@ scrollScreenSlot:
     sec
     sbc kArg+6
     sta kArg+7                  // R = B - T
-    jsr scrollRows              // scrSrc/scrDst/scrBlank, and consume the direction
+    jsr scrollRows              // scrSrc/scrDst/scrBlank from T, R and the direction
     //  The char shadow mirrors the same three rows, and R is needed to move them,
     //  so it is done HERE -- the row loop below counts kArg+7 down to zero.
     lda taskShadowFlag,x

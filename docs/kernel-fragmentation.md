@@ -60,8 +60,8 @@ splits a block further where it is useful (the per-file split comes from
 | `$5457-$5481` | 43B | `cursor-helpers.inc` | `dlFindMaster` (`$5457`) + `dlInstallCursor` (`$546F`) — the four loader-band helpers share one `.pc` chain |
 | `$5482-$54A1` | 32B | `kernel/slot-shadow.inc` | `clearSlotShadows` — zeroes a new task's ZP shadow when its slot is reused |
 | `$54A2-$54AA` | 9B | `sid.asm` + `slot-shadow.inc` | `SID_POS_BLOCK` (`$54A2-$54A7` next-command offsets, `$54A8-$54A9` song jiffies) then `tickCount` at `$54AA` |
-| `$54AB-$5669` | 447B | `scroll-slot.inc` | `scrollScreenSlot` + `sssAddr`/`sssAddrPlane` + the direction data, `scrollRows` and `scrollRegionDown` |
-| `$5600-$567C` | 125B | — | free — the below-pool band's spare run |
+| `$54AB-$5675` | 459B | `scroll-slot.inc` | `scrollScreenSlot` + `sssAddr`/`sssAddrPlane` + the direction data, `scrollRows` and `scrollRegionDown` |
+| `$5676-$567C` | 7B | — | free — the below-pool band's spare run |
 | `$567D-$56FD` | 129B | `sprite.inc` | `rasterCommit` — the vblank sprite commit: shadow → `$D000-$D02E`, `$D010` assembly, sprite pointers, collision latch, `sprPubMask` gate, deadline guard and the `frameCount` increment |
 | `$56FB-$56FF` | 5B | — | free |
 | `$5700-$C3FF` | 27.25KB | — | task pool (109 × 256B pages; tasks grow up, libs come down) |
@@ -122,7 +122,7 @@ splits a block further where it is useful (the per-file split comes from
 | `dynload.inc` | ✅ **1** — `$4310-$529D` (the band continues with `warmSpriteReset`, the free pocket upstream of `dlProbeFit`, and `sprInstall`) |
 | `malloc.inc` | ✅ **1** — `$F644-$F923` |
 | `polevict.inc` | ✅ **1** — `$F92E-$FA72` |
-| `scroll-region.inc` | frag 1 `$EA71-$EC37` + `paRoute` `$ECBA-$ECD8`; `scrollScreenSlot`/`scrollRows`/`scrollRegionDown` → `scroll-slot.inc` `$54AB-$5669` |
+| `scroll-region.inc` | frag 1 `$EA71-$EC37` + `paRoute` `$ECBA-$ECD8`; `scrollScreenSlot`/`scrollRows`/`scrollRegionDown` → `scroll-slot.inc` `$54AB-$5675` |
 | `kernel.asm` | jump table `$E000-$E118` (no spare entry left — `kMouseCall` took the last one); `reuCmpName` `$F652`; `blitGlyphFb` `$CDF5`; the gfx.lib working RAM at `$FC3F-$FF7D` (one block) |
 | gfx.lib working RAM | **1** — flood-fill + ellipse + circle all at `$FC3F-$FF7D` |
 | `main.asm` | BASIC stub `$0801`; `reuDirBuf` `$13D4`; static data block `$189F-$1A16` (lib tables + LUTs + font record + taskShadow); `libHold` `$1D16-$1D3F` (the pocket below the data heap, filled exactly); kernel data `$4000-$4303` + `freeList` `$4304`; `scratchBuf` `$C400`; dyn tables `$CA99`; lib descriptors `$CD0C`; `dynTaskLibMask` `$CD4C`; scroll-region data `$CD6D`; sid.lib + ipc.lib entries + stubs + names + `kLibHold` `$FF7E-$FFE8` |
@@ -148,9 +148,9 @@ splits a block further where it is useful (the per-file split comes from
   the high sprite band) and `$FBE0-$FC3E` (95B, the tail of the packed code
   chain) - then `$176F-$1795` (39B, the FS code's tail before `spawnCore`);
   then the two below `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B),
-  `$566A-$567C` (19B, between the scroll code and `rasterCommit`) and the
+  `$5676-$567C` (7B, between the scroll code and `rasterCommit`) and the
   core's growth headroom `$13C7-$13D3` (13B); after those a tail of 9B-or-less
-  remnants, for **493B free in total** across **28 pockets** (`$1844` and `$CA6B`
+  remnants, for **481B free in total** across **28 pockets** (`$1844` and `$CA6B`
   hold `printGlyphAt`) - excluding the 512B of fixed sprite slots
   (`memory-map.md` has the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
   never hold kernel code, and nothing may occupy the core's growth headroom at
