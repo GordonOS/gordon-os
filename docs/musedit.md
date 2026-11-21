@@ -1131,6 +1131,34 @@ than an interval, the same number is a wider detune the lower the note, so one `
 fixed quarter tone across a wide range — and the player picks its frequency table by video standard,
 so the size of the interval varies by a few percent between a PAL and an NTSC machine.
 
+The intervals you are most likely to want, as operands:
+
+| semitones up | `TPS` | semitones down | `TPS` |
+|---|---|---|---|
+| 1 | 30 | 1 | 161 |
+| 2 | 46 | 2 | 145 |
+| 3 | 62 | 3 | 129 |
+| 4 | 78 | 4 | 113 |
+| 5 | 94 | 5 | 97 |
+| 6 | 110 | 6 | 81 |
+| 7 | 126 | 7 | 65 |
+| 8 | 142 | 8 | 49 |
+| 9 | 158 | 9 | 33 |
+| 10 | 174 | 10 | 17 |
+| 11 | 190 | 11 | 1 |
+| 12 | 12 | 12 | 179 |
+
+An octave is `TPS 12` up or `TPS 179` down, and each octave further takes two off the up operand and
+adds two to the down one: +24 is `TPS 10` and -24 is `TPS 181`, as far as the ±95 limit (`TPS 176` and
+`TPS 15`). The two rules behind the table are `16n + 14` for n semitones up and `177 - 16n` for n
+down, with `TPS 14` for none — that is the operand to write when a key change ends and the tune goes
+back to its own pitch.
+
+`RTP` counts from where the voice already is rather than from the tune's own key, and packs its operand
+differently: `8 x (semitones + 11) + 3`, so three semitones up is `RTP 115` and three down is `RTP 67`.
+`RTP 91` is the odd one: it throws the relative changes away and puts the voice back on the tune's own
+`TPS`.
+
 ```
 VDP 8
 VRT 4
@@ -1587,8 +1615,8 @@ Three notes on the numbers:
 - **The signed fields are the value you type**, so `AUT 246` is -10, `AUT 236` is -20 and `AUT 216` is
   -40; the *Signed operands, and how they are written* section above has the rest of the pattern.
 - **`TPS` is the packed interval**, not a semitone count: `TPS 14` is no transpose, `TPS 12` is an octave
-  up, `TPS 179` is an octave down and `TPS 126` is seven semitones up. `DTN` beside it is a plain
-  number.
+  up, `TPS 179` is an octave down and `TPS 126` is seven semitones up; the *Frequency* section above has
+  the table for every interval. `DTN` beside it is a plain number.
 
 ### Envelope and waveform
 
