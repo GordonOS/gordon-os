@@ -150,7 +150,7 @@ splits a block further where it is useful (the per-file split comes from
   then the two below `$0801`, `$02A1-$02BF` (31B) and `$020D-$021E` (18B),
   `$5676-$567C` (7B, between the scroll code and `rasterCommit`) and the
   core's growth headroom `$13C7-$13D3` (13B); after those a tail of 9B-or-less
-  remnants, for **481B free in total** across **28 pockets** (`$1844` and `$CA6B`
+  remnants, for **480B free in total** across **28 pockets** (`$1844` and `$CA6B`
   hold `printGlyphAt`) - excluding the 512B of fixed sprite slots
   (`memory-map.md` has the full list). ⚠️ `$02A1-$02BF` and `$020D-$021E` are below `$0801`, so they can
   never hold kernel code, and nothing may occupy the core's growth headroom at

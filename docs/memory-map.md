@@ -3,7 +3,7 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**481B across 28 pockets**) and asserts the pinned pockets.
+> and their total (**480B across 28 pockets**) and asserts the pinned pockets.
 > A green build makes **234 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
@@ -580,8 +580,8 @@ For 16MB REU (256 banks): the FS data region spans banks 5–251, capacity ≈ 1
 
 Free ranges in C64 RAM, recomputed from the KickAssembler build map (every
 range below is a gap between two emitted blocks or the tail of a pinned
-pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
--ExpectPockets 21` are its built-in defaults — no arguments needed.
+pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 480
+-ExpectPockets 28` are its built-in defaults — no arguments needed.
 
 > **The jump-table addresses in the docs have their own gate:**
 > `tools/verify-jumptable-docs.ps1`. It pairs every `` `kName` `` in a
@@ -629,16 +629,16 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 116
 | `$CA1B-$CA2B` | 17B | `warmClearBufRecs` (kernel/warm-boot-reset.inc) — clears every slot's `taskDataSize`/`taskDataPtrLo/Hi` at a warm reboot, `jsr`-ed from `warmBootReset`. Between the REU DMA routines in `reu.inc` (ending `$CA1A`) and the sprite API (`$CA2F`) |
 | `$CA2C-$CA2E` | 3B | Free — the tail of that run |
 | `$CA6B-$CA8B` | 33B | `printGlyphAt`'s tail (32B, `$CA6B-$CA8A`) + 1B free — the pocket after `kSpriteCollide` + `clearSlotSprite` (59B at `$CA2F-$CA69`, then 1B free at `$CA6A`), below `dlEvMaybeSelf` (13B at `$CA8C-$CA98`). The routine is split here by SIZE and its two halves are joined by a `jmp` |
-| `$CD5C-$CD6C` | 17B | Free (between `dynTaskLibMask` and the scroll-region data; the library-failure policy lives in the `$1A17` stub block) |
+| `$CD5C-$CD6C` | 17B | `gfxSurfPrep` (16B at `$CD5C-$CD6B`) then **1B free at `$CD6C`** — between `dynTaskLibMask` and the scroll-region data; the library-failure policy lives in the `$1A17` stub block. The routine's tail sits at `$FFE9` and is reached by a `jmp` from here |
 | `$CDCF-$CDDD` | 15B | `kbApplyScreenReq` (14B, `$CDCF-$CDDC`) + `kbScreenReq` (1B at `$CDDD`) — the deferred display switch, applied from the scheduler's switch path so it never lands in a running task's `kArg` block. `sprBlkAddr` + `sprRestoreFrames` are 48B at `$CD9F-$CDCE`, before it |
 | `$CDF5-$CDFD` | 9B | `blitGlyphFb` — the framebuffer glyph blitter, placed here so the code chain keeps its growth room (see `$FC3E`); + 2B free at `$CDFE-$CDFF` |
 | `$E0F3-$E0F8` | 6B | `kPrintGlyphAt` (3B at `$E0F3`) then `kMouseCall` (3B at `$E0F6`) — the `$E000` band's own slack, where jump table group 2 stops. **No spare entry left** |
 | `$E105-$E106` | 2B | Free (between the gfx table and the filesys stubs) |
 | `$E119` | 1B | Free (vector headroom) |
 | `$ECBA-$ECD8` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router; **3B free at `$ECD9-$ECDB`** above it, under `gfx.inc`'s anchor |
-| `$FBE0-$FC3E` | 95B | — | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
+| `$FBE0-$FC3E` | 95B | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF8` | 16B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`) then the `kScrollRegionDown` entry stub (`$FFF6-$FFF8`); 1B free at `$FFF9`, below the vectors |
-| **Total (fixed headroom)** | **481B across 28 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total | |
+| **Total (fixed headroom)** | **480B across 28 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total |
 
 Usable beyond the fixed headroom:
 
