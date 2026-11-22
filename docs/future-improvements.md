@@ -661,8 +661,8 @@ it. `/` is already reserved as a path separator *in names* by the host tool.
 2. **Subdirectories** — a directory is an entry with a directory bit whose payload is a
    pointer list into the data area rather than a slot in the fixed table; a path walker
    (`/`-separated) sits in front of it, ported from the same Lee Davison ROM FS model that
-   supplied the entry format and `kReuCmpName`. Names then identify paths, so `run`, `save`,
-   `load`, `del`, `dir`, `rename`, `copy`, BASIC's `DIR`, both loaders and both host tools all
+   supplied the entry format and `kReuCmpName`. Names then identify paths, so `run`,
+   `del`, `dir`, `rename`, `copy`, BASIC's `DIR`, both loaders and both host tools all
    become path consumers.
 
 **What it buys.** A traversal cursor instead of every consumer walking the table (which is

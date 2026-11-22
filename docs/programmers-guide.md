@@ -94,7 +94,7 @@ kill 3              → shell loads kill.com, waits, prints, returns
 
 | Kind | Words | Implemented in |
 |---|---|---|
-| Built-in (no file loaded) | `help` `clear` `view` `run` `exit` `print` `fsinfo` `save` `load` `runbatch` `pool` `ver` `me` `wait` | `src/tasks/dynamic/shell.inc` (`pcHelp`…`pcWait`) |
+| Built-in (no file loaded) | `help` `clear` `view` `run` `exit` `print` `fsinfo` `runbatch` `pool` `ver` `me` `wait` | `src/tasks/dynamic/shell.inc` (`pcHelp`…`pcWait`) |
 | External (`.com` files) | `ps` `dir` `time` `kill` `pause` `resume` `prio` `format` `type` `setfont` `banner` `rename` `copy` `del` `compact` | `src/tasks/cmd/*.asm`, loaded by `pcFgPs` |
 
 The shell keeps one command string table (`cmdsBlock`) and one
@@ -1959,7 +1959,8 @@ run nonexistent      → ? no fs or not found
 
 Task binaries are built with the fixup-table pipeline
 (`tools/assemble-tasks.asm` + `tools/gen-fixups.asm`, VS Code task
-**"Build dynamic tasks"**) and saved to REU FS with `save <name> <start> <end>`.
+**"Build dynamic tasks"**) and placed in the REU FS by `tools/build-reu.ps1` (the host
+side; there is no shell command for it).
 The binary format and loader semantics are documented in
 `docs/kernel.md` under **Dynamic Task Loader**. Error codes: 0 no free dyn
 slots, 1 bad task file, 2 wrong version (also unsupported fixed-origin),

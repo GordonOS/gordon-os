@@ -201,7 +201,7 @@ See [lib-gfx.md](lib-gfx.md).
   so files saved in one session are there in the next. `tools/build-reu.ps1` seeds a
   fresh image from the task list and the project's data files.
 - **It is the loader's source.** Every `.tsk`, `.com` and `.lib` is a file here; the
-  same API serves the shell's `save`/`load`/`dir`/`type`/`fsinfo`, the editor's
+  same API serves the shell's `dir`/`type`/`fsinfo`, the editor's
   documents, the games' hi-score tables and BASIC's working file.
 - **`format` gives you an empty one, `compact` reclaims the holes, `fstest` proves the
   bank boundary.** See [lib-filesys.md](lib-filesys.md).
@@ -222,7 +222,7 @@ The shell boots as a task and gives you line editing, cursor keys, mid-line edit
 and a blinking block cursor.
 
 Shell built-ins: `help`, `clear`, `view`, `exit`, `run`, `pool`, `runbatch`, `print`,
-`fsinfo`, `save`, `load`, `wait`.
+`fsinfo`, `wait`.
 
 Command tasks (each a `.com` that runs on the shell's screen and exits):
 `ps`, `dir`, `time`, `kill`, `pause`, `resume`, `prio`, `format`, `type`, `setfont`,

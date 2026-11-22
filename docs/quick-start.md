@@ -408,7 +408,7 @@ Type commands and press RETURN. The shell supports cursor keys (← → HOME), m
 ### `help`
 
 Print the command list: `help`, `clear`, `view`, `run`, `exit`, `print`,
-`runbatch`, `fsinfo`, `save`, `load`, `pool`, `ver`, `me`, `wait`.
+`runbatch`, `fsinfo`, `pool`, `ver`, `me`, `wait`.
 
 ```
 help
@@ -914,7 +914,7 @@ and returns to the prompt immediately. The other utility words (`ps`,
 one, waits for it to finish, then re-enters the prompt. `pool` (built
 into the shell) prints the task-pool map. Commands share the shell's screen and read
 their arguments from `cmdArgsBuf`. `help`, `clear`, `view`, `run`,
-`runbatch`, `exit`, `print`, `fsinfo`, `save`, `load`, `pool`,
+`runbatch`, `exit`, `print`, `fsinfo`, `pool`,
 `ver`, `me` and `wait` are
 built into the shell itself (no file is loaded). See
 [`programmers-guide.md`](programmers-guide.md) for how to write each
@@ -1025,22 +1025,6 @@ Options and a wildcard pattern can be combined in any order, e.g.
 ![dir *.com: the commands in the image](img/dir-com.png)
 - `<pattern>` — wildcard filter (`*` matches any run, `?` any single
   character), e.g. `dir *.com` or `dir ?ir.*`
-
-### `save <name> <start> <end>`
-
-Save a C64 memory block to the REU filesystem. Addresses are hex.
-
-```
-save mydata c000 c100
-```
-
-### `load <name> <address>`
-
-Load a file from the REU filesystem into C64 memory. Address is hex.
-
-```
-load mydata c000
-```
 
 ### `del <pattern>`
 

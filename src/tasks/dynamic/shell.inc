@@ -533,8 +533,6 @@ handlerOffTab:
     .word pcView - shell      // "view"
     .word pcExit - shell      // "exit"
     .word pcFsinfo - shell    // "fsinfo"
-    .word pcSave - shell      // "save"
-    .word pcLoad - shell      // "load"
     .word pcPrint - shell     // "print"
     .word pcRunbatch - shell  // "runbatch"
     .word pcPool - shell      // "pool"
@@ -548,8 +546,6 @@ cmdOffTab:
     .byte cmdView - cmdsBlock
     .byte cmdExit - cmdsBlock
     .byte cmdFsinfo - cmdsBlock
-    .byte cmdSave - cmdsBlock
-    .byte cmdLoad - cmdsBlock
     .byte cmdPrint - cmdsBlock
     .byte cmdRunbatch - cmdsBlock
     .byte cmdPool - cmdsBlock
@@ -978,232 +974,6 @@ pcDec3:
     pla
 pcDec3Go:
     jmp pcDecA
-
-// --- pcSave -- save <name> <start> <end> ---
-pcSave:
-    // Skip "save" (4 chars)
-    ldy #4
-pcSaveSkSp:
-    lda (dataPtr),y; bne pcSaveNotEnd
-    jmp pcSaveBadName
-pcSaveNotEnd:
-    cmp #$20; bne pcSaveName
-    iny; bne pcSaveSkSp
-pcSaveName:
-    // Y = start of name. Save offset, null-terminate in lineBuf
-    sty kArg+6                  // save nameStart
-pcSaveNmEnd:
-    lda (dataPtr),y; beq pcSaveNmDone
-    cmp #$20; beq pcSaveNmDone
-    iny; bne pcSaveNmEnd
-pcSaveNmDone:
-    lda #0; sta (dataPtr),y     // null-terminate name in lineBuf
-    iny                         // skip to next arg
-    // Parse start address
-pcSaveSkSp2:
-    lda (dataPtr),y; bne pcSaveSkSp2Ok
-    jmp pcSaveBadAddr
-pcSaveSkSp2Ok:
-    cmp #$20; bne pcSaveStart
-    iny; bne pcSaveSkSp2
-pcSaveStart:
-    jsr pcParseHex16
-    bcc pcSaveStartOk
-    jmp pcSaveBadAddr
-pcSaveStartOk:
-    lda kArg+2; sta kPtr
-    lda kArg+3; sta kPtr+1
-pcSaveSkSp3:
-    lda (dataPtr),y; bne pcSaveSkSp3Ok
-    jmp pcSaveBadAddr
-pcSaveSkSp3Ok:
-    cmp #$20; bne pcSaveEnd
-    iny; bne pcSaveSkSp3
-pcSaveEnd:
-    jsr pcParseHex16
-    bcc pcSaveEndOk
-    jmp pcSaveBadAddr
-pcSaveEndOk:
-    // Validate end > start (zero-length or negative rejects)
-    lda kArg+2; cmp kPtr        // end lo vs start lo
-    lda kArg+3; sbc kPtr+1      // end hi vs start hi
-    bcs pcSaveSz1
-    jmp pcSaveBadAddr
-pcSaveSz1:
-    bne pcSaveSizeOk            // end hi > start hi -> OK
-    lda kArg+2; cmp kPtr        // end lo == start lo?
-    bne pcSaveSizeOk
-    jmp pcSaveBadAddr
-pcSaveSizeOk:
-    // Build name pointer in ZP via $f1/$f2 for valid (indirect),y
-    lda kArg+6                  // nameStart
-    clc; adc $f1; sta kArg      // kArg = dataPtr + nameStart (lo)
-    lda $f2; adc #0; sta kArg+1 // kArg+1 = hi
-    // kPtr=start, kArg/kArg+1=name, kArg+2/kArg+3=end
-    jsr kReuSave
-    bcs psSaveErr               // error path (bcc to pcSaveOk too far)
-    jmp pcSaveOk
-psSaveErr:
-    ldy #BATERR
-    lda #1
-    sta (dataPtr),y
-    lda reuFsEnabled; cmp #$A5
-    bne pcSaveNoFs
-    lda kArg+6                  // error code
-    beq pcSaveExists            // 0 = duplicate
-    cmp #1
-    beq pcSaveNoSpace           // 1 = no space
-    cmp #3
-    bne psChk4
-    jmp pcSaveBadName           // 3 = name too long
-psChk4:
-    cmp #4
-    bne pcSaveFail
-    jmp pcSaveBadName           // 4 = empty name
-pcSaveFail:
-    :printMsg(msgSaveFail - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
-pcSaveExists:
-    :printMsg(msgSaveExists - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
-pcSaveNoSpace:
-    :printMsg(msgSaveNoSpace - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
-pcSaveNoFs:
-    :printMsg(msgNoFs - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
-pcSaveOk:
-    :printMsg(msgSaved - cmdsBlock)
-    lda #$20; jsr kPrintChar
-    lda #'$'; jsr kPrintChar
-    lda dataPtr; clc; adc #DECBUF; sta kPtr
-    lda dataPtr+1; adc #0; sta kPtr+1
-    lda kArg+5; jsr kByteToHex
-    lda dataPtr; clc; adc #DECBUF+2; sta kPtr
-    lda dataPtr+1; adc #0; sta kPtr+1
-    lda kArg+4; jsr kByteToHex
-    lda #0; ldy #2; sta (kPtr),y
-    lda dataPtr; clc; adc #DECBUF; sta kPtr
-    lda dataPtr+1; adc #0; sta kPtr+1
-    jsr kPrintString
-    jsr kNewline; jsr kNewline
-    rts
-pcSaveBadName:
-    ldy #BATERR
-    lda #1
-    sta (dataPtr),y
-    :printMsg(msgSaveBadName - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
-pcSaveBadAddr:
-    ldy #BATERR
-    lda #1
-    sta (dataPtr),y
-    :printMsg(msgSaveBadAddr - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
-
-// --- pcParseHex16 -- parse 4 hex digits from lineBuf+Y into kArg+2/+3 ---
-//  Input:  Y = offset in lineBuf
-//  Output: kArg+2/kArg+3 = 16-bit value, Y advanced past 4 digits
-//          C=1 if parse error
-//  Clobbers: A, X
-pcParseHex16:
-    lda #0; sta kArg+2; sta kArg+3  // result = 0
-    ldx #4                      // 4 hex digits
-phLoop:
-    lda (dataPtr),y; beq phFail
-    jsr kHexDigit; bcs phFail
-    // result = result * 16 + digit
-    // Shift result left 4 bits (x16)
-    pha                         // save digit on stack (avoid clobbering kArg+6)
-    lda kArg+2; asl; rol kArg+3; asl; rol kArg+3
-    asl; rol kArg+3; asl; rol kArg+3  // x16
-    sta kArg+2
-    pla                         // restore digit
-    clc; adc kArg+2; sta kArg+2
-    lda kArg+3; adc #0; sta kArg+3
-    iny
-    dex; bne phLoop
-    clc; rts
-phFail:
-    sec; rts
-
-// --- pcLoad -- load <name> <addr> ---
-pcLoad:
-    ldy #4
-    jsr pcSkipSpaces
-    bcc pcLoadParse
-    jmp pcLoadBad
-pcLoadParse:
-    // Parse name: null-terminate in lineBuf, pointer in kArg/kArg+1
-    tya; clc; adc $f1; sta kArg
-    lda $f2; adc #0; sta kArg+1
-pcLoadNmEnd:
-    lda (dataPtr),y; beq pcLoadNmDone
-    cmp #$20; beq pcLoadNmDone
-    iny; bne pcLoadNmEnd
-pcLoadNmDone:
-    lda #0; sta (dataPtr),y
-    iny
-    // Parse dest addr
-    jsr pcSkipSpaces2
-    bcc pcLoadDest
-    jmp pcLoadBad
-pcLoadDest:
-    jsr pcParseHex16
-    bcc pcLoadGo
-    jmp pcLoadBad
-pcLoadGo:
-    lda kArg+2; sta kPtr
-    lda kArg+3; sta kPtr+1
-    lda reuFsEnabled
-    cmp #$A5
-    bne pcLoadNoFs
-    jsr kReuLoad
-    bcs pcLoadNotFnd
-    jmp pcLoadOk
-pcLoadNotFnd:
-    ldy #BATERR
-    lda #1
-    sta (dataPtr),y
-    :printMsg(msgNotFound - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
-pcLoadNoFs:
-    ldy #BATERR
-    lda #1
-    sta (dataPtr),y
-    :printMsg(msgNoFs - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
-pcLoadOk:
-    :printMsg(msgLoaded - cmdsBlock)
-    lda #$20; jsr kPrintChar
-    lda #'$'; jsr kPrintChar
-    lda dataPtr; clc; adc #DECBUF; sta kPtr
-    lda dataPtr+1; adc #0; sta kPtr+1
-    lda kArg+3; jsr kByteToHex
-    lda dataPtr; clc; adc #DECBUF+2; sta kPtr
-    lda dataPtr+1; adc #0; sta kPtr+1
-    lda kArg+2; jsr kByteToHex
-    lda #0; ldy #2; sta (kPtr),y
-    lda dataPtr; clc; adc #DECBUF; sta kPtr
-    lda dataPtr+1; adc #0; sta kPtr+1
-    jsr kPrintString
-    jsr kNewline; jsr kNewline
-    rts
-pcLoadBad:
-    ldy #BATERR
-    lda #1
-    sta (dataPtr),y
-    :printMsg(msgSaveBadAddr - cmdsBlock)
-    jsr kNewline; jsr kNewline
-    rts
 
 // --- pcSkipSpaces helper ---
 pcSkipSpaces:
@@ -1981,15 +1751,13 @@ cmdRun:      .text "run";      .byte 0
 cmdView:     .text "view";     .byte 0
 cmdExit:     .text "exit";     .byte 0
 cmdFsinfo:   .text "fsinfo";   .byte 0
-cmdSave:     .text "save";     .byte 0
-cmdLoad:     .text "load";     .byte 0
 cmdPrint:   .text "print"; .byte 0
 cmdRunbatch: .text "runbatch"; .byte 0
 cmdPool:    .text "pool";    .byte 0
 cmdVer:     .text "ver";     .byte 0
 cmdMe:      .text "me";      .byte 0
 cmdWait:    .text "wait";    .byte 0
-msgHelp:   .text "help clear view run exit print runbatch fsinfo save load pool ver me wait"; .byte 0
+msgHelp:   .text "help clear view run exit print runbatch fsinfo pool ver me wait"; .byte 0
 msgPaused:   .text " (pau)"; .byte 0
 msgSleeping: .text " (slp)"; .byte 0
 msgViewOk:   .text "viewing"; .byte 0
@@ -2016,13 +1784,6 @@ msgDynResFull: .text "? too many shared tasks"; .byte 0
 msgDynDup:    .text "? already running"; .byte 0
 msgRunUse:    .text "? run <filename>"; .byte 0
 msgShared:    .text " (shr)"; .byte 0
-msgSaved:     .text "saved"; .byte 0
-msgSaveBadName: .text "? bad name"; .byte 0
-msgSaveBadAddr: .text "? bad addr"; .byte 0
-msgSaveFail:  .text "? save failed"; .byte 0
-msgSaveExists: .text "? exists"; .byte 0
-msgSaveNoSpace: .text "? no space"; .byte 0
-msgLoaded:    .text "loaded"; .byte 0
 msgNotFound:  .text "? not found"; .byte 0
 msgDotC:      .text "? run: no extension"; .byte 0
 msgRbUse:     .text "? runbatch <filename>"; .byte 0

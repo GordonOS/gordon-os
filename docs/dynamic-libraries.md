@@ -344,7 +344,7 @@ No id is stored, so nothing can go stale.
 refcount-pinned by its own `libMask` for as long as it stays resident, and
 *eviction* is what releases them -- while the shell is the one long-lived
 **evictable** task (`edit` ([edit.md](edit.md)), `godzi`, `gortris` and `grknoid` are pinned). `run basic` hands
-the shell's library pages back, and the first `fsinfo`/`save`/`load`/`run
+the shell's library pages back, and the first `fsinfo`/`run
 <name>.bat` after the swap-in reloads them: `libLoad` sets `dlNoSelfEvict`, so the
 shell can never be its own victim, and 10 contiguous `filesys.lib` pages can still
 fail on a fragmented or starved pool. `pool` is not exposed to this -- `pcPool`
