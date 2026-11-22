@@ -992,8 +992,7 @@ muLdPgBad:
 // --- muLdNew -- the blank tune a name with no file stands for ---
 muLdNew:
     jsr muScrOpen
-    bcc muLnGo
-    jmp muLdNoScr               // out of branch range
+    bcs muLdNoScr
 muLnGo:
     jsr muWin0Ptr
     ldy #0
@@ -1613,8 +1612,7 @@ muUnitCycle:
     bcs muUcWrap
     inc muUnitRef
     jsr muUcValid
-    bcs muUcSkip
-    jmp muUnitApply             // exact: apply it
+    bcc muUnitApply             // exact: apply it
 muUcSkip:
     jmp muUnitCycle             // skip to the next one
 muUcWrap:
@@ -2189,16 +2187,13 @@ muSimCmd:
     jmp muCmHed
 muCmN1:
     cmp #MU_CMD_TEM
-    bne muCmN2
-    jmp muCmTem
+    beq muCmTem
 muCmN2:
     cmp #MU_CMD_UTL
-    bne muCmN3
-    jmp muCmUtl
+    beq muCmUtl
 muCmN3:
     cmp #MU_CMD_UTV
-    bne muCmN4
-    jmp muCmUtv
+    beq muCmUtv
 muCmN4:
     lda muScmd
     and #$03
@@ -2848,8 +2843,7 @@ muHeadTail:
     jsr muCurTem
     ldy #MU_HEADTEM
     cmp (dataPtr),y
-    beq mhtTail
-    jmp muDrawHead
+    bne muDrawHead
 mhtTail:
     ldy #MU_CURROW
     lda #0
@@ -3305,10 +3299,10 @@ mbtBack:
 mbtTake:
     lda muObjVal
     ora muObjValHi
-    beq mbtRts                  // bar 0 does not exist
-    jmp muBarGo
+    bne muBarGo
 mbtRts:
-    jsr muDrawHead              // the prompt only touched row 0: the head takes it back
+    jsr muDrawHead              // bar 0 does not exist: the prompt only touched row 0,
+                                //   so the head takes it back
     jmp muKeyIdle
 
 // ==========================================
@@ -3575,8 +3569,7 @@ mchRow:
     bne mchNext
     lda muGrpRow
     cmp muCmdRow
-    bne mchNext
-    jmp mchFound
+    beq mchFound
 mchNext:
     lda muOn                    // the producer has no row past the tune's end, so
     ora muOn+1                  //   its halt flags are the end test
@@ -4261,8 +4254,7 @@ muBarPaint:
     jsr muDrawArm
     lda muTid                   // the reverse cells go straight to the framebuffer,
     cmp kbFocus                 //   which belongs to the displayed task
-    beq muBpGo
-    jmp muBpKeep
+    bne muBpKeep
 muBpGo:
     lda #M_BAR                  // the bar's text, read back out of the message file
     jsr muMsgSet
@@ -4923,16 +4915,15 @@ muKeyNotSpace:
     cmp #$84                    // CRSR down
     bne muKeyN1
     lda muPlayOn                // while the player runs the cursor IS the playhead:
-    beq muKnDownGo              //   the follow would drag it back, so up and down are
-    jmp muKeyIdle               //   refused outright. Left and right still work --
+    bne muKeyIdle               //   the follow would drag it back, so up and down are
+                                //   refused outright. Left and right still work --
 muKnDownGo:                     //   they point the dots at another voice.
     jmp muCurDown
 muKeyN1:
     cmp #$85                    // CRSR up
     bne muKeyN2
     lda muPlayOn
-    beq muKnUpGo
-    jmp muKeyIdle
+    bne muKeyIdle
 muKnUpGo:
     jmp muCurUp
 muKeyN2:
@@ -4986,8 +4977,7 @@ muKeyIdle:
 muPageDown:
     lda muLnTbHi+MU_GRID_ROWS-1
     cmp #$ff
-    bne muPdGo
-    jmp muKeyIdle
+    beq muKeyIdle
 muPdGo:
     sta muTop+1
     lda muLnTbLo+MU_GRID_ROWS-1
@@ -5472,10 +5462,11 @@ muNcStore:
     iny
     lda muNewOpt
     sta (kPtr),y
+muFlushSettle:
     jsr muWinFlush0             // the pair reaches its page before the record reads it
-    jsr muPushEdit             // ...become 2 new bytes there
-    lda muTgtLo                 // the note's length may differ, so every row below
-    ldx muTgtHi                 //   moves: repaint from the note's own row down
+    jsr muPushEdit              // ...become 2 new bytes there
+    lda muTgtLo                 // the changed row may move: repaint from the target down
+    ldx muTgtHi
     jsr muRedrawBand
     lda muTgtLo                 // ...and leave the cursor on the row that changed
     ldx muTgtHi
@@ -6018,12 +6009,10 @@ muInsOneVoice:
     lda muSekRow+1              //   before it ended -- see muIvAppend
     sta muInsFrom+1
     lda muSekKind
-    bne muIvNot0
-    jmp muIvOnset
+    beq muIvOnset
 muIvNot0:
     cmp #1
-    bne muIvNot1
-    jmp muIvStraddle
+    beq muIvStraddle
 muIvNot1:
     lda muItV                   // kind 2: a rest voice has nothing to push...
     cmp muInsNoteV
@@ -6214,14 +6203,7 @@ muRkGo:
     iny
     lda #0
     sta (kPtr),y
-    jsr muWinFlush0             // the pair reaches its page before the record reads it
-    jsr muPushEdit
-    lda muTgtLo                 // only the rested row changed, and it is the cursor's
-    ldx muTgtHi
-    jsr muRedrawBand
-    lda muTgtLo
-    ldx muTgtHi
-    jmp muCurSettleNext
+    jmp muFlushSettle
 
 // --- muDelPair -- splice the 2-byte event at MU_SEKLO/HI out of MU_SKV ---
 //  One undo record, so a caller that splices several voices decides the grouping
@@ -6585,8 +6567,7 @@ mqIt3:
 // --- the operand step: digits build the value, INST/DEL backs one out ---
 mqValKey:
     jsr kReadKey
-    bne mqValGot
-    jmp mqValWait
+    beq mqValWait
 mqValGot:
     cmp #$81                    // RETURN: write the pair
     beq mqValTake
@@ -8204,9 +8185,8 @@ muDvScan:
     lda muHistRHi,y
     cmp muPhCurLo+1
     bcc muDvFound               // a row below the playhead's high byte: it is at or
-    beq muDvRowCmp              //   before the playhead, so it is the one sounding
-    jmp muDvScanNx
-muDvRowCmp:
+    bne muDvScanNx
+muDvRowCmp:                     //   before the playhead, so it is the one sounding
     lda muHistRLo,y
     cmp muPhCurLo
     bcc muDvFound
@@ -8887,8 +8867,7 @@ muClickAct:
     jsr muPtrCol
     lda muRowNew
     cmp #MU_MODE_ROW
-    bne muClkNotModeRow
-    jmp muClkMode               // the mode button
+    beq muClkMode               // the mode button
 muClkNotModeRow:
     cmp #MU_BAR_ROW
     bne muClkGrid
@@ -9139,8 +9118,7 @@ muMiNone:
 // --- muPlayToggle -- SPACE: start when stopped, stop when playing ---
 muPlayToggle:
     lda muPlayOn
-    beq muPtStart
-    jmp muPlayStop
+    bne muPlayStop
 muPtStart:
     lda muPlaySlot
     cmp #$ff
@@ -9778,9 +9756,8 @@ mlcHave:
     tax                         // the block: voice * 2 + class
     lda muTmpH
     cmp muLogN,x
-    bcc mlcHasCmd               // this voice has a command this deep
-    jmp mlcNext
-mlcHasCmd:
+    bcs mlcNext
+mlcHasCmd:                      // this voice has a command this deep
     lda muLogBase,x
     clc
     adc muTmpH
