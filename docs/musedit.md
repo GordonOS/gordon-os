@@ -282,9 +282,11 @@ makes as it goes.
 
 ![the bar prompt in row 0](img/musedit-bar.png)
 
-`SHIFT`+`B` opens a prompt in row 0 showing `BAR` and the bar you are on. Digits replace the number,
-`INST/DEL` backs one digit out, `RETURN` goes there, and `STOP` leaves you where you were. `SHIFT`+`N`
-and `SHIFT`+`P` step a bar at a time without the prompt.
+`SHIFT`+`B` opens a prompt in row 0 showing `BAR` and the bar you are on, with the blinking block on
+the value. As in a command line the **first** digit replaces the number and later digits extend it;
+`INST/DEL` backs one digit out, and once the field is empty it does nothing, there being no
+mnemonic step to step back to. `RETURN` goes there and `STOP` leaves you where you were.
+`SHIFT`+`N` and `SHIFT`+`P` step a bar at a time without the prompt.
 
 A bar the tune never reaches answers `? no such bar` and leaves the view alone. Otherwise the cursor
 lands on the row's **own line** — the note line, not one of the command lines above it — with the
@@ -641,7 +643,7 @@ row becomes the prompt:
 | CRSR up / down | choose any of the 49 commands the picker offers, in the format's own order |
 | `RETURN` | take it, then finish its value — or write it straight away for `TAL`, `HLT`, `END` |
 | digits | build the value in decimal, never past what that command takes |
-| `INST/DEL` | back one digit out |
+| `INST/DEL` | back one digit out; on a field you have emptied, back to the mnemonic |
 | `STOP` | cancel, and the grid comes back as it was |
 
 The list runs from the tune's own settings — `TEM` `UTL` `UTV` `HED` `DEF` `CALL` `TAL` `HLT` `END` —
@@ -654,6 +656,13 @@ renumbering.
 `WAV` and `F-M` 0–7, the envelope nibbles 0–15, `RUP`/`RDN` 0–31, and three take more than a byte —
 `MS#` up to 999, `P-W` and `DTN` up to 4095, `POR` up to 16383. A value the command cannot hold is
 clamped to its maximum rather than refused, so what the prompt shows is always what gets written.
+
+The field opens showing the value the command already has, `0` included, and the **first** digit you
+type **replaces** it — re-entering `VOL 7` and typing `3` gives `3`, not `73`; type `37` to get `37`.
+Backing out the last digit leaves the field genuinely empty rather than showing a `0`, and one more
+`INST/DEL` then steps back to the mnemonic so you can pick a different command. The blinking block
+sits where the next digit goes, so the prompt waiting for a value never looks like a prompt waiting
+for a mnemonic.
 
 The prompt takes **digits only** — there is no minus key — and it shows and stores the number the
 player itself reads. For the commands whose effect is a signed number that is not the number you

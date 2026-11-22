@@ -144,6 +144,9 @@
 .label muN1         = MU_ZP_BASE+132  // the events a fill's rests, or a split's runs, take
 .label muN2         = MU_ZP_BASE+133  // ...and the note's own
 .label muSekTem     = MU_ZP_BASE+134  // the tempo in force at the recorded event
+.label muObjEmpty   = MU_ZP_BASE+135  // 1 = the operand field shows nothing: every
+                                      //   character was deleted. Only a delete sets it,
+                                      //   so an existing value of 0 still reads as 0
 .label muSkV        = MU_ZP_BASE+136
 .label muValLo      = MU_ZP_BASE+137
 .label muValHi      = MU_ZP_BASE+138
@@ -3253,14 +3256,14 @@ muBarPrompt:
     stx muObjValHi
     lda #0
     sta muObjFresh              // the first digit starts the number afresh
+    sta muObjEmpty              // and the bar it opened on shows
 mbtDraw:
     jsr muBlinkOff              // the repaint below must not race a live block
     jsr muClearRow0
     lda #M_BAR2
     jsr muMsg
-    lda muObjVal                // a zero prints nothing, so the last digit can be
-    ora muObjValHi              //   deleted and the field left empty
-    beq mbtNoNum
+    lda muObjEmpty              // empty only when every character was deleted: the bar
+    bne mbtNoNum                //   the prompt opened on still reads as itself
     lda muObjVal
     ldx muObjValHi
     jsr muNum16
@@ -3280,14 +3283,27 @@ mbtKey:
     bcc mbtKey                  // not a digit
     cmp #10
     bcs mbtKey
-    jsr muValAcc                // ...so the number builds as the panel's does
+    jsr muValAcc                // the first digit replaces the bar, later ones extend
     jmp mbtDraw
 mbtWait:
     lda #SYS_YIELD
     jsr syscall
     jmp mbtKey
 mbtBack:
+    lda muObjEmpty
+    bne mbtDraw                 // nothing shown: there is nothing to delete
+    lda #1
+    sta muObjFresh              // a digit typed now extends what the delete leaves
+    lda muObjVal
+    ora muObjValHi
+    beq mbtBackClear            // the lone '0' was the last character: it goes too
     jsr muValDiv10
+    lda muObjVal
+    ora muObjValHi
+    bne mbtDraw                 // a digit is left: repaint it
+mbtBackClear:
+    lda #1
+    sta muObjEmpty
     jmp mbtDraw
 mbtTake:
     jsr muBlinkOff              // RETURN ends the prompt, whether it jumps or refuses
@@ -6484,6 +6500,7 @@ mqPick:
     lda #0
     sta muObjPhase
     sta muObjFresh
+    sta muObjEmpty
 mqDraw:
     jsr muBlinkOff              // the repaint below must not race a live block
     jsr muObjEnc                // the operand's maximum, and the encoded pair
@@ -6504,9 +6521,8 @@ mqDraw:
     beq mqDrawEnd
     lda #MU_SPACE
     jsr muPutC
-    lda muObjVal                // a zero prints nothing: deleting the last digit leaves
-    ora muObjValHi              //   the field empty, with the caret sitting on it
-    beq mqDrawEnd
+    lda muObjEmpty              // only a delete empties the field, so a value of 0
+    bne mqDrawEnd               //   that was there or typed still reads as 0
     lda muObjVal
     ldx muObjValHi
     jsr muNum16
@@ -6565,6 +6581,7 @@ mqIdTake:
     sta muObjPhase
     lda #0
     sta muObjFresh
+    sta muObjEmpty              // entering the operand step: the value shows
     jmp mqDraw
 mqIdGo:
     jmp mqTake                  // mqTake is out of branch range from the three tests
@@ -6589,17 +6606,7 @@ mqValDigit:
     bcc mqValKey                // not a digit
     cmp #10
     bcs mqValKey
-    sta muTmpL
-    lda muObjFresh              // the first digit typed starts the value afresh, so
-    bne mqValAcc                //   an operand already there is not extended
-    lda #1
-    sta muObjFresh
-    lda #0
-    sta muObjVal
-    sta muObjValHi
-mqValAcc:
-    lda muTmpL                  // the digit
-    jsr muValAcc
+    jsr muValAcc                // the first digit replaces the operand, later ones extend
     jsr mqClamp                 // never past the maximum
     jmp mqDraw
 
@@ -6622,13 +6629,26 @@ mqClRts:
 mqValBack:
     lda muObjVal
     ora muObjValHi
-    bne mqVbGo                  // a value: drop its last digit
-    lda #0                      // nothing left to delete: back to the mnemonic
-    sta muObjPhase
+    bne mqVbGo                  // digits left: drop one
+    lda muObjEmpty
+    bne mqVbMnem                // nothing shown at all: back to the mnemonic
+    lda #1                      // the lone '0' was the last character: it goes too
+    sta muObjEmpty
     jmp mqDraw
 mqVbGo:
     sta muObjFresh              // a digit typed now extends what is left
     jsr muValDiv10
+    lda muObjVal
+    ora muObjValHi
+    bne mqVbDraw                // a digit is left: repaint it
+    lda #1                      // that was the last digit: the field is now empty
+    sta muObjEmpty
+mqVbDraw:
+    jmp mqDraw
+mqVbMnem:
+    lda #0
+    sta muObjPhase
+    sta muObjEmpty              // the value reads again on the mnemonic step
     jmp mqDraw
 mqValWait:
     lda #SYS_YIELD
@@ -6638,8 +6658,21 @@ mqValWait:
 // --- muValAcc -- MU_OBJVAL := MU_OBJVAL * 10 + A, the digit typed ---
 //  Both numeric prompts type their number this way. kMul16 does the arithmetic in 16
 //  bits, so a value above 255 is exact and one byte of entry can carry two digits.
+//  MU_OBJFRESH is 0 until the first digit of a prompt, so that digit REPLACES the
+//  value the prompt opened on and later ones extend it -- the two prompts agree by
+//  construction because the rule lives here and not at the call sites.
 muValAcc:
     sta muTmpL
+    lda #0
+    sta muObjEmpty              // a digit is on the field again
+    lda muObjFresh
+    bne muVaAdd                 // a digit has been typed: extend it
+    lda #1
+    sta muObjFresh
+    lda #0
+    sta muObjVal
+    sta muObjValHi
+muVaAdd:
     jsr muObjToKArg10
     jsr kMul16
     lda kArg+4                  // the product's low two bytes
