@@ -36,6 +36,13 @@
 .const REU_WS_BASE = $F80000  // bank 248
 .const REU_WS_SIZE = $1000    // 4KB per slot: MAX_TASKS x this = $18000 (banks 248-249)
 
+// --- Block IPC frames ---
+//  One 64KB bank of 256-byte frames for ipc.lib's block channels: frame n is at
+//  REU_IPC_BASE + n * 256, so its address is lo 0, hi = n, bank = IPC bank. Bank
+//  250, held out of the FS data region like the workspace above.
+.const REU_IPC_BASE = $FA0000 // bank 250
+.const REU_IPC_FRAME = 256    // one frame per page: lo 0, hi = the frame index
+
 // --- REU filesystem format signature (slot 0, byte 1) ---
 .const REU_FS_SIGNATURE = $A5
 

@@ -560,7 +560,7 @@ the first scroll clobbers it — harmless.
 | `$059000-$F7FFFF` | ~15.5MB | REU filesystem (16 KB directory + 24-bit data region, banks 5–247, capacity `$F23000`) — see table below |
 | `$F80000-$F97FFF` | 96KB | **Per-task REU workspace** (`REU_WS_BASE`) — 24 slots × 4KB (`REU_WS_SIZE`), slot *n* at `REU_WS_BASE + n × $1000`, so slots 16–23 cross into bank 249. Zeroed at spawn by `clearSlotWorkspace`. Banks 248–249 |
 | `$F98000-$F9FFFF` | 32KB | (free — the slack above 24 × 4KB inside the two banks the workspace reserved) |
-| `$FA0000-$FAFFFF` | 64KB | **Reserved for the REU IPC buffer** (`future-improvements.md` §7) — held out of the FS so its capacity does not have to move twice. Bank 250 |
+| `$FA0000-$FAFFFF` | 64KB | **Block IPC frames** (`REU_IPC_BASE`) — 256 frames of 256 B, four block channels of 64 frames each for `ipc.lib`'s `kIpcPost`/`kIpcPick` block forms ([lib-ipc.md](lib-ipc.md)). A frame index *is* its address high byte: lo 0, hi = frame, bank `$FA`. Held out of the FS data region, so it costs the filesystem nothing. Bank 250 |
 | `$FB0000-$FBFFFF` | 64KB | `grpaint`'s **undo/redo ring** ([gordonpaint.md](gordonpaint.md)) — six 10,240-byte canvas states (a `.pic` payload plus the mode and the palette), bank 251 |
 | `$FC0000-$FFFFFF` | 256KB | Malloc shadow (banks 252–255, 32 KB/slot × 8 dyn slots) |
 

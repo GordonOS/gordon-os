@@ -122,31 +122,7 @@ If a task crashes (BRK instruction, invalid memory access), the kernel catches i
 
 ---
 
-### 7. REU-Based IPC Shared Buffer
-
-**Effort:** Medium — two banks of FS capacity
-
-A REU region used as a shared message ring buffer for inter-task communication.
-Pairs with §1.
-
-[`ipc.lib`](lib-ipc.md) keeps its four 128-byte rings in the pool deliberately:
-a byte costs a `sta` there, while a REU round trip would dominate the transfer.
-The REU pays off for **large** messages — sprites, screen regions, audio — where
-a DMA beats a copy loop.
-
-```
-REU $010000-$01FFFF: 64KB IPC region
-  - Ring buffer with head/tail pointers in kernel data
-  - Tasks DMA messages in/out of REU
-  - Much larger messages possible (sprites, screen regions, audio)
-```
-
-The addresses above sit inside the bitmap-slot band, so this takes its region
-from the FS band.
-
----
-
-### 8. RAM Disk / Sector Cache
+### 7. RAM Disk / Sector Cache
 
 **Effort:** High
 
@@ -165,7 +141,7 @@ REU $020000-$02FFFF: 64KB sector cache (256 × 256-byte sectors)
 
 ---
 
-### 9. Char Cache for Text Surfaces
+### 8. Char Cache for Text Surfaces
 
 **Effort:** Medium (designed, not built)
 
@@ -187,7 +163,7 @@ every glyph is a pixel blit, so 100 lines of `dir` cost ~1.5-2 s.
 
 ---
 
-### 10. Editor Undo / Redo
+### 9. Editor Undo / Redo
 
 **Effort:** Medium-Hard (designed, not built)
 
@@ -251,7 +227,7 @@ and across chunk grow/shrink boundaries, with no pool or arena leaks.
 
 ---
 
-### 11. REU FS Directories
+### 10. REU FS Directories
 
 **Effort:** Medium (traversal API) / Hard (subdirectories) — designed, not built
 
@@ -298,7 +274,7 @@ directory). A name then identifies a path rather than a leaf, so every existing 
 **Sequencing:** do (1) first — it is useful on its own and it is the traversal primitive
 (2) needs.
 
-### 12. A C compiler
+### 11. A C compiler
 
 **Effort:** Hard — a toolchain retarget, not a kernel change
 
@@ -368,11 +344,10 @@ a task, prints through the kernel, and carries a derived fixup table.
 | **2** | SEND/RECEIVE IPC (§1) | Medium-Hard | The byte channels exist; this adds framing, a wakeup and a blocking handoff |
 | **3** | Stream abstraction (§3) | Medium | Pipelines, stdin/stdout |
 | **4** | Blocking I/O (§4) | Hard | A BLOCKED state and IRQ-driven wake |
-| **5** | REU IPC buffer (§7) | Medium | Large shared memory for IPC — takes it from the FS band |
-| **6** | Crash protection (§6) | Hard | BRK handler, graceful task death |
-| **7** | File system (§5) | Very Hard | IEC disk I/O |
-| **8** | RAM disk (§8) | High | REU sector cache, depends on §5 |
-| **9** | Char cache (§9) | Medium | Background scrollback and bulk-output latency |
-| **10** | Editor undo / redo (§10) | Medium-Hard | The editor has no history — every mutation is final; design is settled, code is not written |
-| **11** | REU FS directories (§11) | Medium / Hard | A flat 512-entry namespace: every consumer scans the table itself, and there are no subdirectories |
-| **12** | A C compiler (§12) | Hard | The compilers exist (cc65 has the permissive licence); the work is the retarget — a KERNAL-free runtime, a relinkable image, and `float` landed on `fp.lib` |
+| **5** | Crash protection (§6) | Hard | BRK handler, graceful task death |
+| **6** | File system (§5) | Very Hard | IEC disk I/O |
+| **7** | RAM disk (§7) | High | REU sector cache, depends on §5 |
+| **8** | Char cache (§8) | Medium | Background scrollback and bulk-output latency |
+| **9** | Editor undo / redo (§9) | Medium-Hard | The editor has no history — every mutation is final; design is settled, code is not written |
+| **10** | REU FS directories (§10) | Medium / Hard | A flat 512-entry namespace: every consumer scans the table itself, and there are no subdirectories |
+| **11** | A C compiler (§11) | Hard | The compilers exist (cc65 has the permissive licence); the work is the retarget — a KERNAL-free runtime, a relinkable image, and `float` landed on `fp.lib` |

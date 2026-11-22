@@ -1819,7 +1819,7 @@
     }
     .word $FFFF
 
-// --- ipctest - declares ipc.lib; the ipc.lib runtime self-test (keep - the counterpart of fstest) - spawns two thread producers (channels 1 and 3) and consumes both interleaved, so the backpressure wait and the channel recovery after SYS_SLEEP are both exercised; expect `ipc PASS` ---
+// --- ipctest - declares ipc.lib; the ipc.lib runtime self-test (keep - the counterpart of fstest) - byte half: spawns two thread producers (channels 1 and 3) and consumes both interleaved, so the backpressure wait and the channel recovery after SYS_SLEEP are both exercised; block half: refuses X = $84, then a third thread sends the whole 64-frame ring on block channel $82 (length 1+n on frame n, payload XORed with frameCount so a repeat run cannot pass on stale frames) while the parent drains and verifies it; expect `ipc PASS` ---
 .var ipctestBase     = LoadBinary("../tasks-out/temp/ipctest.base.bin")
 .var ipctestShift    = LoadBinary("../tasks-out/temp/ipctest.shift.bin")
 .var ipctestCheck    = LoadBinary("../tasks-out/temp/ipctest.check.bin")
@@ -2719,7 +2719,7 @@
     }
     .word $FFFF
 
-// --- ipclib - lib 6 (lazy), relocatable; IPC pipe (kIpcPost/kIpcPick) as a 128-byte ring in the library's own shared data, lock-free SPSC, no caller ZP ---
+// --- ipclib - lib 6 (lazy), relocatable; two halves behind the same two entries - byte channels (X = 0-3, a 128-byte ring in the library's own shared data, lock-free SPSC) and block channels (X = $80-83, whole 256-byte frames of REU bank 250, 64 frames per channel, length per frame in ipcBlkLen); no caller ZP, and no third call index because LIB_CALLS is at its ceiling ---
 .var ipclibBase     = LoadBinary("../tasks-out/temp/ipclib.base.bin")
 .var ipclibShift    = LoadBinary("../tasks-out/temp/ipclib.shift.bin")
 .var ipclibCheck    = LoadBinary("../tasks-out/temp/ipclib.check.bin")

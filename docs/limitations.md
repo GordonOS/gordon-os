@@ -278,7 +278,7 @@ you look at any task's surface without changing its code.
 
 - **512 entries × 32 bytes, flat.** Names are 1-11 characters, held as screen
   codes. **There are no subdirectories** — they are designed, not built
-  ([future-improvements.md](future-improvements.md) §11).
+  ([future-improvements.md](future-improvements.md) §10).
 - **A file's size is a 16-bit field**, so a single file is at most **65,535
   bytes**, and the data region's capacity is derived from how many banks the REU
   has (`$3000 + (banks − 10) × $10000`).
@@ -438,16 +438,15 @@ These are designed or planned, not present. Each is documented in
 | Missing | Consequence today |
 |---|---|
 | **Signals** (§2) | blocking calls are uncancellable; a parent polls `ps` to learn a child exited |
-| **SEND/RECEIVE IPC** (§1) | no message framing, no blocking receive, no channel ownership |
+| **SEND/RECEIVE IPC** (§1) | no message framing, no blocking receive, no channel ownership — a block frame carries a length, not a protocol |
 | **Stream abstraction** (§3) | no stdin/stdout abstraction, no shell pipelines |
 | **Blocking I/O and device drivers** (§4) | no `BLOCKED` task state; waiting is polling or sleeping |
 | **IEC / disk filesystem** (§5) | the REU filesystem is the only filesystem |
 | **Crash protection** (§6) | a `BRK` or bad jump takes the whole system down |
-| **REU IPC shared buffer** (§7) | no large shared-memory channel; IPC is 128 bytes per channel |
-| **RAM disk / sector cache** (§8) | depends on the disk filesystem |
-| **Char cache for text surfaces** (§9) | bulk output and background scrollback pay full glyph cost |
-| **Editor undo/redo** (§10) | `edit` has no undo ([edit.md](edit.md) → *Limits*); `musedit` has undo and redo, but `edit` does not |
-| **REU FS directories** (§11) | one flat namespace of 512 entries |
+| **RAM disk / sector cache** (§7) | depends on the disk filesystem |
+| **Char cache for text surfaces** (§8) | bulk output and background scrollback pay full glyph cost |
+| **Editor undo/redo** (§9) | `edit` has no undo ([edit.md](edit.md) → *Limits*); `musedit` has undo and redo, but `edit` does not |
+| **REU FS directories** (§10) | one flat namespace of 512 entries |
 
 ---
 

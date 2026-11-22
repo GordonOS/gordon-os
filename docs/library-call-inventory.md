@@ -68,7 +68,7 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
   (`kSidPlay`/`kSidHush`/`kIpcPost`/`kIpcPick`) — the `$E000` table is full.
 - 38 of them have at least one call site in the current source tree; 4 have
   none.
-- **255 total call sites** found across `src/`.
+- **260 total call sites** found across `src/`.
 
 ## By library
 
@@ -80,7 +80,7 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
 | [`fp.lib`](#fplib) | lib 3, eager | 1 | 2 |
 | [`string.lib`](#stringlib) | lib 4, lazy | 7 | 26 |
 | [`sid.lib`](#sidlib) | lib 5, lazy | 2 | 12 |
-| [`ipc.lib`](#ipclib) | lib 6, lazy | 2 | 7 |
+| [`ipc.lib`](#ipclib) | lib 6, lazy | 2 | 12 |
 | [`sprite.lib`](#spritelib) | lib 7, eager | 4 | 57 |
 | [`mouse.lib`](#mouselib) | lib 8, eager | 1 | 7 |
 
@@ -575,28 +575,28 @@ No call sites in the current source tree.
 
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kIpcPick`](#kipcpick) | `$FF87` | 4 | 1 | Read one byte from an IPC channel's ring (X = channel), non-blocking; C=1 when the channel is empty. |
-| [`kIpcPost`](#kipcpost) | `$FF84` | 3 | 1 | Send one byte to an IPC channel's ring (X = channel 0-3), blocking by yielding while that channel's ring is full. |
+| [`kIpcPick`](#kipcpick) | `$FF87` | 6 | 1 | Read one byte from an IPC channel's ring (X = channel), non-blocking; C=1 when the channel is empty. |
+| [`kIpcPost`](#kipcpost) | `$FF84` | 6 | 1 | Send one byte to an IPC channel's ring (X = channel 0-3), blocking by yielding while that channel's ring is full. |
 
 ### kIpcPick
 
 `$FF87` — Read one byte from an IPC channel's ring (X = channel), non-blocking; C=1 when the channel is empty.
 
-**4 calls** across 1 file(s):
+**6 calls** across 1 file(s):
 
 | File | Calls |
 |---|---:|
-| `src/tasks/cmd/ipctest.inc` | 4 |
+| `src/tasks/cmd/ipctest.inc` | 6 |
 
 ### kIpcPost
 
 `$FF84` — Send one byte to an IPC channel's ring (X = channel 0-3), blocking by yielding while that channel's ring is full.
 
-**3 calls** across 1 file(s):
+**6 calls** across 1 file(s):
 
 | File | Calls |
 |---|---:|
-| `src/tasks/cmd/ipctest.inc` | 3 |
+| `src/tasks/cmd/ipctest.inc` | 6 |
 
 ## sprite.lib
 
