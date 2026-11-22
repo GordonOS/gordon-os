@@ -3258,9 +3258,13 @@ mbtDraw:
     jsr muClearRow0
     lda #M_BAR2
     jsr muMsg
+    lda muObjVal                // a zero prints nothing, so the last digit can be
+    ora muObjValHi              //   deleted and the field left empty
+    beq mbtNoNum
     lda muObjVal
     ldx muObjValHi
     jsr muNum16
+mbtNoNum:
     jsr muBlinkOn               // the block follows the value as digits come and go
 mbtKey:
     jsr kReadKey
@@ -6500,6 +6504,9 @@ mqDraw:
     beq mqDrawEnd
     lda #MU_SPACE
     jsr muPutC
+    lda muObjVal                // a zero prints nothing: deleting the last digit leaves
+    ora muObjValHi              //   the field empty, with the caret sitting on it
+    beq mqDrawEnd
     lda muObjVal
     ldx muObjValHi
     jsr muNum16
