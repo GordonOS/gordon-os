@@ -2540,18 +2540,15 @@ muDecExact:
 mdeRts:
     lda muTmpH
     rts
+// --- muDecHi12 / muDecDtn12 -- P-W and DTN: the command's high nibble is the
+//  value's high half and the option is its low byte. The two differ only in the
+//  mnemonic id they hand back, so one body serves both.
 muDecHi12:
-    lda muScmd                  // P-W: high nibble of the command, then the option
-    lsr
-    lsr
-    lsr
-    lsr
-    sta muLnVHi
-    lda muSopt
-    sta muLnVLo
-    lda #MU_MN_PW
-    rts
+    ldx #MU_MN_PW
+    bne muDec12Go               // MU_MN_PW is never 0, so this entry always skips on
 muDecDtn12:
+    ldx #MU_MN_DTN
+muDec12Go:
     lda muScmd
     lsr
     lsr
@@ -2560,7 +2557,7 @@ muDecDtn12:
     sta muLnVHi
     lda muSopt
     sta muLnVLo
-    lda #MU_MN_DTN
+    txa
     rts
 muDecPor:
     lda muScmd                  // POR: six bits of the command, then the option
