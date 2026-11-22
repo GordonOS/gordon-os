@@ -1732,11 +1732,7 @@ muFtVoice:
     //  the voice's size word: image offset 2 + 2 * voice, always page 0
     jsr muImgSeat
     lda muScanV
-    asl
-    clc
-    adc #2
-    tay
-    lda (kPtr),y
+    jsr muLenWordOfs
     sta muScanLen
     iny
     lda (kPtr),y
@@ -1891,11 +1887,7 @@ muSiPtrLp:
     cpx #2
     beq muSiPtrRts
     txa
-    asl
-    clc
-    adc #2
-    tay                         // the length word's offset in the header
-    lda (kPtr),y
+    jsr muLenWordOfs
     clc
     adc muAccLo
     sta muAccLo
@@ -5678,13 +5670,7 @@ muPlBad:
 //  did, so nothing below moves. A run that is not one legal length becomes several
 //  tied events.
 muNcSplit:
-    jsr muSeekKPtr
-    ldy #0
-    lda (kPtr),y
-    sta muSekDur                // the pair being replaced, read before it moves
-    iny
-    lda (kPtr),y
-    sta muSekOpt
+    jsr muReadSekPair
     jsr muRecAtSek  // the undo record: 2 bytes at the onset become...
     lda #2
     sta muRecOldN
@@ -6086,13 +6072,7 @@ muIvRts:
 //  inserted silence, and the part from T0 on (its remainder) with a fresh attack.
 //  The three together last exactly the event's length plus the inserted silence.
 muIvStraddle:
-    jsr muSeekKPtr
-    ldy #0
-    lda (kPtr),y
-    sta muSekDur                // the straddling pair, read before it moves
-    iny
-    lda (kPtr),y
-    sta muSekOpt
+    jsr muReadSekPair
     lda muSekTem
     sta muJifTem
     //  --- the event's length and the front J1 (rows before T0) ---
@@ -6635,14 +6615,7 @@ mqValWait:
 //  bits, so a value above 255 is exact and one byte of entry can carry two digits.
 muValAcc:
     sta muTmpL
-    lda muObjVal
-    sta kArg
-    lda muObjValHi
-    sta kArg+1
-    lda #10
-    sta kArg+2
-    lda #0
-    sta kArg+3
+    jsr muObjToKArg10
     jsr kMul16
     lda kArg+4                  // the product's low two bytes
     clc
@@ -6655,6 +6628,37 @@ muValAcc:
 
 // --- muValDiv10 -- MU_OBJVAL := MU_OBJVAL / 10, its last digit dropped ---
 muValDiv10:
+    jsr muObjToKArg10
+    jsr kDiv16
+    lda kArg+4
+    sta muObjVal
+    lda kArg+5
+    sta muObjValHi
+    rts
+
+// --- shared helpers ---
+// muLenWordOfs -- Y := 2 + 2*A, A := the word there; X survives
+muLenWordOfs:
+    asl
+    clc
+    adc #2
+    tay
+    lda (kPtr),y
+    rts
+
+// muReadSekPair -- read the pair at MU_SEK into MU_SEKDUR/MU_SEKOPT before it moves
+muReadSekPair:
+    jsr muSeekKPtr
+    ldy #0
+    lda (kPtr),y
+    sta muSekDur
+    iny
+    lda (kPtr),y
+    sta muSekOpt
+    rts
+
+// muObjToKArg10 -- kArg := MU_OBJVAL as a 16-bit value, kArg+2/3 := 10
+muObjToKArg10:
     lda muObjVal
     sta kArg
     lda muObjValHi
@@ -6663,11 +6667,6 @@ muValDiv10:
     sta kArg+2
     lda #0
     sta kArg+3
-    jsr kDiv16
-    lda kArg+4
-    sta muObjVal
-    lda kArg+5
-    sta muObjValHi
     rts
 
 // --- mqTake -- encode the pair and write it ---
@@ -7778,11 +7777,7 @@ muInsGap:
     bcs muInRts
     jsr muImgSeat               // page 0: the length words live there
     lda muInsV                  // the voice's word, at image offset 2 + 2 * voice
-    asl
-    clc
-    adc #2
-    tay
-    lda (kPtr),y
+    jsr muLenWordOfs
     clc
     adc muInsN
     sta (kPtr),y
@@ -7832,11 +7827,7 @@ muDgGo:
     bcs muDgRts
     jsr muImgSeat
     lda muInsV
-    asl
-    clc
-    adc #2
-    tay
-    lda (kPtr),y
+    jsr muLenWordOfs
     sec
     sbc muInsN
     sta (kPtr),y
