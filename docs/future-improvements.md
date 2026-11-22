@@ -2,7 +2,9 @@
 
 > Work that is **not built yet.** Anything already implemented is documented
 > where it lives: [`kernel.md`](kernel.md) for the kernel API,
-> [`programmers-guide.md`](programmers-guide.md) for task authoring, and
+> [`programmers-guide.md`](programmers-guide.md) for task authoring,
+> [`writing-relocatable-tasks.md`](writing-relocatable-tasks.md) §15 for the
+> per-task REU workspace, and
 > [`dynamic-libraries.md`](dynamic-libraries.md) for libraries.
 >
 > What the system cannot do today — including the limits that are staying, not
@@ -11,17 +13,55 @@
 > Section numbers are document order, not priority — see
 > [Recommended order](#recommended-order).
 
+## The room a change has
+
+Every item below is bounded by the same numbers, and they are what separates
+"possible" from "a project".
+
+| Budget | Today | What it means |
+|---|---|---|
+| Kernel free runs | **443 B across 28 pockets** ([kernel-fragmentation.md](kernel-fragmentation.md)) | only one of them can hold code |
+| `$0E0C-$0EE2` | **215 B, contiguous** | the room `irq.inc`, `scheduler.inc` and a new syscall handler grow into — it sits immediately after the syscall dispatcher |
+| Core headroom | **10 B** at `$13CA` | treat as zero: a core change larger than it needs a relocation |
+| Syscall table | 14 slots, **8 and 9 inert** | a new call costs 2 B of table plus ~80 B of handler (`sysExit` is the scale) |
+| `LIB_CALLS` | **42, full** | a new library call must be a *dispatching* entry (`kMouseCall`, `kFpCall`); otherwise the four scan tables grow and every pinned address behind them moves |
+| Pool | 109 pages, `basic` on **margin 1** | a few KB of task or library *data* is affordable; a KB-scale ring is not |
+| REU | banks 248-255 all allocated | the per-slot **4 KB workspace** is the free home for a big per-task buffer, so "where does it live" is no longer a design question |
+
+**Cost at a glance.** "Fits" means the code lands in the 215 B run or a named
+pocket without moving a pinned address.
+
+| Item | Needs | Fits today? | Buys |
+|---|---|---|---|
+| **§9 `edit` undo/redo** | ~250 B of `edit` code and ~16 B to seat its workspace address; **0 kernel bytes** | yes — `edit` has margin 31 pool pages | the last editor without history gets it |
+| **§1 IPC wakeup** | (a) a semaphore handshake: syscalls 10/11 exist and release on death — **~40 B of library code, 0 kernel**; (b) or a real `SYS_RECV` plus a wait list — 4 B of table and ~130 B of handler | yes, both | a consumer that blocks instead of polling (up to a jiffy of latency today) |
+| **§6 crash protection** | a 6510 takes `BRK` through the **IRQ vector with B set**, and `irqHandler` already sees every one: test the bit, reuse the exit path — **~40 B** | yes, in the 215 B run | a stray `BRK` kills one task, not the machine (a bad `JMP` still takes the system down — there is no MMU) |
+| **§8 char cache** | the cache itself goes in the workspace for free; the cost is the *integration* — `printChar` lives in the `$E11A` band pinned by 17 ABI asserts, so the change is size-neutral or an assert-and-alias sweep | bytes yes | bulk output and scrollback stop paying a pixel blit per glyph |
+| **§2 signals** | a pending byte per task, a syscall on slot 8 or 9, and a test in the yield/sleep path | yes | only pays off once something can block for a long time (§4) |
+| **§4 blocking I/O** | a `BLOCKED` state in `switchTask`/`taskState` plus a device table | the state machine does; the drivers do not | the enabler for §3 |
+| **§3 streams** | a per-task stream table, `read`/`write` syscalls, a device vtable | no — a project | pipelines, stdin/stdout |
+| **§10 FS directories** | a path parser behind filesys.lib (dispatching — `LIB_CALLS` is full) and a change to **every** consumer, host tool included | bytes yes, blast radius large | subdirectories in a flat 512-entry design |
+| **§5 IEC disk**, **§7 sector cache** | cycle-exact bit-banging, in a library | yes, but untestable here | only matters on real hardware with a 1541 |
+| **§11 C compiler** | a cc65 retarget: KERNAL-free runtime, relinkable image, libc subset | no | a project |
+
+---
+
 ## Roadmap
 
 ### 1. SEND/RECEIVE IPC — the missing half
 
 **Effort:** Medium-Hard
 
-[`ipc.lib`](lib-ipc.md) is the primitive today: four fixed 128-byte rings in the
-library's own data (`kIpcPost`/`kIpcPick`, calls 35/36, `X` = channel),
-single-producer / single-consumer, shared by every declaring task with no kernel
-buffer, no new syscall and no caller zero page. `kIpcPost` blocks while a ring is
-full; `kIpcPick` never blocks. What is missing, in order of usefulness:
+[`ipc.lib`](lib-ipc.md) is the primitive today, in two halves behind the same two
+calls (35/36). **Byte channels** (`X` = `0`-`3`): four fixed 128-byte rings in the
+library's own data, single-producer / single-consumer, shared by every declaring
+task with no kernel buffer, no new syscall and no caller zero page; `kIpcPost`
+blocks while a ring is full, `kIpcPick` never blocks. **Block channels**
+(`X` = `$80`-`$83`): whole 256-byte frames of REU bank 250, one DMA per message
+with a length per frame, so a payload that used to need a temporary file now
+moves in one call.
+
+What is missing, in order of usefulness:
 
 1. **A library-side semaphore.** The kernel's counting semaphores (syscalls 10/11,
    indices 1-3, owner-tracked, released on task death) cover a mutex between two
@@ -35,12 +75,31 @@ full; `kIpcPick` never blocks. What is missing, in order of usefulness:
    `LIB_CALLS` **growth reservoir is spent**, so a library semaphore needs its own
    call index (a dispatching entry, or a relocation of the two `LIB_CALLS`
    tables).
-2. **Channel allocation.** The four channels are fixed and anonymous, so a pair
-   cannot claim one for itself and the kernel cannot tell when an owner dies.
-   Numbering is not the gap — allocation and ownership are.
-3. **Message boundaries, and a wakeup.** A ring carries bytes with no framing,
-   and `kIpcPick` never blocks on purpose (a dead producer must not strand a
-   consumer), so a consumer polls — up to a jiffy of latency per byte.
+2. **Channel allocation.** The four channels of each kind are fixed and anonymous,
+   so a pair cannot claim one for itself and the kernel cannot tell when an owner
+   dies. Numbering is not the gap — allocation and ownership are.
+3. **A wakeup.** A block frame carries its length, but `kIpcPick` still never
+   blocks on purpose (a dead producer must not strand a consumer), so a consumer
+   polls — up to a jiffy of latency per message.
+
+**Two costed routes to the wakeup**, both short of the design below:
+
+- **Semaphore handshake (library only, ~40 B, no kernel change).** A pair agrees
+  on a block channel and one of semaphores 1-3: the consumer `semWait`s, the
+  producer `semSignal`s after posting. The kernel already owns the hard half —
+  blocking without spinning, and releasing the semaphore when the owner dies
+  (`seClean`). What is missing is the convention and a documented rule for who
+  signals on the empty path.
+- **A real `SYS_RECV` (kernel, ~130 B).** Slots 8 and 9 are inert: 4 B of table
+  plus a handler that parks the task and a wake list the producer walks. That
+  removes polling entirely, and is the primitive §3 would build on.
+
+**Before either route, at no cost.** The block channels have no consumer outside
+`ipctest`. Two are worth wiring up, and they also settle whether the frame API is
+the right shape before §3 leans on it: `grview` taking a picture straight from the
+task that generated it instead of handing it over as a `.pic` file, and
+`musedit`'s player thread taking its tune over a channel instead of paging the
+`.wrk` file. Both are task-side changes — no kernel bytes, no library change.
 
 **Unbuilt design — a blocking, zero-copy handoff.** Each task gets a message
 queue; `send(target, msg_ptr)` blocks until the receiver calls
@@ -75,6 +134,13 @@ A task registers a signal handler address and mask. Another task (or an IRQ hand
 
 **Why it matters:** `kReadString` and `semWait` block forever — no timeout and no cancellation. SIG_INT makes them interruptible; SIG_CHLD lets a parent learn a child exited without polling `ps`.
 
+**Room today:** the pending bitmap is one byte per task (24 B, and a free run can
+hold it), and the send is a syscall on slot 8 or 9 (2 B of table, ~60 B of
+handler). The cost that decides this item is the *test*: it lands in
+`switchTask`'s resume path, which is core part 1 and has the 215 B run to grow
+into. Worth doing once something can block for a long time (§4) — before that it
+interrupts calls that return in a tick anyway.
+
 ---
 
 ### 3. Stream Abstraction
@@ -104,6 +170,14 @@ Allow tasks to block waiting for I/O (keyboard, serial, disk) instead of polling
 - Abstraction: `read`, `write` syscalls
 - All blocking calls should be interruptible via SIG_INT (see §2)
 
+**Room today:** the state byte fits — `taskState` gains a value, `switchTask` and
+`findNextAlive` gain a test, and both live in core part 1 (the 215 B run). That is
+the whole of what fits. The rest of this item is *drivers*, and a driver is a
+library: a keyboard one needs nothing new (the IRQ ring already exists), a disk
+one needs §5, and both need a per-task stream table that does not fit anywhere
+today. This is the next multi-step project rather than an item — and §3 sits
+behind it.
+
 ---
 
 ### 5. File System (IEC / Disk)
@@ -119,6 +193,16 @@ Read/write files on 1541/1581 disk drives via the IEC serial bus. Would need a f
 **Effort:** Hard
 
 If a task crashes (BRK instruction, invalid memory access), the kernel catches it instead of the whole system dying. IRQ handler checks B flag in saved SR; if set, task caused BRK → kill it.
+
+**Room today, and what it actually buys.** The hook already exists: a 6510 takes
+`BRK` through the **IRQ vector** with the B flag set in the pushed status, and
+`irqHandler` sees every one, so the change is a test at its entry plus a route
+into `sysExit`'s existing teardown — around **40 B**, which fits the 215 B run
+with room to spare. The half it cannot buy is the other half of the sentence
+above: an invalid *jump* or a wild store is not detectable without an MMU, so
+"crash protection" here means a stray `BRK` kills one task instead of the whole
+machine — which is still the class of failure that actually happens while poking
+at the machine from the shell.
 
 ---
 
@@ -161,6 +245,15 @@ every glyph is a pixel blit, so 100 lines of `dir` cost ~1.5-2 s.
 - Displayed: unchanged fast path
 - Cost: 1KB + 4B per screen-owning task — additive, no change to the displayed path
 
+**Room today.** The 1KB cache per surface is now free: it fits in the slot's own
+**4 KB REU workspace**, so the pool pays nothing and the "per task" cost is a
+region every task already has. The expensive part moved: `printChar` lives in the
+`$E11A` band, which 17 asserts in `main.asm` pin (external consumers poke
+`keybRepeatLda` and gfx.lib resolves scratch addresses inside it), so any size
+change there is an ABI change — give the bytes back as an inert `.fill` sled, or
+update every assert and every alias in the same commit. Worth doing for the felt
+speedup (`dir` output and scrollback), but budget the integration, not the bytes.
+
 ---
 
 ### 9. Editor Undo / Redo
@@ -191,6 +284,15 @@ and with ample REU the storage cost is irrelevant, so it is also the smaller des
   reserved-bank asserts and `memory-map.md`; REU images must be re-seeded.
   Cheaper fallback: a reuse-if-present scratch file per instance (the `basicwrk`
   pattern).
+  **Answered instead by the per-task workspace: `edit`'s slot already owns 4 KB
+  of REU at `REU_WS_BASE`, zeroed at spawn, at no cost to the FS or the pool**
+  (`musedit`'s undo stack lives there). No arena to reserve, no re-seed, no
+  directory footprint. What the workspace does *not* give is depth: 4 KB is about
+  **three full-document snapshots** of a 192-line document, against ~170 records
+  of an inverse log. So the storage question is settled and a *new* trade-off
+  opens — snapshot depth versus record count — with the workspace as the budget
+  either way. A hybrid is defensible: snapshots for the structural edits (insert,
+  delete, paste, clear) and a byte-diff log for typing.
 - **Slot.** 32-byte header (version, `chunkCount`, `ED_LINES`, `ED_SIZE`, `ED_WIN`,
   `ED_CURL`, `ED_CURC`, `ED_PREFC`, `ED_MOD`, 8 chunk pointers, slot length) plus
   `chunkCount × 1024` bytes of chunk payload. 1 KB per undo level for a one-chunk
@@ -221,6 +323,12 @@ clean position that clears it.
 
 **No new kernel calls** — `kReuToC64`/`kReuFromC64` (or `kReuWriteAt`/`kReuReadAt`
 if the arena is exposed as a file) are enough.
+
+**Room today: none of it is kernel code.** Every routine above is `edit`'s own
+(~250 B against margin 31 pool pages), the workspace seat is `SYS_GETTID` plus the
+same four shifts `grpaint` and `musedit` use, and the bindings are two free
+screencodes. This is the cheapest item on the page, and the only design decision
+left is the snapshot-versus-log split above.
 
 **Done when:** undo/redo work for every mutation, including the lossy cascade paths
 and across chunk grow/shrink boundaries, with no pool or arena leaks.
@@ -273,6 +381,16 @@ directory). A name then identifies a path rather than a leaf, so every existing 
 
 **Sequencing:** do (1) first — it is useful on its own and it is the traversal primitive
 (2) needs.
+
+**Room today.** Three new calls cannot go in the `$E000` table (no slot left), and
+`LIB_CALLS` is full, so they are dispatching entries or a relocation — the same
+constraint §1's library semaphore runs into, which is why both would be cheaper
+after one deliberate relocation of the four scan tables than before it. The path
+walker itself (~120 B) fits the 215 B run. The real cost is the blast radius: a
+name becomes a path, and every caller changes — `run`, `save`, `load`, `del`,
+`dir`, `rename`, `copy`, BASIC's `DIR`, both loaders, and the host tools
+(`reufs.py`/`reufs-gui.py` decode the same table). Worth it only alongside a
+reason to nest.
 
 ### 11. A C compiler
 
@@ -338,16 +456,27 @@ a task, prints through the kernel, and carries a derived fixup table.
 
 ## Recommended order
 
-| Priority | Idea | Effort | Why |
+Ranked by what it costs today against what it buys — not by ambition. The first
+three are all inside the 215 B run or task code alone.
+
+| Priority | Idea | Cost today | Why |
 |---|---|---|---|
-| **1** | Signals (§2) | Medium | Makes blocking calls interruptible — `kReadString`/`semWait` have no timeout and no cancellation |
-| **2** | SEND/RECEIVE IPC (§1) | Medium-Hard | The byte channels exist; this adds framing, a wakeup and a blocking handoff |
-| **3** | Stream abstraction (§3) | Medium | Pipelines, stdin/stdout |
-| **4** | Blocking I/O (§4) | Hard | A BLOCKED state and IRQ-driven wake |
-| **5** | Crash protection (§6) | Hard | BRK handler, graceful task death |
-| **6** | File system (§5) | Very Hard | IEC disk I/O |
-| **7** | RAM disk (§7) | High | REU sector cache, depends on §5 |
-| **8** | Char cache (§8) | Medium | Background scrollback and bulk-output latency |
-| **9** | Editor undo / redo (§9) | Medium-Hard | The editor has no history — every mutation is final; design is settled, code is not written |
-| **10** | REU FS directories (§10) | Medium / Hard | A flat 512-entry namespace: every consumer scans the table itself, and there are no subdirectories |
-| **11** | A C compiler (§11) | Hard | The compilers exist (cc65 has the permissive licence); the work is the retarget — a KERNAL-free runtime, a relinkable image, and `float` landed on `fp.lib` |
+| **1** | Editor undo / redo (§9) | **0 kernel bytes**, ~250 B of `edit` code, margin 31 pages | The last editor without history gets it, and the storage question is already answered by the slot's 4 KB workspace |
+| **2** | IPC wakeup (§1) | ~40 B of library code (semaphore handshake) or ~130 B kernel (`SYS_RECV` on slot 8/9) | Removes up to a jiffy of poll latency per message, and is the primitive §3 builds on |
+| **3** | Crash protection, the reachable half (§6) | ~40 B in the 215 B run | A stray `BRK` kills one task instead of the machine. A bad `JMP` still takes the system down — no MMU |
+| **4** | Char cache (§8) | cache is free in the workspace; the integration is an ABI-change budget | Bulk output and scrollback stop paying a pixel blit per glyph |
+| **5** | Signals (§2) | 24 B of state + ~60 B handler, plus a test in `switchTask` | Only pays off once something can block for a long time (§4) |
+| **6** | Blocking I/O (§4) | the state machine fits the 215 B run; the drivers do not | The enabler for §3, and the next multi-step project |
+| **7** | Stream abstraction (§3) | needs §4 plus a per-task stream table | Pipelines, stdin/stdout |
+| **8** | REU FS directories (§10) | path walker fits; three new calls need a relocation, and every consumer plus both host tools change | Subdirectories, in a namespace that is flat by design |
+| **9** | RAM disk (§7) | needs §5 | A sector cache for a filesystem that does not exist yet |
+| **10** | File system, IEC/Disk (§5) | a library, no kernel space | Only matters on real hardware with a 1541 — the REU filesystem is what ships |
+| **11** | A C compiler (§11) | a toolchain retarget | cc65 is the candidate; `float` lands on `fp.lib`; the work is the runtime, the relinkable image and the libc subset |
+
+Two sequencing facts worth keeping in mind. **A single relocation of the four
+`LIB_CALLS` scan tables buys several later items at once** — the library semaphore
+(§1), the FS traversal calls (§10) — and costs one commit that moves the pinned
+addresses behind them together with every alias. And **anything that grows the
+core band in two places** (`irq.inc` for §6 and §2, `switchTask` for §4) is
+competing for the same 215 B run, so those changes are best done one at a time,
+each verified with `tools/verify-map.ps1` before the next.
