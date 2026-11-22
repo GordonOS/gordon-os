@@ -34,6 +34,7 @@
     { "name": "copy",     "source": "src/tasks/cmd/copy.asm",         "origin": "$5000", "fsName": "copy.com",     "kind": "com", "note": "runtime kMalloc buffer, freed on exit" },
     { "name": "del",      "source": "src/tasks/cmd/del.asm",          "origin": "$5000", "fsName": "del.com",      "kind": "com" },
     { "name": "compact",  "source": "src/tasks/cmd/compact.asm",      "origin": "$5000", "fsName": "compact.com",  "kind": "com" },
+    { "name": "ws",       "source": "src/tasks/cmd/ws.asm",           "origin": "$5000", "fsName": "ws.com",       "kind": "com", "note": "checks the per-task REU workspace (REU_WS_BASE): zeros at spawn, a write/read round trip, and the window's last byte" },
     { "name": "banner",   "source": "src/tasks/cmd/banner.asm",       "origin": "$5000", "fsName": "banner.com",   "kind": "com", "note": "2-page runtime kMalloc row buffer, freed on exit" },
     { "name": "edit",     "source": "src/tasks/dynamic/edit.asm",     "origin": "$5000", "fsName": "edit.tsk",     "kind": "tsk", "note": "KF_NOT_EVICTABLE + KF_RE_RUNNABLE + KF_TAKES_ARGS ($69); document chunks and the clipboard are runtime kMalloc blocks" },
     { "name": "sidplay",  "source": "src/tasks/dynamic/sidplay.asm",  "origin": "$5000", "fsName": "sidplay.tsk",  "kind": "tsk", "note": "thin wrapper over sid.lib: finds/loads the .mus via filesys.lib + kMalloc, calls kSidPlay(kPtr=tune, kArg=delay, kArg+1=repeats), frees, exits; on failure reports on a temporary screen and waits for a key. libMask $0022 (filesys bit 1 + sid bit 5), ZP $02 len 9" },

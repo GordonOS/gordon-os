@@ -93,25 +93,25 @@ rfibInit:
     lda #REU_FS_SIGNATURE; sta reuFsEnabled
 
     // --- Compute capacity (24-bit, no clamp) ---
-    // Bank 5 contributes REU_FS_BANK5_CAP ($3000); each bank 6..250 adds
-    // $10000. Capacity = $3000 + (totalBanks - 11) * $10000:
-    //   byte0 = $00, byte1 = $30, byte2 = max(0, totalBanks - 11)
-    // The TOP full bank (251) is reserved -- $FB0000-$FBFFFF is grpaint's
-    // undo ring -- so the data region ends at $FAFFFF and capacity is one
-    // bank short of the REU's own top. tools/build-reu.ps1's $cap computes
-    // the same figure for the host image, because the two MUST agree.
+    // Bank 5 contributes REU_FS_BANK5_CAP ($3000); each bank 6..247 adds
+    // $10000. Capacity = $3000 + (totalBanks - 14) * $10000:
+    //   byte0 = $00, byte1 = $30, byte2 = max(0, totalBanks - 14)
+    // The data region ends at $F7FFFF: banks 248-249 are the per-task REU
+    // workspace (REU_WS_BASE), bank 250 is the IPC buffer, and bank 251 is
+    // grpaint's undo ring ($FB0000-$FBFFFF). tools/build-reu.ps1's $cap
+    // computes the same figure for the host image, because the two MUST agree.
     // See docs/memory-map.md.
     lda #<REU_FS_BANK5_CAP; sta reuFsCapacityLo
     lda #>REU_FS_BANK5_CAP; sta reuFsCapacityHi
     lda reuTotalBanks+1
-    bne rifCapFull              // >255 banks -> byte2 = 245 (banks 6..250)
+    bne rifCapFull              // >255 banks -> byte2 = 242 (banks 6..247)
     lda reuTotalBanks
-    sec; sbc #11                // extra full banks = total - 11
-    bcc rifCapDef               // <11 -> byte2 = 0
+    sec; sbc #14                // extra full banks = total - 14
+    bcc rifCapDef               // <14 -> byte2 = 0
     sta reuFsCapacity2
     jmp rifCapDone
 rifCapFull:
-    lda #245
+    lda #242
     sta reuFsCapacity2
     jmp rifCapDone
 rifCapDef:
@@ -347,3 +347,50 @@ reuLoadAtomic:
     lsr                         // C = A bit0 = result carry
     rts
 .label reuFsCodeEnd = *
+
+// ==========================================
+//  clearSlotWorkspace -- zero the REU workspace a recycled slot would hand down
+// ==========================================
+//  The workspace is per SLOT (REU_WS_BASE + slot x REU_WS_SIZE) and only ever
+//  written by the task that owns it, so it OUTLIVES that task. Without this,
+//  a task spawned into a used slot starts with the previous occupant's bytes --
+//  the same per-slot-stale shape the ZP shadow and the kArg shadow have, and the
+//  same answer: zeros are the only value that is not another task's data.
+//
+//  This is the one per-slot REU block that is not tiny -- 4KB per spawn -- so it
+//  is the most expensive clear on the path. It is still one DMA fill: kReuFillReu
+//  reads a fixed C64 address and writes the REU, so there is no loop here.
+//
+//  Sits in this file's own tail run because the FS code ends here and spawnCore
+//  begins at $1796; anything longer needs a different run.
+//
+//  Called from scSetAlive (syscall.inc) with X = the new task's slot, after the
+//  sprite state's clear. Runs SEI'd, as the whole spawn path does.
+//  Clobbers: A, kArg..kArg+5 (kReuFillReu stages its fill byte at kArg+5).
+//  X is preserved, so the caller's slot is still live.
+clearSlotWorkspace:
+    lda #0
+    sta kArg                    // REU addr lo: REU_WS_BASE is page-aligned
+    sta kArg+3                  // length lo: REU_WS_SIZE's low byte is 0
+    txa
+    asl
+    asl
+    asl
+    asl                         // slot x 16 IS the hi byte of slot x REU_WS_SIZE
+    sta kArg+1
+    lda #>REU_WS_BASE
+    adc #0                      // the shift's carry: slots past 15 are in the next bank
+    sta kArg+2
+    lda #>REU_WS_SIZE
+    sta kArg+4                  // length hi
+    lda #0                      // the fill byte, as well as having set the lo lengths
+    jsr kReuFillReu
+    rts
+.label clearSlotWorkspaceEnd = *
+
+.assert "REU_WS_SIZE is 4KB, which the slot shift in clearSlotWorkspace assumes",
+        (REU_WS_SIZE == $1000) ? 1 : 0, 1
+.assert "the workspace fits the banks the FS gives up for it",
+        (MAX_TASKS * REU_WS_SIZE) <= $20000 ? 1 : 0, 1
+.assert "clearSlotWorkspace fits the run before spawnCore",
+        (clearSlotWorkspaceEnd <= $1796) ? 1 : 0, 1

@@ -31,6 +31,7 @@
 12. [Troubleshooting](#12-troubleshooting)
 13. [Checklists](#13-checklists)
 14. [Reference tables](#14-reference-tables)
+15. [The per-task REU workspace](#15-the-per-task-reu-workspace)
 
 ---
 
@@ -1202,3 +1203,52 @@ approaches.
 | Kernel API | [kernel.md](kernel.md) |
 | Syscalls | [syscall.md](syscall.md) |
 | Libraries | [dynamic-libraries.md](dynamic-libraries.md) |
+
+---
+
+## 15. The per-task REU workspace
+
+Every task slot owns **4KB of REU scratch** that the kernel never allocates into:
+slot *n* is at `REU_WS_BASE + n × REU_WS_SIZE`, where both constants come from
+`src/kernel/kernel-shared.inc` (so `kernel-data.inc` gives them to the task build
+for free).
+
+**There is no kernel call to ask for it.** A task learns its own slot from
+`SYS_GETTID` and does the arithmetic — the same shape the kernel's own
+`clearSlotWorkspace` uses:
+
+```asm
+    lda #SYS_GETTID
+    jsr syscall                 // A = this task's slot
+    ldy #WS_SLOT
+    sta (dataPtr),y             // park it in your instance buffer
+
+    lda #0
+    sta kArg                    // REU addr lo -- REU_WS_BASE is page-aligned
+    lda (dataPtr),y             // ...y is still WS_SLOT
+    asl
+    asl
+    asl
+    asl                         // slot x 16 IS the high byte of slot x $1000
+    sta kArg+1
+    lda #>REU_WS_BASE
+    adc #0                      // the shift's carry: slots 16-23 are in bank 249
+    sta kArg+2
+```
+
+`kArg..kArg+2` is then a ready 24-bit REU address for `kReuToC64` /
+`kReuFromC64` — set `kArg+3/+4` to the length and `kPtr` to the C64 end. The
+`adc #0` is not decoration: with 24 slots × 4KB the region is 96KB, so slots
+16-23 genuinely cross into the next bank, and an `lda #>REU_WS_BASE` without it
+would point them 64KB low.
+
+**The workspace is zeroed when your task is spawned**, by `clearSlotWorkspace`
+in the kernel's spawn path. That costs 4KB of DMA fill (about 4 ms) per spawn, so
+it is the one clear on that path you can feel — but it is what makes the region
+*defined*: slots are recycled, and without it a task would start with whatever
+the previous occupant of its slot left behind. The boot task (slot 0) does not go
+through the spawn path, so its workspace is whatever the REU image holds.
+
+`ws` (`src/tasks/cmd/ws.inc`) is the worked example: run it twice and it must
+report `FRESH OK` both times, which is the difference between a real per-spawn
+clear and a boot-time coincidence.

@@ -9,7 +9,7 @@
 # meant to move them (then update docs/memory-map.md in the same commit).
 
 param(
-    [Parameter(Mandatory = $false)][string]$ExpectTotal = '480',
+    [Parameter(Mandatory = $false)][string]$ExpectTotal = '443',
     [Parameter(Mandatory = $false)][string]$ExpectPockets = '28'
 )
 
@@ -169,8 +169,8 @@ Check 'mouse name 0FC0  :' (Occupied 0x0FC0 0x0FC9) 'libNameMouse is 10B in the 
 #  $1C6E, which main.asm asserts as `libStubsEnd <= $1C6E`.
 $hit = @($runs | Where-Object { $_.Range -eq '1C6A-1C6D' })
 Check 'stub tail 1C6A   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 4) ('{0} bytes free between libStubsEnd ($1C6A) and sysExit ($1C6E)' -f ($hit | ForEach-Object { $_.Size }))
-$hit = @($runs | Where-Object { $_.Range -eq '13C7-13D3' })
-Check 'core headroom     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 13) ('{0} bytes free after kernelCoreEnd ($13C7), before reuDirBuf' -f ($hit | ForEach-Object { $_.Size }))
+$hit = @($runs | Where-Object { $_.Range -eq '13CA-13D3' })
+Check 'core headroom     :' ($hit.Count -eq 1 -and $hit[0].Size -eq 10) ('{0} bytes free after kernelCoreEnd ($13CA), before reuDirBuf' -f ($hit | ForEach-Object { $_.Size }))
 #  The below-pool band's spare run: scrollScreenSlot and the scroll-direction
 #  helpers end at $5675 and sprite.inc places rasterCommit at $567D, so this gap
 #  belongs to neither of them.
@@ -178,8 +178,8 @@ $hit = @($runs | Where-Object { $_.Range -eq '5676-567C' })
 Check 'below-pool 5676   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 7) ('{0} bytes between the scroll code ($5675) and rasterCommit ($567D)' -f ($hit | ForEach-Object { $_.Size }))
 #  reu-fs.inc's tail: the FS code ends at $176E and syscall.inc places
 #  spawnCore's relocated front half at $1796, so this run is free.
-$hit = @($runs | Where-Object { $_.Range -eq '176F-1795' })
-Check 'reu-fs tail 176F  :' ($hit.Count -eq 1 -and $hit[0].Size -eq 39) ('{0} bytes between the FS code ($176E) and spawnCore ($1796)' -f ($hit | ForEach-Object { $_.Size }))
+$hit = @($runs | Where-Object { $_.Range -eq '1791-1795' })
+Check 'reu-fs tail 1791  :' ($hit.Count -eq 1 -and $hit[0].Size -eq 5) ('{0} bytes between clearSlotWorkspace ($1790) and spawnCore ($1796)' -f ($hit | ForEach-Object { $_.Size }))
 $hit = @($runs | Where-Object { $_.Range -eq '5337-533F' })
 Check 'loader headroom   :' ($hit.Count -eq 1 -and $hit[0].Size -eq 9) ('{0} bytes free after sprInstall ($52DC-$5336), before the font helpers' -f ($hit | ForEach-Object { $_.Size }))
 Check 'sprite helpers CD9F:' (Occupied 0xcd9f 0xcdce) 'sprBlkAddr + sprRestoreFrames are 48B in the $CD9F pocket'

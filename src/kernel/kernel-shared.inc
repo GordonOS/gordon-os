@@ -28,6 +28,14 @@
 // REU_CHAR_SHADOW region ($A000-$BFFF, never read). ---
 .const REU_BOUNCE = $A000     // scroll/fill bounce (max 7680B: $A000-$BDFF)
 
+// --- Per-task REU workspace ---
+//  Scratch the kernel never manages: slot n owns REU_WS_BASE + n * REU_WS_SIZE,
+//  and a task derives its own base from its slot (syscall 7 returns it), so the
+//  region costs the kernel no call and no table entry. Four banks come off the
+//  top of the FS data region to pay for it -- see reu-fs.inc's capacity comment.
+.const REU_WS_BASE = $F80000  // bank 248
+.const REU_WS_SIZE = $1000    // 4KB per slot: MAX_TASKS x this = $18000 (banks 248-249)
+
 // --- REU filesystem format signature (slot 0, byte 1) ---
 .const REU_FS_SIGNATURE = $A5
 

@@ -197,6 +197,12 @@
 .pc = $5000 + SHIFT
 .import source "src/tasks/cmd/compact.asm"
 
+// --- ws - checks the per-task REU workspace (REU_WS_BASE): zeros at spawn, a write/read round trip, and the window's last byte ---
+.segmentdef wsOut [outBin="../tasks-out/temp/ws." + variant + ".bin"]
+.segment wsOut
+.pc = $5000 + SHIFT
+.import source "src/tasks/cmd/ws.asm"
+
 // --- banner - 2-page runtime kMalloc row buffer, freed on exit ---
 .segmentdef bannerOut [outBin="../tasks-out/temp/banner." + variant + ".bin"]
 .segment bannerOut
