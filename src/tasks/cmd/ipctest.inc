@@ -21,6 +21,13 @@
 //                parent consumes and compares every byte in order
 //    4  pair B   a second thread posts 255,254,... (its counter EOR $FF) onto
 //                channel 3, consumed by the same parent INTERLEAVED with A
+//    5  block    the block guard: X = $84 (one past the last block channel) is
+//                refused, and block channel $80 is still empty afterwards
+//    6  frames   a thread producer sends the whole 64-frame ring on block channel
+//                $82 -- a different length on every frame, every payload byte the
+//                frame's own counter -- and the parent drains it in order. 64
+//                frames into a 63-frame ring, so the last send has to block inside
+//                ipcBlkSend's backpressure wait until the parent catches up.
 //
 //  The interleave is the point of the test. Both producers are faster than the
 //  one consumer, so both rings fill and both producers block inside kIpcPost's
@@ -46,6 +53,14 @@
 .const ITC_CH_B   = 3           // pair B's channel
 .const ITC_CH_END = 4           // one past the last channel (IPC_CHANNELS in ipc.asm)
 .const ITC_TIME_HI = $10        // give up after 4096 empty passes (~=68 s at a tick each)
+
+//  The block half: X = IPC_BLK_CODE + c. Channel 2 is deliberately NOT one of the
+//  two byte channels, so a mixed-up index shows up as a mismatch rather than
+//  passing by coincidence.
+.const ITC_BLK_CODE   = $80
+.const ITC_BLK_CH     = ITC_BLK_CODE + 2
+.const ITC_BLK_GUARD  = ITC_BLK_CODE + 4   // one past the last block channel
+.const ITC_BLK_FRAMES = 64                 // IPC_BLK_FRAMES: the whole ring, so the last send blocks
 
 // --- inline string print: kPtr = string, then kPrintString ---
 .macro itcSay(str) {
@@ -188,7 +203,7 @@ itcPollDone:
     itcSay(itcSOk)
     itcSay(itcSCh3)
     itcSay(itcSOk)
-    jmp itcVerdict
+    jmp itcBlkGo
 
 itcBadA:
     lda #1
@@ -223,6 +238,108 @@ itcTimeout:
     sta itcBad
     itcSay(itcSTime)
     jmp itcVerdict
+
+    // ================= 5: the block guard =================
+itcBlkGo:
+    jsr kNewline
+    itcSay(itcSBlkGuard)
+    ldx #ITC_BLK_GUARD          // one past the last block channel
+    lda #1
+    jsr kIpcPost                // must be refused: C=1, and no frame written
+    bcc itcBlkGuardBad
+    ldx #ITC_BLK_CH             // a valid block channel, but...
+    lda #0                      // ...a length of 0 would move 65536 bytes
+    jsr kIpcPost
+    bcc itcBlkGuardBad          // C=0 here means it was accepted
+    ldx #ITC_BLK_CODE           // ...and block channel 0 must still be empty
+    jsr kIpcPick
+    bcs itcBlkGuardOk
+itcBlkGuardBad:
+    lda #1
+    sta itcBad
+    itcSay(itcSBad)
+    jmp itcVerdict
+itcBlkGuardOk:
+    itcSay(itcSOk)
+
+    // ================= 6: a whole ring of frames =================
+    itcSay(itcSBlkCh)
+    //  The payload is seeded from the displayed-frame counter, so a second run
+    //  cannot pass on the frames the previous run left in bank 250: a frame the
+    //  library failed to write still holds the OLD seed.
+    lda frameCount
+    sta itcBlkSeed
+    lda #<itcBlkProd
+    sta spawnPtr
+    lda #>itcBlkProd
+    sta spawnPtr+1
+    lda #0
+    sta kArg+6                  // zpBase = 0
+    sta kArg+7                  // zpLen  = 0 -> no ZP save for the child
+    lda #SYS_THREADSPAWN
+    jsr syscall
+    bcs itcBlkSpawnBad
+    lda #0
+    sta itcBlkN                 // the frame the parent expects next
+    sta itcPolls
+    sta itcPolls+1
+itcBlkPoll:
+    ldx #ITC_BLK_CH
+    lda #<itcBlkDst             // the frame lands here, never in the child's source
+    sta kPtr
+    lda #>itcBlkDst
+    sta kPtr+1
+    jsr kIpcPick
+    bcs itcBlkSleep             // C=1: nothing buffered this pass
+    sta itcBlkTmp               // A = the length the producer recorded
+    lda itcBlkN                 // every frame carries its counter...
+    clc
+    adc #1
+    cmp itcBlkTmp               // ...and a length of 1 + counter
+    bne itcBlkBad
+    lda itcBlkN
+    eor itcBlkSeed              // ...XORed with this run's seed
+    sta itcBlkExp
+    ldx #0
+itcBlkChk:
+    cpx itcBlkTmp
+    bcs itcBlkFrameOk
+    lda itcBlkDst,x             // every payload byte must be that value too
+    cmp itcBlkExp
+    bne itcBlkBad
+    inx
+    bne itcBlkChk
+itcBlkFrameOk:
+    inc itcBlkN
+    lda itcBlkN
+    cmp #ITC_BLK_FRAMES
+    bcc itcBlkPoll
+    itcSay(itcSOk)              // the whole ring, in order, and it wrapped
+    jmp itcVerdict
+itcBlkBad:
+    lda #1
+    sta itcBad
+    itcSay(itcSBad)
+    jmp itcVerdict
+itcBlkSpawnBad:
+    lda #1
+    sta itcBad
+    itcSay(itcSSpawn)
+    jmp itcVerdict
+itcBlkSleep:
+    inc itcPolls
+    bne itcBlkSleepGo
+    inc itcPolls+1
+    lda itcPolls+1
+    cmp #ITC_TIME_HI
+    bcc itcBlkSleepGo
+    jmp itcTimeout              // out of branch range: invert and jump
+itcBlkSleepGo:
+    lda #1
+    sta kArg+1
+    lda #SYS_SLEEP
+    jsr syscall
+    jmp itcBlkPoll
 
     // ================= verdict, reap, exit =================
 itcVerdict:
@@ -309,6 +426,38 @@ itcProdBLp:
     lda #SYS_EXIT
     jsr syscall
 
+// --- block producer: sends the whole ring on block channel 2 ---
+//  Frame k carries a length of k+1 and every byte of it is k, so a mixed-up frame
+//  index, a stale length or a wrong channel all fail the parent's compare. The
+//  counter runs to 64 into a 63-frame ring, so the last send parks itself in
+//  ipcBlkSend's backpressure wait until the parent has drained a frame.
+itcBlkProd:
+    lda #0
+    sta itcBlkC
+itcBlkProdLp:
+    ldy #63                     // the longest message this test sends
+itcBlkFill:
+    lda itcBlkC
+    eor itcBlkSeed
+    sta itcBlkSrc,y
+    dey
+    bpl itcBlkFill
+    lda #<itcBlkSrc
+    sta kPtr
+    lda #>itcBlkSrc
+    sta kPtr+1
+    lda itcBlkC
+    clc
+    adc #1                      // the length: 1 + counter
+    ldx #ITC_BLK_CH
+    jsr kIpcPost
+    inc itcBlkC
+    lda itcBlkC
+    cmp #ITC_BLK_FRAMES
+    bcc itcBlkProdLp
+    lda #SYS_EXIT
+    jsr syscall
+
 // ==========================================
 //  Test scratch + strings
 // ==========================================
@@ -324,12 +473,24 @@ itcSelf:     .byte 0            // parent's own slot (itcReap)
 itcSlot:     .byte 0            // itcReap's scan cursor
 itcPA:       .byte 0            // child A's counter (child-owned)
 itcPB:       .byte 0            // child B's counter (child-owned)
+itcBlkN:     .byte 0            // parent: the frame it expects next (parent-owned)
+itcBlkTmp:   .byte 0            // parent: the length it just received
+itcBlkC:     .byte 0            // block child's counter (child-owned)
+itcBlkSeed:  .byte 0            // this run's payload seed (the parent sets it before
+                                //   the spawn, so the child reads a fixed value)
+itcBlkExp:   .byte 0            // parent: the payload byte this frame should hold
+itcBlkSrc:   .fill 64, 0        // block child: the payload it sends
+itcBlkDst:   .fill 64, 0        // parent: the payload it receives -- a separate
+                                //   buffer, or the child would overwrite the frame
+                                //   the parent is comparing
 
 itcSHead:   .text "ipc test";    .byte 0
 itcSGuard:  .text " guard ";     .byte 0
 itcSEmpty:  .text " 4 empty ";   .byte 0
 itcSCh1:    .text " ch1 ";       .byte 0
 itcSCh3:    .text " ch3 ";       .byte 0
+itcSBlkGuard: .text " blk guard "; .byte 0
+itcSBlkCh:  .text " blk ch2 ";   .byte 0
 itcSOk:     .text "ok";          .byte 0
 itcSBad:    .text "FAIL";        .byte 0
 itcSTime:   .text " TIMEOUT";    .byte 0

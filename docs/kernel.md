@@ -557,7 +557,7 @@ Read a line of keyboard input into a caller-provided buffer. Characters are echo
 >
 > It lives at `$181D-$1838`, between `spawnCore`'s relocated half and
 > `sprite.lib`'s name string at `$1839` — **not** in the kernel core's growth headroom, which is
-> reserved for core growth (`$13C7-$13D3`). Reached by one re-pointed `jmp`,
+> reserved for core growth (`$13CA-$13D3`). Reached by one re-pointed `jmp`,
 > so it is free to live anywhere and this pocket costs the core band nothing.
 > Bounded by asserts in `main.asm` and by `tools/verify-map.ps1`.
 

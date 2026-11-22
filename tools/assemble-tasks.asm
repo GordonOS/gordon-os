@@ -197,6 +197,12 @@
 .pc = $5000 + SHIFT
 .import source "src/tasks/cmd/compact.asm"
 
+// --- ws - checks the per-task REU workspace (REU_WS_BASE): zeros at spawn, a write/read round trip, and the window's last byte ---
+.segmentdef wsOut [outBin="../tasks-out/temp/ws." + variant + ".bin"]
+.segment wsOut
+.pc = $5000 + SHIFT
+.import source "src/tasks/cmd/ws.asm"
+
 // --- banner - 2-page runtime kMalloc row buffer, freed on exit ---
 .segmentdef bannerOut [outBin="../tasks-out/temp/banner." + variant + ".bin"]
 .segment bannerOut
@@ -245,7 +251,7 @@
 .pc = $5000 + SHIFT
 .import source "src/tasks/cmd/fstest.asm"
 
-// --- ipctest - declares ipc.lib; the ipc.lib runtime self-test (keep - the counterpart of fstest) - spawns two thread producers (channels 1 and 3) and consumes both interleaved, so the backpressure wait and the channel recovery after SYS_SLEEP are both exercised; expect `ipc PASS` ---
+// --- ipctest - declares ipc.lib; the ipc.lib runtime self-test (keep - the counterpart of fstest) - byte half: spawns two thread producers (channels 1 and 3) and consumes both interleaved, so the backpressure wait and the channel recovery after SYS_SLEEP are both exercised; block half: refuses X = $84, then a third thread sends the whole 64-frame ring on block channel $82 (length 1+n on frame n, payload XORed with frameCount so a repeat run cannot pass on stale frames) while the parent drains and verifies it; expect `ipc PASS` ---
 .segmentdef ipctestOut [outBin="../tasks-out/temp/ipctest." + variant + ".bin"]
 .segment ipctestOut
 .pc = $5000 + SHIFT
@@ -336,7 +342,7 @@
 .pc = $5000 + SHIFT
 .import source "src/libs/sid.asm"
 
-// --- ipclib - lib 6 (lazy), relocatable; IPC pipe (kIpcPost/kIpcPick) as a 128-byte ring in the library's own shared data, lock-free SPSC, no caller ZP ---
+// --- ipclib - lib 6 (lazy), relocatable; two halves behind the same two entries - byte channels (X = 0-3, a 128-byte ring in the library's own shared data, lock-free SPSC) and block channels (X = $80-83, whole 256-byte frames of REU bank 250, 64 frames per channel, length per frame in ipcBlkLen); no caller ZP, and no third call index because LIB_CALLS is at its ceiling ---
 .segmentdef ipclibOut [outBin="../tasks-out/temp/ipclib." + variant + ".bin"]
 .segment ipclibOut
 .pc = $5000 + SHIFT

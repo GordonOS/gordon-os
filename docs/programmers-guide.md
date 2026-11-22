@@ -2916,7 +2916,7 @@ The full walkthrough is
 **[writing-relocatable-tasks.md](writing-relocatable-tasks.md)**: §7 for the rules
 that apply to every task (entry label first, global labels, what costs a fixup,
 `.assert` guards), §8 for a `.tsk`, §9 for a `.com`, §10 for the build manifest,
-§11.1 for the F5 flows.
+§11.1 for the F5 flows, §15 for the per-task REU workspace.
 
 Two points are worth repeating here because they break the *build* rather than
 runtime behaviour:
@@ -2966,6 +2966,17 @@ the listed rows so the totals always match the listing.
 deleted on `EXIT`), not pool memory. Its code alone can fill the pool, so
 while BASIC runs other resident tasks are evicted; they are restored when
 it exits (pool eviction — see kernel.md).
+
+### Per-task REU workspace
+
+Beyond the pool, every task slot owns **4KB of private REU scratch** at
+`REU_WS_BASE + slot × REU_WS_SIZE`: zeroed when a task is spawned, never
+allocated by the kernel, and free for that task to use. There is no call to ask
+for it — a task reads its own slot with `SYS_GETTID` and does the arithmetic.
+It is where a buffer too big to hold in C64 RAM belongs (a saved screen, an undo
+stack, a working set you page through), because every access is a DMA. How to
+address it, and worked examples from `grpaint` and `musedit`, are in
+[writing-relocatable-tasks.md](writing-relocatable-tasks.md) §15.
 
 ### Load errors
 

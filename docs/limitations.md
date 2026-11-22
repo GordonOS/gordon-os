@@ -16,8 +16,8 @@
 
 | | |
 |---|---|
-| Free space in the kernel's address space | **480 bytes across 28 pockets** |
-| The kernel core's growth headroom | **13 bytes** (`$13C7-$13D3`, `kernelCoreEnd` to `reuDirBuf`) |
+| Free space in the kernel's address space | **443 bytes across 28 pockets** |
+| The kernel core's growth headroom | **10 bytes** (`$13CA-$13D3`, `kernelCoreEnd` to `reuDirBuf`) |
 | Largest free pocket that can hold kernel code | **9 bytes**. The two larger runs (31 B at `$02A1`, 18 B at `$020D`) are below `$0801` and can never be used at all (VICE autostart takes the PRG's first block as the file start), and the 15-byte run after `kernelCoreEnd` is the core's own growth headroom, reserved for core changes |
 | The `$ECDC-$FC3E` code chain's growth room | **5 bytes** |
 | The `$FF7E` block at the top of RAM | **zero slack** — any growth in the code band collides with it and fails the build |
@@ -278,7 +278,7 @@ you look at any task's surface without changing its code.
 
 - **512 entries × 32 bytes, flat.** Names are 1-11 characters, held as screen
   codes. **There are no subdirectories** — they are designed, not built
-  ([future-improvements.md](future-improvements.md) §12).
+  ([future-improvements.md](future-improvements.md) §10).
 - **A file's size is a 16-bit field**, so a single file is at most **65,535
   bytes**, and the data region's capacity is derived from how many banks the REU
   has (`$3000 + (banks − 10) × $10000`).
@@ -438,17 +438,15 @@ These are designed or planned, not present. Each is documented in
 | Missing | Consequence today |
 |---|---|
 | **Signals** (§2) | blocking calls are uncancellable; a parent polls `ps` to learn a child exited |
-| **SEND/RECEIVE IPC** (§1) | no message framing, no blocking receive, no channel ownership |
+| **SEND/RECEIVE IPC** (§1) | no message framing, no blocking receive, no channel ownership — a block frame carries a length, not a protocol |
 | **Stream abstraction** (§3) | no stdin/stdout abstraction, no shell pipelines |
 | **Blocking I/O and device drivers** (§4) | no `BLOCKED` task state; waiting is polling or sleeping |
 | **IEC / disk filesystem** (§5) | the REU filesystem is the only filesystem |
 | **Crash protection** (§6) | a `BRK` or bad jump takes the whole system down |
-| **Extended task workspace in REU** (§7) | `kReuToC64`/`kReuFromC64` work, but there is no allocator or carved-out region for a task's own REU memory |
-| **REU IPC shared buffer** (§8) | no large shared-memory channel; IPC is 128 bytes per channel |
-| **RAM disk / sector cache** (§9) | depends on the disk filesystem |
-| **Char cache for text surfaces** (§10) | bulk output and background scrollback pay full glyph cost |
-| **Editor undo/redo** (§11) | `edit` has no undo ([edit.md](edit.md) → *Limits*); `musedit` has undo and redo, but `edit` does not |
-| **REU FS directories** (§12) | one flat namespace of 512 entries |
+| **RAM disk / sector cache** (§7) | depends on the disk filesystem |
+| **Char cache for text surfaces** (§8) | bulk output and background scrollback pay full glyph cost |
+| **Editor undo/redo** (§9) | `edit` has no undo ([edit.md](edit.md) → *Limits*); `musedit` has undo and redo, but `edit` does not |
+| **REU FS directories** (§10) | one flat namespace of 512 entries |
 
 ---
 
@@ -456,7 +454,7 @@ These are designed or planned, not present. Each is documented in
 
 | Limitation | The way around it |
 |---|---|
-| Kernel address space full (480B / 28 pockets) | put new capability in a library; reuse the 102 calls that exist; a resident addition is a planned relocation |
+| Kernel address space full (443B / 28 pockets) | put new capability in a library; reuse the 102 calls that exist; a resident addition is a planned relocation |
 | Pool is 27.25 KB, page-granular | reentrant tasks share code; data goes to the REU; single-shot tasks that exit; pin only what must not move |
 | Pool needs *adjacent* pages | treat `? no space in pool` as placement — kill what you do not need, or reboot; prefer small re-runnable tasks |
 | `pool` cannot show fragmentation | read the `pg` column against a fresh boot |

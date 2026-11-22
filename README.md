@@ -46,7 +46,8 @@ the picture viewers in [pic-format.md](docs/pic-format.md), the tune editor in
 - **Preemptive multitasking** — CIA #1 timer interrupts at ~60 Hz, round-robin scheduler with per-task priority (0–5)
 - **Dynamic task loader** — `run <name>` loads task binaries from the REU filesystem at runtime (`kDynLoad`): **relocatable** tasks (multi-instance via hi-byte fixup tables), **reentrant** tasks (shared resident code, per-instance data), **re-runnable** tasks (fresh copy per `run`, no `? already running`), and **non-reentrant** tasks (single instance — re-running one gives `? already running`); plus **pool eviction** — when the 27.25KB pool (109 × 256B pages, configurable via `src/kernel/pool.inc`) is full, resident tasks are swapped out to make room and restored automatically when space frees (`run basic` fills the pool, evicting the shell until BASIC exits); `ps` lists them, marking an evicted row `(swp)` and one that shares its code with another instance `(shr)`, and `exit`/`kill` free their pool pages automatically
 - **Dynamic kernel libraries** — Shared, refcounted `.lib` binaries loaded on demand into the pool via jump-table vector stubs (eager or lazy). See **[docs/dynamic-libraries.md](docs/dynamic-libraries.md)**
-- **Inter-process communication** — `ipc.lib`: four lock-free single-producer / single-consumer **byte channels**, each with a 128-byte ring in the library's own data, so two tasks exchange bytes with no kernel buffer, no new syscall and no caller zero page (`kIpcPost` blocks by yielding while the ring is full, `kIpcPick` returns `C=1` when it is empty). See **[docs/lib-ipc.md](docs/lib-ipc.md)**
+- **Inter-process communication** — `ipc.lib`, two halves behind the same two calls. Four lock-free single-producer / single-consumer **byte channels** (X = `0`-`3`), each with a 128-byte ring in the library's own data, so two tasks exchange bytes with no kernel buffer, no new syscall and no caller zero page (`kIpcPost` blocks by yielding while the ring is full, `kIpcPick` returns `C=1` when it is empty). Four **block channels** (X = `$80`-`$83`) carry whole **256-byte frames** through REU bank 250 — 64 frames each, one DMA per message where a byte costs ~86 cycles — for payloads a byte ring is the wrong shape for. See **[docs/lib-ipc.md](docs/lib-ipc.md)**
+- **Per-task REU workspace** — every task slot owns **4KB of private REU scratch** at `REU_WS_BASE + slot × 4KB`, zeroed when a task is spawned, with no kernel call needed to find it (a task reads its own slot with `SYS_GETTID` and does the arithmetic). It is where a buffer too big for C64 RAM lives: `grpaint` keeps the saved copy of its tool band there and `musedit` its whole 4KB undo stack. `ws` is the self-test. See **[docs/writing-relocatable-tasks.md](docs/writing-relocatable-tasks.md)** §15
 - **Gordon Basic (derived from EhBASIC) interpreter** — full floating-point Microsoft BASIC 2.0 compatible, REU-backed persistent working file that provides 64KB of BASIC RAM (`basicwrk`), case-preserving I/O, RUN/STOP support; loaded on demand via `run basic`
 - **REU-accelerated context switches** — full 256-byte stack save/restore via DMA (~256 cycles vs ~2048 in software)
 - **Per-task virtual screens** — up to 28 independent screen buffers with per-screen cursor, colors, and charset, bitmap-backed text rendering. The VIC-II stays in hires bitmap mode permanently; "text" becomes an 8×8 glyph layer blitted on top of bitmap surfaces. Every screen is a 10KB REU bitmap slot
@@ -68,7 +69,7 @@ the picture viewers in [pic-format.md](docs/pic-format.md), the tune editor in
 - **Per-task ZP preservation** — tasks declare a ZP region; scheduler DMAs it to/from REU on every switch (zero overhead for non-declaring tasks)
 - **Counting semaphores** — 4 semaphores with yield-based blocking (tasks yield instead of spinning)
 - **Thread support** — `threadSpawn` creates child tasks that share the parent's memory space; child names are auto-generated as `parent.N`
-- **REU filesystem** — flat named-block storage on the REU: format, save, load, delete, rename, dir commands; a **512-entry** directory (`$9000`, 32 bytes an entry) and a multi-bank data region (`$3000` in bank 5 plus `$10000` per bank above it — 15.3 MB on a 16 MB REU, and one file is at most 65,535 bytes); data persists across reboots; task and command binaries are pre-seeded by `tools/build-reu.ps1` (`basic.tsk`, `maze.tsk`, `clock.tsk`, `gfxdemo.tsk`, `fpdemo.tsk`, `spirog.tsk`, `sprdemo.tsk`, `godzi.tsk`, `gortris.tsk`, `grknoid.tsk`, `grpaint.tsk`, `grview.tsk`, `granim.tsk`, `shell.tsk`, `edit.tsk`, `sidplay.tsk`, plus the `.com` commands, the REU fonts, the banner, the sprite sheets, bundled `.mus` songs, and the animation chunks under `assets/anim/`). **Files cross to the host**: `tools/reufs-gui.py` (a two-pane window) and `tools/reufs.py` (a command line) list, copy out and copy in from Windows, Linux or macOS, so a tune written on the machine can reach another computer that does not run GordonOS — see [lib-filesys.md](docs/lib-filesys.md)
+- **REU filesystem** — flat named-block storage on the REU: format, save, load, delete, rename, dir commands; a **512-entry** directory (`$9000`, 32 bytes an entry) and a multi-bank data region (`$3000` in bank 5 plus `$10000` per bank above it — 15.1 MB on a 16 MB REU, and one file is at most 65,535 bytes); data persists across reboots; task and command binaries are pre-seeded by `tools/build-reu.ps1` (`basic.tsk`, `maze.tsk`, `clock.tsk`, `gfxdemo.tsk`, `fpdemo.tsk`, `spirog.tsk`, `sprdemo.tsk`, `godzi.tsk`, `gortris.tsk`, `grknoid.tsk`, `grpaint.tsk`, `grview.tsk`, `granim.tsk`, `musedit.tsk`, `shell.tsk`, `edit.tsk`, `sidplay.tsk`, plus the `.com` commands, the REU fonts, the banner, the sprite sheets, bundled `.mus` songs, the `.pic` samples, and the animation chunks under `assets/anim/`). **Files cross to the host**: `tools/reufs-gui.py` (a two-pane window) and `tools/reufs.py` (a command line) list, copy out and copy in from Windows, Linux or macOS, so a tune written on the machine can reach another computer that does not run GordonOS — see [lib-filesys.md](docs/lib-filesys.md)
 - **Generic kernel heap (`kMalloc`/`kFree`)** — page-granular task-owned blocks allocated from the task pool, preserved across pool eviction via per-slot REU shadows (32 KB/slot), freed automatically on `exit`/`kill`; `pool` prints the live pool map
 - **Interactive shell** — command dispatch (help, ps, kill, pause, resume, prio, view, run, runbatch, time, clear, exit, print, format, fsinfo, dir, type, save, load, del, rename, copy, setfont, banner, speed, blink, keyrpt, sidrst, compact, pool, ver, me, wait), line-buffered with cursor keys, mid-line editing, backspace, and blinking cursor
 - **IRQ-driven keyboard** — 16-byte ring buffer with configurable key repeat, F-key screen switching, blinking cursor
@@ -406,7 +407,12 @@ sidrst                     Reset the SID (zero all SID registers) — the manual
                             cycles the hold, `l` reads the hardware directly or
                             through mouse.lib, any other key exits
  fstest                     REU-FS self-test across the bank boundary
- ipctest                    ipc.lib channel self-test (prints `ipc PASS`)
+ ipctest                    ipc.lib self-test — the four byte channels and the
+                            REU block frames (prints `ipc PASS`)
+ ws                         per-slot REU workspace self-test: prints the slot,
+                            then `FRESH`/`BACK`/`END`. Run it twice — the second
+                            run's `FRESH` is what proves a recycled slot's
+                            workspace is zeroed at spawn rather than at boot
 ```
 
 **Screen switching:** F1→screen 0, Shift+F1→1, F3→2, Shift+F3→3, F5→4, Shift+F5→5, F7→6, Shift+F7→7 (MAX_SCREENS=8).
@@ -586,7 +592,7 @@ gordon-os/
 │   │   ├── fp.inc           fp.lib opcode + scratch definitions
 │   │   ├── string.asm       string/hex library (strlen/strcpy/strcmp exact+wildcard/byteToHex…)
 │   │   ├── sid.asm          Sidplayer library (kSidPlay/kSidHush; imports sidplay.inc)
-│   │   ├── ipc.asm          IPC pipe library (kIpcPost/kIpcPick; the 128-byte ring IS its data)
+│   │   ├── ipc.asm          IPC library (kIpcPost/kIpcPick: byte rings + REU block frames)
 │   │   ├── sprite.asm       sprite library — sheet/frame/pos/reg/collide, per-task state
 │   │   ├── mouse.asm        mouse library (lib 8) — the Commodore 1351
 │   │   ├── mouse.inc        mouse.lib's protocol and scratch definitions
@@ -614,7 +620,7 @@ gordon-os/
 │   │   ├── semaphore.inc  semWait + semSignal
 │   │   ├── task-util.inc  getTaskName
 │   │   ├── reu.inc        REU DMA routines
-│   │   ├── reu-fs.inc     REU filesystem (find, DMA range, load, the 24-bit offset)
+│   │   ├── reu-fs.inc     REU filesystem (find, DMA range, load, 24-bit offset) + the spawn-time workspace clear
 │   │   ├── fs-offset.inc  REU FS 24-bit offset macros (imported, emits no bytes)
 │   │   ├── dynload.inc    Dynamic task loader (dynLoad, dynFree, pool eviction + restore)
 │   │   ├── poolevict.inc  Pre-evict (code + RAM + eager libs) — ABI-frozen block
@@ -652,7 +658,9 @@ gordon-os/
 │       │   ├── del.asm      delete files (wildcard)
 │       │   ├── compact.asm  pack the FS + reclaim tombstoned slots
 │       │   ├── fstest.asm   bank-crossing FS self-test
-│       │   ├── ipctest.asm  ipc.lib channel test (parent + two producers)
+│       │   ├── ipctest.asm  ipc.lib self-test (byte channels + REU block frames)
+│       │   ├── ws.asm       per-slot REU workspace self-test (imports ws.inc)
+│       │   ├── ws.inc       workspace test body: FRESH / BACK / END across runs
 │       │   ├── blink.asm    cursor blink interval
 │       │   ├── speed.asm    the machine's speed (scales blink/keyrpt)
 │       │   ├── keyrpt.asm   keyboard repeat timing
@@ -820,7 +828,7 @@ gordon-os/
 | [docs/memory-map.md](docs/memory-map.md) | Full address space layout |
 | [docs/kernel.md](docs/kernel.md) | Call kernel routines — API with clobbers and examples |
 | [docs/programmers-guide.md](docs/programmers-guide.md) | Write tasks, use syscalls, understand the registry |
-| [docs/writing-relocatable-tasks.md](docs/writing-relocatable-tasks.md) | Build a relocatable/reentrant dynamic task — headers, fixups, placement rules |
+| [docs/writing-relocatable-tasks.md](docs/writing-relocatable-tasks.md) | Build a relocatable/reentrant dynamic task — headers, fixups, placement rules, and §15 the per-task REU workspace |
 | [docs/kernel-fragmentation.md](docs/kernel-fragmentation.md) | Free-space map and where to put new kernel code |
 | [docs/kernel-to-lib-survey.md](docs/kernel-to-lib-survey.md) | Which kernel routines could move into lazy libraries |
 | [docs/kernel-call-inventory.md](docs/kernel-call-inventory.md) | Every resident kernel call — its address, what it does, and every call site |
@@ -840,7 +848,7 @@ gordon-os/
 | [docs/lib-fp.md](docs/lib-fp.md) | `fp.lib` call reference — `fpExec` and all 26 opcodes |
 | [docs/lib-string.md](docs/lib-string.md) | `string.lib` call reference — `kStrlen`/`kStrcpy`/`kStrcmp`/`kSkipSpaces`/`kByteToHex`/`kHexDigit`/`kNibbleToHex` |
 | [docs/lib-sid.md](docs/lib-sid.md) | `sid.lib` call reference — `kSidPlay`/`kSidHush` (the COMPUTE!'s Enhanced Sidplayer as a library; the caller owns the tune buffer and **must** declare ZP `$02-$0A`) |
-| [docs/lib-ipc.md](docs/lib-ipc.md) | `ipc.lib` call reference — `kIpcPost`/`kIpcPick`, the four byte channels and their 128-byte rings |
+| [docs/lib-ipc.md](docs/lib-ipc.md) | `ipc.lib` call reference — `kIpcPost`/`kIpcPick`, the four byte channels and their 128-byte rings, and the four block channels of 256-byte REU frames |
 | [docs/lib-sprite.md](docs/lib-sprite.md) | `sprite.lib` call reference — `kSpriteSheet`/`kSpriteFrame`/`kSpritePos`/`kSpriteReg`/`kSpriteCollide`, the per-task sprite state, and what happens when the display changes hands |
 | [docs/lib-mouse.md](docs/lib-mouse.md) | `mouse.lib` (lib 8) and the Commodore **1351** — the POT registers, the `$DC00` multiplexer select, the hold sequence, the `mtest` readout that settles them, and `mouseKind` |
 | [docs/pic-format.md](docs/pic-format.md) | The `.pic` picture format — the 10,032-byte layout, both modes, the label, and the host tool that writes one |

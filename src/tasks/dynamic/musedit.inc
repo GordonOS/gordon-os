@@ -321,8 +321,7 @@
 .const MU_ERR_STK   = 3       // the call stack is full
 .const MU_ERR_PHR   = 4       // a call to a phrase that was never defined
 .const MU_ERR_TAL   = 5       // a TAL whose HED belongs to another phrase
-.const MU_UNDO_SIZE = 2048    // the undo stack, in bytes (many small actions)
-.const MU_UNDO_PAGES = MU_UNDO_SIZE / 256   // ...and the REU file's size, one page each
+.const MU_UNDO_SIZE = 4096    // the undo stack: this slot's whole REU workspace (REU_WS_SIZE)
 .const MU_MUS_DELAY = 1       // one player tick per jiffy
 .const MU_MUS_REPEATS = 1     // one pass through the tune: the end stops it
 .const MU_MUS_REAP  = 60      // slices to wait for the music child to leave
@@ -397,7 +396,7 @@ museditMain:
     muSet(MU_STRHI, >muSFallback)
     jmp muFatal                 // with no file there is nothing else to say
 muMsgReady:
-    jsr muUndoOpen              // the undo stack's pages, in the REU as well
+    jsr muWsInit                // the undo stack lives in this slot's REU workspace
     jsr muSidCheck              // C=1: another task is using sid.lib -- report it
     bcc muSidFree               //   on OUR screen, before any library is touched
     lda #M_NO_PLAYER
@@ -7165,40 +7164,59 @@ muRecKPtr:
 // ==========================================
 //  The stack: one byte at a time, nothing resident
 // ==========================================
-//  The stack is MU_UNDO_SIZE bytes of the REU file `musedit.und`, and NO part of it
-//  lives in the image: every byte is one kReuReadAt or kReuWriteAt of length 1 at the
-//  cursor's position, so the task carries no window page, no dirty flag and no
-//  page-boundary arithmetic. The cursor (muUcPg, muUcOf) is the virtual offset of the
-//  byte being read or written -- the page IS the position's high byte, so seating it
-//  is two loads -- and it advances one byte per access.
+//  The stack is MU_UNDO_SIZE bytes of this slot's REU WORKSPACE (REU_WS_BASE), and NO
+//  part of it lives in the image: every byte is one kReuToC64 or kReuFromC64 of length
+//  1 at the cursor's position, so the task carries no window page, no dirty flag and no
+//  page-boundary arithmetic. The cursor (muUcPg, muUcOf) is the offset of the byte
+//  being read or written -- the page is that offset's high byte -- and it advances one
+//  byte per access.
 //  A record is 6 + oldN + newN bytes and cannot exceed 255 (the total is one byte), so
 //  an edit costs one transfer per record byte: tens of DMAs for a push, each a single
-//  1-byte range with no directory scan, which is nothing next to the edit itself.
-//  The file is created zeroed at open and dropped at exit, so a session always starts
-//  with an empty stack.
+//  1-byte transfer with no directory scan, which is nothing next to the edit itself.
+//  The workspace is zeroed at spawn, so a session always starts with an empty stack and
+//  leaves nothing behind: there is no file to create, delete or compact.
 
-// --- muUndoAt -- kArg = the stack file at the cursor, len 1, kPtr = MU_UCTMP ---
-//  kReuReadAt/kReuWriteAt take the record pointer, the position, the length and the
-//  C64 end in the kArg block with kPtr; here the position is the cursor and the C64
-//  end is the one byte MU_UCTMP holds.
-//  Clobbers A, X, Y, kArg..kArg+7, kPtr.
+// --- muWsInit -- this slot's workspace base, for the stack's addresses ---
+//  REU_WS_BASE + slot x REU_WS_SIZE: the base is page-aligned, so its low byte is 0,
+//  its hi byte is slot x 16 and the shift's carry is the bank. Computed once, because a
+//  task's slot cannot change while it runs.
+//  Clobbers A, Y.
+muWsInit:
+    lda #SYS_GETTID
+    jsr syscall                 // A = this task's slot
+    asl
+    asl
+    asl
+    asl                         // slot x 16 IS the hi byte of slot x REU_WS_SIZE
+    sta muUndoHi
+    lda #>REU_WS_BASE
+    adc #0                      // the shift's carry: slots past 15 are in the next bank
+    sta muUndoBank
+    rts
+
+// --- muUndoAt -- kArg = the stack byte at the cursor, len 1, kPtr = MU_UCTMP ---
+//  The address is the workspace base plus the cursor: the page is the offset's high
+//  byte and the cursor's own offset is the low one, so seating it is two loads and an
+//  add. X and Y survive, so a copy loop can index the image with them across the call.
+//  Clobbers A, kPtr and kArg..kArg+4.
 muUndoAt:
-    lda muUcPg
-    sta kArg+3                  // pos = page * 256 + offset: the page IS the high byte
     lda muUcOf
+    sta kArg                    // the offset's low byte
+    lda muUcPg
+    clc
+    adc muUndoHi                // + slot x 16
+    sta kArg+1
+    lda muUndoBank
+    adc #0                      // + the add's carry
     sta kArg+2
     lda #1
-    sta kArg+6                  // len = 1
+    sta kArg+3                  // length = 1
     lda #0
-    sta kArg+7
-    ldx #<muUndoRec
-    ldy #>muUndoRec
-    stx kArg
-    sty kArg+1
-    ldx #<muUcTmp
-    ldy #>muUcTmp
-    stx kPtr
-    sty kPtr+1
+    sta kArg+4
+    lda #<muUcTmp
+    sta kPtr
+    lda #>muUcTmp
+    sta kPtr+1
     rts
 
 // --- muUndoSet -- the stack cursor := A/X (lo/hi of the virtual offset) ---
@@ -7217,27 +7235,20 @@ muUnRts:
 
 // --- muUndoGet -- A = the stack byte at the cursor; the cursor advances ---
 //  X, Y and kPtr survive, so a copy loop can index the image with them across the
-//  call: the transfer puts its own pointers in kArg and kPtr.
+//  call: the transfer preserves X and Y, and kPtr is saved because muUndoAt points it
+//  at MU_UCTMP -- a caller holding the image address in kPtr needs it back.
 muUndoGet:
-    txa
-    pha
-    tya
-    pha
     lda kPtr
     pha
     lda kPtr+1
     pha
     jsr muUndoAt
-    jsr kReuReadAt
+    jsr kReuToC64
     jsr muUndoNext
     pla
     sta kPtr+1
     pla
     sta kPtr
-    pla
-    tay
-    pla
-    tax
     lda muUcTmp
     rts
 
@@ -7245,67 +7256,17 @@ muUndoGet:
 //  X, Y and kPtr survive, as above.
 muUndoPut:
     sta muUcTmp                 // the value: the transfer reads it from here
-    txa
-    pha
-    tya
-    pha
     lda kPtr
     pha
     lda kPtr+1
     pha
     jsr muUndoAt
-    jsr kReuWriteAt
+    jsr kReuFromC64
     pla
     sta kPtr+1
     pla
     sta kPtr
-    pla
-    tay
-    pla
-    tax
     jmp muUndoNext
-
-// --- muUndoArg -- kArg/kArg+1 = the stack file's name ---
-muUndoArg:
-    lda #<muUndoName
-    sta kArg
-    lda #>muUndoName
-    sta kArg+1
-    rts
-
-// --- muUndoOpen -- the stack's file, made the first time ---
-//  Out: C=0 muUndoRec holds it and muUndoOk is 1. C=1 there is no stack: the editor
-//  still runs and still edits, and undo reports that there is nothing to undo.
-muUndoOpen:
-    jsr muUndoArg
-    ldx #<muUndoRec
-    ldy #>muUndoRec
-    stx kPtr
-    sty kPtr+1
-    jsr kReuOpen
-    bcc muUoYes
-    jsr muUndoArg               // not there yet: make it, zeroed
-    lda #0
-    sta kArg+2
-    lda #MU_UNDO_PAGES
-    sta kArg+3
-    jsr kReuCreate
-    bcs muUoNo
-    jsr muUndoArg               // kReuCreate hands back no record, so open it again
-    ldx #<muUndoRec
-    ldy #>muUndoRec
-    stx kPtr
-    sty kPtr+1
-    jsr kReuOpen
-    bcs muUoNo
-muUoYes:
-    lda #1
-    sta muUndoOk
-    clc
-    rts
-muUoNo:
-    sec
-    rts
 
 // --- muPushEdit -- append the record the fields describe, mark the tune dirty ---
 //  Reads the new bytes from the image at MU_RECOFF. muRecCont = 0 starts a new
@@ -7344,12 +7305,6 @@ muPeReset:
     sta muUndoTop
     sta muUndoTop+1
 muPeFit:
-    lda muUndoOk                // no stack file: the edit still happens, undo cannot
-    bne muPeGo
-    lda #0
-    sta muRecCont
-    rts
-muPeGo:
     lda muUndoTop
     ldx muUndoTop+1
     jsr muUndoSet
@@ -10378,21 +10333,19 @@ muQuitDrain:
     jsr syscall
     jmp muQuit                  // never reached
 
-// --- muScrDrop -- remove the two working files, which the next load rebuilds ---
-//  Called from the exit path AFTER the music child is reaped: the player pages
-//  the same <base>.wrk through its own windows, so it must not be dropped under it.
-//  The stack file goes with it -- a session's undo history is that session's, and a
-//  file left behind would be a 2 KB tombstone in the directory. A delete is a
-//  tombstone, so the space is freed by `compact`, not here; the test on the library
-//  matters because kReuDelete's cold stub leaves the task through libFailExit when
-//  filesys.lib cannot load.
+// --- muScrDrop -- remove the working file, which the next load rebuilds ---
+//  Called from the exit path AFTER the music child is reaped: the player pages the
+//  same <base>.wrk through its own windows, so it must not be dropped under it.
+//  A delete is a tombstone, so the space is freed by `compact`, not here; the test on
+//  the library matters because kReuDelete's cold stub leaves the task through
+//  libFailExit when filesys.lib cannot load.
+//  The undo stack is not dropped: it is this slot's REU workspace, which the next
+//  spawn into the slot zeroes, so there is no file to leave behind.
 muScrDrop:
     lda libStartPage+LIB_FILESYS
     cmp #$ff
-    beq muSdRts                 // the library never loaded: there are no files to drop
+    beq muSdRts                 // the library never loaded: there is no file to drop
     jsr muSFArg
-    jsr kReuDelete
-    jsr muUndoArg
     jmp kReuDelete
 muSdRts:
     rts
@@ -10756,14 +10709,14 @@ muDrT0:     .word 0             // the first row of the window...
 muDrEnd:    .word 0             // ...and the row it ends on, per voice
 muDrPass:   .byte 0             // 0 = checking every voice, 1 = splicing
 muRrSrc:    .word 0             // ...from this offset in the stack
-muUndoOk:   .byte 0             // the stack file resolved (0 = edits are not undoable)
-muUndoRec:  .fill 5, 0          // kReuOpen's record: size lo/hi, base lo/mid/hi
-muUndoName: .text "musedit.und"
-muUndoNameEnd:
-            .byte 0
-// The FS holds a 1-11 character name and the kernel compares at most that many: a
-// longer one is stored but never found, so the editor would make a new one every run.
-.assert "the stack file's name fits the FS", (muUndoNameEnd - muUndoName) == 11 ? 1 : 0, 1
+
+// --- the undo stack's workspace base, computed once at startup (muWsInit) ---
+muUndoHi:   .byte 0             // the hi byte of slot x REU_WS_SIZE...
+muUndoBank: .byte 0             // ...and its bank
+//  The stack IS the workspace, so it must fit it, and it must stay whole pages so a
+//  cursor page names a real page of it.
+.assert "the undo stack fits this slot's REU workspace", MU_UNDO_SIZE <= REU_WS_SIZE ? 1 : 0, 1
 .assert "the undo stack is whole pages", (MU_UNDO_SIZE / 256) * 256 == MU_UNDO_SIZE ? 1 : 0, 1
+
 
 

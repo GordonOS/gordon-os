@@ -71,16 +71,17 @@ $DirEntries = 512                   # 16 KB of directory; slot 0 is the FS heade
 $DirBase    = $FsBank * $BankSize + $FsOffset    # 17-bit: bank 5, $9000
 $DataBase   = $FsBank * $BankSize + $DataOffset  # 17-bit: bank 5, $D000
 
-# Capacity, mirroring reuFsInitBoot: $3000 + (banks-11)*$10000 (24-bit,
+# Capacity, mirroring reuFsInitBoot: $3000 + (banks-14)*$10000 (24-bit,
 # no clamp). reuDetectSize caps the probe at 256 banks (8-bit counter).
-# One bank is RESERVED: $FB0000-$FBFFFF (bank 251) is grpaint's undo ring, so
-# the data region ends at $FAFFFF. The kernel clamps to #245 in its >255-bank
-# arm, which is this formula at 256 banks -- the two must agree.
+# Banks 248-249 are the per-task REU workspace, bank 250 is the IPC buffer and
+# bank 251 is grpaint's undo ring ($FB0000-$FBFFFF), so the data region ends at
+# $F7FFFF. The kernel clamps to #242 in its >255-bank arm, which is this formula
+# at 256 banks -- the two must agree.
 $totalBanks = [Math]::Min([int]($ReuSizeKb * 1024 / $BankSize), 256)
-if ($totalBanks -le 11) {
+if ($totalBanks -le 14) {
     $cap = 0x3000
 } else {
-    $cap = 0x3000 + ($totalBanks - 11) * 0x10000
+    $cap = 0x3000 + ($totalBanks - 14) * 0x10000
 }
 
 # Tasks and libraries come from tools/tasks.json - the single source of truth

@@ -379,6 +379,11 @@ scZpOk:
     //  caller reloads it below) -- and the spawn path's inputs are in kArg+6/+7.
     jsr clearSlotSprite
 
+    //  And this slot's REU WORKSPACE -- 4KB of scratch that only its owner ever
+    //  writes, so a successor would otherwise start with the last occupant's
+    //  bytes (see reu-fs.inc). The most expensive clear here by size, still one
+    //  DMA fill. X is still the slot; kArg..kArg+5 are free on this path.
+    jsr clearSlotWorkspace
     stx kArg+2                  // save slot for comparison
     ldy #0
 scOrphan:

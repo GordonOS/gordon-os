@@ -31,6 +31,7 @@
 12. [Troubleshooting](#12-troubleshooting)
 13. [Checklists](#13-checklists)
 14. [Reference tables](#14-reference-tables)
+15. [The per-task REU workspace](#15-the-per-task-reu-workspace)
 
 ---
 
@@ -1202,3 +1203,165 @@ approaches.
 | Kernel API | [kernel.md](kernel.md) |
 | Syscalls | [syscall.md](syscall.md) |
 | Libraries | [dynamic-libraries.md](dynamic-libraries.md) |
+
+---
+
+## 15. The per-task REU workspace
+
+Every task slot owns **4KB of REU scratch** that the kernel never allocates into:
+slot *n* is at `REU_WS_BASE + n × REU_WS_SIZE`, where both constants come from
+`src/kernel/kernel-shared.inc` (so `kernel-data.inc` gives them to the task build
+for free).
+
+**There is no kernel call to ask for it.** A task learns its own slot from
+`SYS_GETTID` and does the arithmetic — the same shape the kernel's own
+`clearSlotWorkspace` uses:
+
+```asm
+    lda #SYS_GETTID
+    jsr syscall                 // A = this task's slot
+    ldy #WS_SLOT
+    sta (dataPtr),y             // park it in your instance buffer
+
+    lda #0
+    sta kArg                    // REU addr lo -- REU_WS_BASE is page-aligned
+    lda (dataPtr),y             // ...y is still WS_SLOT
+    asl
+    asl
+    asl
+    asl                         // slot x 16 IS the high byte of slot x $1000
+    sta kArg+1
+    lda #>REU_WS_BASE
+    adc #0                      // the shift's carry: slots 16-23 are in bank 249
+    sta kArg+2
+```
+
+`kArg..kArg+2` is then a ready 24-bit REU address for `kReuToC64` /
+`kReuFromC64` — set `kArg+3/+4` to the length and `kPtr` to the C64 end. The
+`adc #0` is not decoration: with 24 slots × 4KB the region is 96KB, so slots
+16-23 genuinely cross into the next bank, and an `lda #>REU_WS_BASE` without it
+would point them 64KB low.
+
+**The workspace is zeroed when your task is spawned**, by `clearSlotWorkspace`
+in the kernel's spawn path. That costs 4KB of DMA fill (about 4 ms) per spawn, so
+it is the one clear on that path you can feel — but it is what makes the region
+*defined*: slots are recycled, and without it a task would start with whatever
+the previous occupant of its slot left behind. The boot task (slot 0) does not go
+through the spawn path, so its workspace is whatever the REU image holds.
+
+`ws` (`src/tasks/cmd/ws.inc`) is the worked example: run it twice and it must
+report `FRESH OK` both times, which is the difference between a real per-spawn
+clear and a boot-time coincidence.
+
+### Using it: a block to park and put back
+
+**`grpaint`** keeps the saved copy of its tool band in the workspace — 640 pixel
+bytes at offset 0 and the 80-byte colour matrix at 640 — so the band can hide
+while a gesture runs. A table row holds the three things a transfer needs (the
+C64 end, the length, the offset in the workspace) and one routine makes all four
+calls: band → REU, matrix → REU, and each one back again.
+
+```asm
+//  One row per image: the C64 end, the length, the workspace offset, and two spare
+//  bytes so a row is eight long -- which makes the row index one shift.
+gpDmaImg:
+    .byte <GP_PK_SCR0, >GP_PK_SCR0, <GP_PK_LEN, >GP_PK_LEN, <GP_WS_PIX, >GP_WS_PIX, 0, 0
+    .byte <GP_PK_MAT0, >GP_PK_MAT0, <GP_PK_MLEN, >GP_PK_MLEN, <GP_WS_MAT, >GP_WS_MAT, 0, 0
+
+//  kArg+1/+2 = this slot's workspace hi byte and bank, seated from SYS_GETTID.
+gpWsBase:
+    lda #SYS_GETTID
+    jsr syscall                 // A = this task's slot
+    asl
+    asl
+    asl
+    asl                         // slot x 16 IS the hi byte of slot x $1000
+    sta kArg+1
+    lda #>REU_WS_BASE
+    adc #0                      // the shift's carry: slots past 15 are in bank 249
+    sta kArg+2
+    rts
+
+//  ...then, per transfer, the row's offset goes into the address with its carry:
+    lda #<GP_WS_PIX             // the row's offset, low byte
+    sta kArg
+    lda #>GP_WS_PIX             // ...and high byte, added to the slot's base
+    clc
+    adc kArg+1
+    sta kArg+1
+    bcc gpSeatDone
+    inc kArg+2                  // only reachable when slot x 16 is near $FF
+gpSeatDone:
+    jmp kReuFromC64             // out; kReuToC64 is the way back
+```
+
+The offset is at most two pages, so the carry into the bank is rare — but a
+`bcc` that skips `inc kArg+2` puts slots 15-23 a bank low, so it has to be
+there.
+
+### Using it: a buffer too big to keep in RAM
+
+**`musedit`** keeps its whole undo stack in the workspace — 4096 bytes, read and
+written **a byte at a time**, so the editor carries no window page, no dirty
+flag and no page-boundary arithmetic. The cursor is a 16-bit offset in the
+instance buffer; its high byte *is* the page, which is what makes seating the
+address two loads and an add:
+
+```asm
+muUndoAt:                       // kArg = the workspace byte at the cursor, len 1
+    lda muUcOf                  // the offset's low byte
+    sta kArg
+    lda muUcPg                  // its high byte, plus the slot's base
+    clc
+    adc muUndoHi                // slot x 16
+    sta kArg+1
+    lda muUndoBank
+    adc #0                      // the add's carry
+    sta kArg+2
+    lda #1
+    sta kArg+3                  // length = 1
+    lda #0
+    sta kArg+4
+    lda #<muUcTmp               // the C64 end: one byte of scratch
+    sta kPtr
+    lda #>muUcTmp
+    sta kPtr+1
+    rts
+
+muUndoGet:                      // A = the byte at the cursor; the cursor advances
+    lda kPtr                    // a caller may be holding an image address here
+    pha
+    lda kPtr+1
+    pha
+    jsr muUndoAt
+    jsr kReuToC64
+    jsr muUndoNext
+    pla
+    sta kPtr+1
+    pla
+    sta kPtr
+    lda muUcTmp
+    rts
+```
+
+⚠️ That `kPtr` save is not decoration. `kReuToC64`/`kReuFromC64` leave `X` and
+`Y` alone, but they **read `kPtr`**, so the helper has to point it at its own
+scratch — and a caller that keeps an image address in `kPtr` across the call
+(`sta (kPtr),y` while copying the stack into the image) would then write through
+the scratch instead. A byte-at-a-time helper therefore restores `kPtr` before it
+returns.
+
+### Using it: keep offsets, not addresses
+
+A task's slot cannot change while it runs, so a cached workspace address looks
+tempting. Store **offsets** instead and seat the slot base where you use it: the
+four lines of `SYS_GETTID` arithmetic then live in one routine, and a table of
+offsets (`gpDmaImg` above) can describe several buffers in the one region
+without any of them knowing the slot.
+
+**What it is not for.** The 6502 cannot read or write an REU byte in place —
+every access is a DMA — so the workspace holds *parked* data: a saved copy, a
+buffer you move in chunks, a stack you page through. Anything the CPU addresses
+directly (a bounce window, a row buffer, a music player's page) stays in C64
+RAM. And nothing survives the task: the region is zeroed when the next task is
+spawned into the slot.

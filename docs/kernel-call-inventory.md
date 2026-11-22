@@ -11,7 +11,7 @@
 > `jsr kSyscall` finds 1 call: `tools/assemble-tasks.asm` defines
 > `.const syscall = kSyscall`, and essentially every task calls it as
 > `jsr syscall`, not `jsr kSyscall`. Folding those in puts `kSyscall` in
-> **first place (205 calls)**. See the aliasing note in Methodology.
+> **first place (214 calls)**. See the aliasing note in Methodology.
 
 ## Methodology
 
@@ -95,28 +95,28 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1260 total call sites** found across `src/`.
+- **1288 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
 | Kernel call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kSyscall`](#ksyscall) | `$E090` | 205 | 47 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
-| [`kNewline`](#knewline) | `$E00C` | 161 | 25 | Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row. |
-| [`kPrintString`](#kprintstring) | `$E006` | 118 | 32 | Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator. |
+| [`kSyscall`](#ksyscall) | `$E090` | 214 | 48 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
+| [`kNewline`](#knewline) | `$E00C` | 164 | 26 | Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row. |
+| [`kPrintString`](#kprintstring) | `$E006` | 120 | 33 | Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator. |
 | [`kPrintChar`](#kprintchar) | `$E003` | 100 | 16 | Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom. |
 | [`kSetTextColor`](#ksettextcolor) | `$E063` | 57 | 4 | Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive). |
 | [`kSetCursor`](#ksetcursor) | `$E009` | 54 | 14 | Set the kernel cursor position (X=col, Y=row). The only screen routine that preserves all registers. |
 | [`kSwitchView`](#kswitchview) | `$E054` | 31 | 18 | Switch the VIC-II display to another task's screen -- changes only what's shown, not where the caller writes. |
+| [`kReuFromC64`](#kreufromc64) | `$E06C` | 30 | 15 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
 | [`kReadKey`](#kreadkey) | `$E018` | 28 | 14 | Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (use `kScanKeyboard` to distinguish that from '@'). |
-| [`kReuFillReu`](#kreufillreu) | `$E072` | 27 | 11 | Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address). |
-| [`kReuFromC64`](#kreufromc64) | `$E06C` | 26 | 12 | DMA-copy a block from C64 memory to the REU (both addresses increment). |
+| [`kReuFillReu`](#kreufillreu) | `$E072` | 28 | 12 | Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address). |
+| [`kReuToC64`](#kreutoc64) | `$E069` | 28 | 13 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
 | [`kReuDirPageDma`](#kreudirpagedma) | `$E0B4` | 25 | 2 | DMA one 256-byte page of the REU-FS directory between REU and the bounce buffer (internal helper behind directory scans). |
 | [`kBlinkReset`](#kblinkreset) | `$E0C0` | 24 | 13 | Erase the live blink cursor block at its saved position and force the next blink to redraw at the current cursor -- call after moving the cursor. |
-| [`kReuToC64`](#kreutoc64) | `$E069` | 23 | 10 | DMA-copy a block from the REU to C64 memory (both addresses increment). |
-| [`kLockScreen`](#klockscreen) | `$E045` | 22 | 22 | Acquire the screen semaphore, saving `kPtr`/`kArg` across the wait; yields and retries if another task holds it. Must be paired with `kUnlockScreen`. |
-| [`kShareScreen`](#ksharescreen) | `$E05A` | 22 | 22 | Attach the current task to another task's surface so both write to the same memory (e.g. an overlay like a clock on the shell). |
-| [`kUnlockScreen`](#kunlockscreen) | `$E048` | 21 | 21 | Release the screen semaphore, restoring `kPtr`/`kArg` and signalling waiters. |
+| [`kLockScreen`](#klockscreen) | `$E045` | 23 | 23 | Acquire the screen semaphore, saving `kPtr`/`kArg` across the wait; yields and retries if another task holds it. Must be paired with `kUnlockScreen`. |
+| [`kShareScreen`](#ksharescreen) | `$E05A` | 23 | 23 | Attach the current task to another task's surface so both write to the same memory (e.g. an overlay like a clock on the shell). |
+| [`kUnlockScreen`](#kunlockscreen) | `$E048` | 22 | 22 | Release the screen semaphore, restoring `kPtr`/`kArg` and signalling waiters. |
 | [`kAllocScreen`](#kallocscreen) | `$E04E` | 20 | 17 | Allocate a 10KB REU surface slot for the current task, cleared to pixels=0/bg0; colours come from `kArg`. |
 | [`kEnableCursor`](#kenablecursor) | `$E012` | 20 | 8 | Enable the blinking block cursor for the running task; persisted to the surface's matrix tail so it survives context switches. |
 | [`kDisableCursor`](#kdisablecursor) | `$E015` | 19 | 16 | Disable the blinking block cursor for the running task; persisted to the surface's matrix tail. |
@@ -125,8 +125,8 @@ API surface this document is inventorying.
 | [`kRandom`](#krandom) | `$E033` | 15 | 4 | Generate a pseudo-random byte from a Galois LFSR (`randomSeed`). |
 | [`kClearScreen`](#kclearscreen) | `$E000` | 14 | 6 | Fill the screen with spaces and home the cursor to (0,0). |
 | [`kGetCursor`](#kgetcursor) | `$E03F` | 14 | 8 | Read the current kernel cursor position into X (col) and Y (row). |
+| [`kByteToDec`](#kbytetodec) | `$E02A` | 13 | 11 | Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y. |
 | [`kBlitCharRev`](#kblitcharrev) | `$E0F0` | 12 | 2 | Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0. |
-| [`kByteToDec`](#kbytetodec) | `$E02A` | 12 | 10 | Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y. |
 | [`kMalloc`](#kmalloc) | `$E0AE` | 12 | 8 | Reserve A contiguous pool pages and return the page-aligned block address in `kPtr`; evicts a resident task and retries on a full pool rather than failing outright. |
 | [`kMul16`](#kmul16) | `$E02D` | 12 | 4 | 16-bit x 16-bit unsigned multiply, producing a 32-bit result. |
 | [`kPrintCharAt`](#kprintcharat) | `$E0A5` | 12 | 4 | Write one glyph at an explicit cell without moving the cursor, wrapping, or scrolling -- used for fixed-position UI like a line editor's bottom row. |
@@ -162,16 +162,16 @@ many calls come from that file.
 
 ### kSyscall
 
-``$E090`` — **205 calls** across 47 file(s)
+``$E090`` — **214 calls** across 48 file(s)
 
 Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address.
 
 | File | Calls |
 |---|---:|
+| `src/tasks/dynamic/musedit.inc` | 16 |
 | `src/tasks/dynamic/gortris.inc` | 15 |
-| `src/tasks/dynamic/musedit.inc` | 15 |
+| `src/tasks/cmd/ipctest.inc` | 13 |
 | `src/tasks/dynamic/grknoid.inc` | 11 |
-| `src/tasks/cmd/ipctest.inc` | 10 |
 | `src/tasks/dynamic/godzi.inc` | 9 |
 | `src/tasks/dynamic/edit.inc` | 8 |
 | `src/tasks/dynamic/shell.inc` | 8 |
@@ -179,8 +179,8 @@ Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, 
 | `src/tasks/cmd/mousetest.inc` | 6 |
 | `src/tasks/dynamic/fpdemo.inc` | 6 |
 | `src/tasks/dynamic/gfxdemo.inc` | 6 |
+| `src/tasks/dynamic/grpaint.inc` | 6 |
 | `src/tasks/dynamic/grview.inc` | 6 |
-| `src/tasks/dynamic/grpaint.inc` | 5 |
 | `src/tasks/cmd/dir.inc` | 4 |
 | `src/tasks/cmd/kill.inc` | 4 |
 | `src/tasks/cmd/pause.inc` | 4 |
@@ -203,14 +203,15 @@ Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, 
 | `src/tasks/cmd/speed.inc` | 3 |
 | `src/tasks/cmd/time.inc` | 3 |
 | `src/tasks/cmd/type.inc` | 3 |
+| `src/tasks/cmd/ws.inc` | 3 |
 | `src/tasks/dynamic/sidplay.asm` | 3 |
 | `src/kernel/dynload.inc` | 2 |
+| `src/libs/ipc.asm` | 2 |
 | `src/tasks/dynamic/basic.asm` | 2 |
 | `src/tasks/dynamic/basicedit.inc` | 2 |
 | `src/tasks/dynamic/ehbasic.asm` | 2 |
 | `src/kernel/kernel.asm` | 1 |
 | `src/kernel/semaphore.inc` | 1 |
-| `src/libs/ipc.asm` | 1 |
 | `src/libs/sid.asm` | 1 |
 | `src/tasks/cmd/blink.inc` | 1 |
 | `src/tasks/cmd/keyrpt.inc` | 1 |
@@ -218,7 +219,7 @@ Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, 
 
 ### kNewline
 
-``$E00C`` — **161 calls** across 25 file(s)
+``$E00C`` — **164 calls** across 26 file(s)
 
 Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row.
 
@@ -231,8 +232,8 @@ Move the cursor to column 0 on the next row; scrolls the surface's scroll region
 | `src/tasks/cmd/fstest.inc` | 6 |
 | `src/tasks/cmd/time.inc` | 6 |
 | `src/tasks/cmd/format.inc` | 5 |
+| `src/tasks/cmd/ipctest.inc` | 5 |
 | `src/tasks/cmd/setfont.inc` | 5 |
-| `src/tasks/cmd/ipctest.inc` | 4 |
 | `src/tasks/cmd/kill.inc` | 4 |
 | `src/tasks/cmd/pause.inc` | 4 |
 | `src/tasks/cmd/prio.inc` | 4 |
@@ -245,6 +246,7 @@ Move the cursor to column 0 on the next row; scrolls the surface's scroll region
 | `src/tasks/cmd/mouse.inc` | 2 |
 | `src/tasks/cmd/rename.inc` | 2 |
 | `src/tasks/cmd/speed.inc` | 2 |
+| `src/tasks/cmd/ws.inc` | 2 |
 | `src/tasks/cmd/banner.inc` | 1 |
 | `src/tasks/cmd/mousetest.inc` | 1 |
 | `src/tasks/dynamic/grpaint.inc` | 1 |
@@ -252,7 +254,7 @@ Move the cursor to column 0 on the next row; scrolls the surface's scroll region
 
 ### kPrintString
 
-``$E006`` — **118 calls** across 32 file(s)
+``$E006`` — **120 calls** across 33 file(s)
 
 Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator.
 
@@ -278,6 +280,7 @@ Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor thr
 | `src/tasks/cmd/del.inc` | 2 |
 | `src/tasks/cmd/mouse.inc` | 2 |
 | `src/tasks/cmd/time.inc` | 2 |
+| `src/tasks/cmd/ws.inc` | 2 |
 | `src/tasks/dynamic/granim.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 2 |
 | `src/tasks/dynamic/grview.inc` | 2 |
@@ -379,6 +382,30 @@ Switch the VIC-II display to another task's screen -- changes only what's shown,
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
+### kReuFromC64
+
+``$E06C`` — **30 calls** across 15 file(s)
+
+DMA-copy a block from C64 memory to the REU (both addresses increment).
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/kernel/scroll-region.inc` | 3 |
+| `src/libs/filesys.asm` | 3 |
+| `src/libs/gfx.asm` | 3 |
+| `src/tasks/dynamic/grpaint.inc` | 3 |
+| `src/kernel/char-shadow.inc` | 2 |
+| `src/kernel/scroll-slot.inc` | 2 |
+| `src/kernel/text-blit.inc` | 2 |
+| `src/tasks/cmd/ws.inc` | 2 |
+| `src/kernel/gfx.inc` | 1 |
+| `src/kernel/sprite.inc` | 1 |
+| `src/kernel/syscall.inc` | 1 |
+| `src/libs/ipc.asm` | 1 |
+| `src/tasks/cmd/compact.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
+
 ### kReadKey
 
 ``$E018`` — **28 calls** across 14 file(s)
@@ -404,7 +431,7 @@ Pop one key from the IRQ-filled ring buffer; returns 0 for empty/key-release (us
 
 ### kReuFillReu
 
-``$E072`` — **27 calls** across 11 file(s)
+``$E072`` — **28 calls** across 12 file(s)
 
 Fill a REU memory region with a constant byte (fixed C64 source address, incrementing REU address).
 
@@ -419,29 +446,31 @@ Fill a REU memory region with a constant byte (fixed C64 source address, increme
 | `src/kernel/sprite.inc` | 2 |
 | `src/tasks/dynamic/fpdemo.inc` | 2 |
 | `src/tasks/dynamic/gfxdemo.inc` | 2 |
+| `src/kernel/reu-fs.inc` | 1 |
 | `src/kernel/screen-io.inc` | 1 |
 | `src/tasks/dynamic/ehbasic.asm` | 1 |
 
-### kReuFromC64
+### kReuToC64
 
-``$E06C`` — **26 calls** across 12 file(s)
+``$E069`` — **28 calls** across 13 file(s)
 
-DMA-copy a block from C64 memory to the REU (both addresses increment).
+DMA-copy a block from the REU to C64 memory (both addresses increment).
 
 | File | Calls |
 |---|---:|
+| `src/libs/gfx.asm` | 5 |
 | `src/tasks/dynamic/edit.inc` | 4 |
+| `src/tasks/dynamic/grpaint.inc` | 4 |
 | `src/kernel/scroll-region.inc` | 3 |
-| `src/libs/filesys.asm` | 3 |
-| `src/libs/gfx.asm` | 3 |
-| `src/tasks/dynamic/grpaint.inc` | 3 |
-| `src/kernel/char-shadow.inc` | 2 |
+| `src/tasks/cmd/ws.inc` | 3 |
 | `src/kernel/scroll-slot.inc` | 2 |
-| `src/kernel/text-blit.inc` | 2 |
+| `src/kernel/char-shadow.inc` | 1 |
 | `src/kernel/gfx.inc` | 1 |
+| `src/kernel/reu-fs.inc` | 1 |
 | `src/kernel/sprite.inc` | 1 |
-| `src/kernel/syscall.inc` | 1 |
+| `src/libs/ipc.asm` | 1 |
 | `src/tasks/cmd/compact.inc` | 1 |
+| `src/tasks/dynamic/musedit.inc` | 1 |
 
 ### kReuDirPageDma
 
@@ -476,28 +505,9 @@ Erase the live blink cursor block at its saved position and force the next blink
 | `src/tasks/dynamic/spirog.inc` | 1 |
 | `src/tasks/dynamic/sprdemo.inc` | 1 |
 
-### kReuToC64
-
-``$E069`` — **23 calls** across 10 file(s)
-
-DMA-copy a block from the REU to C64 memory (both addresses increment).
-
-| File | Calls |
-|---|---:|
-| `src/libs/gfx.asm` | 5 |
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/tasks/dynamic/grpaint.inc` | 4 |
-| `src/kernel/scroll-region.inc` | 3 |
-| `src/kernel/scroll-slot.inc` | 2 |
-| `src/kernel/char-shadow.inc` | 1 |
-| `src/kernel/gfx.inc` | 1 |
-| `src/kernel/reu-fs.inc` | 1 |
-| `src/kernel/sprite.inc` | 1 |
-| `src/tasks/cmd/compact.inc` | 1 |
-
 ### kLockScreen
 
-``$E045`` — **22 calls** across 22 file(s)
+``$E045`` — **23 calls** across 23 file(s)
 
 Acquire the screen semaphore, saving `kPtr`/`kArg` across the wait; yields and retries if another task holds it. Must be paired with `kUnlockScreen`.
 
@@ -523,12 +533,13 @@ Acquire the screen semaphore, saving `kPtr`/`kArg` across the wait; yields and r
 | `src/tasks/cmd/speed.inc` | 1 |
 | `src/tasks/cmd/time.inc` | 1 |
 | `src/tasks/cmd/type.inc` | 1 |
+| `src/tasks/cmd/ws.inc` | 1 |
 | `src/tasks/dynamic/clock.inc` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 
 ### kShareScreen
 
-``$E05A`` — **22 calls** across 22 file(s)
+``$E05A`` — **23 calls** across 23 file(s)
 
 Attach the current task to another task's surface so both write to the same memory (e.g. an overlay like a clock on the shell).
 
@@ -554,12 +565,13 @@ Attach the current task to another task's surface so both write to the same memo
 | `src/tasks/cmd/speed.inc` | 1 |
 | `src/tasks/cmd/time.inc` | 1 |
 | `src/tasks/cmd/type.inc` | 1 |
+| `src/tasks/cmd/ws.inc` | 1 |
 | `src/tasks/dynamic/clock.inc` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 
 ### kUnlockScreen
 
-``$E048`` — **21 calls** across 21 file(s)
+``$E048`` — **22 calls** across 22 file(s)
 
 Release the screen semaphore, restoring `kPtr`/`kArg` and signalling waiters.
 
@@ -584,6 +596,7 @@ Release the screen semaphore, restoring `kPtr`/`kArg` and signalling waiters.
 | `src/tasks/cmd/speed.inc` | 1 |
 | `src/tasks/cmd/time.inc` | 1 |
 | `src/tasks/cmd/type.inc` | 1 |
+| `src/tasks/cmd/ws.inc` | 1 |
 | `src/tasks/dynamic/clock.inc` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 
@@ -729,20 +742,9 @@ Read the current kernel cursor position into X (col) and Y (row).
 | `src/tasks/cmd/time.inc` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 
-### kBlitCharRev
-
-``$E0F0`` — **12 calls** across 2 file(s)
-
-Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/edit.inc` | 9 |
-| `src/tasks/dynamic/musedit.inc` | 3 |
-
 ### kByteToDec
 
-``$E02A`` — **12 calls** across 10 file(s)
+``$E02A`` — **13 calls** across 11 file(s)
 
 Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-terminated; returns the digit count in Y.
 
@@ -756,8 +758,20 @@ Convert a byte (0-255) to 1-3 decimal digit characters at `(kPtr)`, not null-ter
 | `src/tasks/cmd/pause.inc` | 1 |
 | `src/tasks/cmd/prio.inc` | 1 |
 | `src/tasks/cmd/resume.inc` | 1 |
+| `src/tasks/cmd/ws.inc` | 1 |
 | `src/tasks/dynamic/edit.inc` | 1 |
 | `src/tasks/dynamic/musedit.inc` | 1 |
+
+### kBlitCharRev
+
+``$E0F0`` — **12 calls** across 2 file(s)
+
+Like `kBlitChar` but reverse video -- a solid bar in the text colour with the glyph in bg0.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/edit.inc` | 9 |
+| `src/tasks/dynamic/musedit.inc` | 3 |
 
 ### kMalloc
 

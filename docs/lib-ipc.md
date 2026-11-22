@@ -6,16 +6,21 @@ kernel pays nothing for it: no syscall, no kernel buffer, no new resident code �
 just two 3-byte entries and four 128-byte rings that live in the pool with the
 rest of the library.
 
+The same two entries also carry **whole 256-byte frames** through REU, for
+payloads a byte ring is the wrong shape for — see [The block half](#the-block-half--whole-frames-in-reu).
+
 | | |
 |---|---|
 | Lib ID | 6 |
 | Entries | 2 (`kIpcPost`, `kIpcPick`) — `X` selects the channel |
-| Channels | 4 (`0`–`3`), independent, each with its own ring and indices |
+| Byte channels | 4 (`0`–`3`), independent, each with its own ring and indices |
+| Block channels | 4 (`$80`–`$83`), each 64 frames of 256 bytes in REU bank 250 |
 | Load policy | **lazy** — the first call cold-loads it; declare `libMask` bit 6 (`$0040`) |
 | Call indices | 35–36 (jump entries patched via `libJumpLo/Hi` + `libInitLo/Hi`) |
 | Kernel entry points | `kIpcPost` (`$FF84`), `kIpcPick` (`$FF87`) |
 | Source | `src/libs/ipc.asm` |
-| Pool footprint | **3 pages** (638 bytes of code, 18 fixups) |
+| Pool footprint | **5 pages** (1088 bytes of code, 29 fixups) |
+| REU footprint | **64KB** — bank 250 (`REU_IPC_BASE`), held out of the FS data region |
 | Caller ZP | **none** — no zero page is needed or claimed |
 | Clobbers | A, X, Y and `kPtr`/`kPtr+1` (see below) |
 
@@ -156,6 +161,114 @@ The channel selects the ring through two 4-entry tables (`ipcRingLo`/`ipcRingHi`
 rather than arithmetic, so `IPC_SIZE` stays free to change to a power of two
 other than 128.
 
+## The block half — whole frames in REU
+
+A byte ring is the wrong shape for bulk. Every push is a `jsr`, a range test, a
+full test, a store and an index update — about **86 cycles a byte**, so an
+8000-byte screen costs roughly 0.7 s of CPU and a chunking loop in every
+producer. A frame is **one DMA**: 255 bytes in a fraction of a millisecond, with
+no loop at all.
+
+There is no third entry point. `LIB_CALLS` is at its ceiling (see
+[`dynamic-libraries.md`](dynamic-libraries.md) §4 — the four scan tables end
+flush against the pinned `gfxRowLut`), so the **channel code is the sub-op**, the
+way `kMouseCall` and `kFpCall` select theirs. The byte channels keep their
+`0`–`3` indices and their behaviour; `$80` + channel selects a block channel, and
+anything else is refused exactly as `X = 4` always was.
+
+### The geometry
+
+```
+REU_IPC_BASE ($FA0000, bank 250)
+  frame 0    frame 1    frame 2   ...            frame 255
+  +---------+---------+---------+                +---------+
+  | 256 B   | 256 B   | 256 B   |      ...       | 256 B   |
+  +---------+---------+---------+                +---------+
+  \_____________________/ \____________________/ \_________/
+    block channel $80          $81                  $83
+    (frames 0-63)          (64-127)             (192-255)
+```
+
+A frame is one **page** of the bank, so a frame index *is* its address high byte:
+`lo = 0`, `hi = frame`, `bank = $FA`. Seating a transfer is therefore two loads,
+and the four channel bases are the arithmetic `channel × 64`.
+
+Each block channel is a ring of **64 frames, 63 of them usable** — the same
+one-slot-kept-free convention as the byte rings, so "full" and "empty" stay
+distinct — with its own `ipcBlkHead`/`ipcBlkTail`. `IPC_BLK_FRAMES` and
+`IPC_BLK_MASK` are powers of two, so both the base and the wrap are arithmetic.
+
+### `kIpcPost` — send a frame
+
+- **Input:** X = `$80` + channel, A = the length (**1–255**), `kPtr` = the source.
+- **Output:** `C=0` — the frame is in the ring. `C=1` — `X` was out of range and
+  **nothing** was stored. `A = 0` is refused the same way.
+- **Clobbers:** A, X, Y, `kArg..kArg+4` (`kPtr` is only read).
+- **Blocks** while that channel's ring is full, exactly as the byte form does:
+  it parks the channel and the length on the task's own stack, `SYS_SLEEP`s and
+  retries — so the same
+  [stale-`X` trap](#kipcpost--push-a-byte-into-a-channel) applies and is handled
+  the same way.
+- **Publish order:** the length goes into `ipcBlkLen` first, then the payload,
+  then `ipcBlkHead` — so a consumer can never pair a length with another
+  message's bytes.
+
+### `kIpcPick` — receive a frame
+
+- **Input:** X = `$80` + channel, `kPtr` = the destination.
+- **Output:** `C=0`, A = the length (1–255); `C=1` when that channel is empty (or
+  `X` was out of range), with nothing transferred.
+- **Clobbers:** A, X, Y, `kArg..kArg+4` (`kPtr` is only read).
+- **Release order:** `ipcBlkTail` is advanced only *after* the payload has landed
+  in the caller's buffer, so the producer cannot reuse the frame mid-transfer.
+- **Never blocks**, as above — poll it, or loop with `SYS_SLEEP`.
+
+### Why the length is a separate array
+
+`ipcBlkLen` holds one byte per **frame** (256 bytes, indexed by frame index), not
+per channel and not inside the frame. Inside the frame it would cost a second
+DMA to read, or a shared scratch byte that two producers could collide on; per
+channel it could not survive two frames in flight. An array indexed by frame has
+exactly **one writer** (that frame's producer) and **one reader** (its consumer),
+which is the same single-owner argument that makes `ipcHead`/`ipcTail` lock-free.
+
+### What it costs
+
+- **1 extra REU bank, already paid for.** Bank 250 sits outside the FS data
+  region (`reuFsCapacity` tops out at `$F7FFFF`), so the frames cost the
+  filesystem nothing.
+- **2 extra pool pages** (3 → 5): the frame indices, the length array, and the
+  code. That is why the byte rings stay in the pool and the *bulk* path is in
+  REU — a KB-scale byte ring could not be afforded at all (the pool is 109
+  pages).
+
+### Using it
+
+```asm
+//  Send 8000 bytes of a bitmap: 32 frames of 250, and one DMA each.
+        lda #250
+        sta ipcLen                  // this task's own byte
+        ldx #$80+1                  // block channel 1
+        lda #<bitmap
+        sta kPtr
+        lda #>bitmap
+        sta kPtr+1
+        lda ipcLen
+        jsr kIpcPost                // C=1 only if X was bad; a full ring waits
+
+//  ...and the consumer, one frame at a time:
+        ldx #$80+1
+        lda #<page
+        sta kPtr
+        lda #>page
+        sta kPtr+1
+        jsr kIpcPick
+        bcs waitForIt               // C=1: nothing yet -- sleep and retry
+                                    // A = the length, copied into (kPtr)
+```
+
+`ipctest` runs exactly this shape across two tasks (see below).
+
 ## Example
 
 A producer — a task whose own counter is per-instance code image data, so
@@ -212,6 +325,15 @@ both clobber `X` — and so does everything else in between.
 | `4 empty ok` | all four rings start empty and independent |
 | `ch1 ok` | a thread producer posting `0,1,2…` onto channel 1 is received in order, all 256 bytes |
 | `ch3 ok` | a second thread posting `255,254,…` onto channel 3 is received in order, **interleaved** with channel 1 |
+| `blk guard ok` | `kIpcPost` with `X = $84` is refused with `C=1`, and block channel `$80` is still empty |
+| `blk ch2 ok` | a third thread sends the **whole 64-frame ring** on block channel `$82` — length `1+n` on frame *n*, every payload byte `n` — and the parent drains it in order |
+
+The block test runs after the two byte pairs have finished, on a *different*
+channel number from either, and the payload is XORed with the displayed-frame
+counter so a second run cannot pass on the frames the first one left in bank 250:
+a frame the library failed to write still holds the old seed. Sending 64 frames
+into a 63-frame ring also guarantees the wrap and the producer's backpressure
+wait are reached.
 
 The interleave is the substance of the test. Both producers are faster than the
 single consumer, so both rings (127 bytes) fill and both producers block inside
@@ -256,13 +378,15 @@ output points at the index arithmetic.
   library semaphore leaves it locked, because the kernel's death-release scan
   only knows its own `semCount`/`semOwner` pool. See
   [`future-improvements.md`](future-improvements.md).
-- **Four channels, and no more.** The channels are fixed and anonymous: a pair
-  agrees out of band (a convention, or a byte in the task header) which index is
-  theirs, and nothing detects two pairs picking the same one. Adding a fifth
-  means growing `IPC_CHANNELS`, the two pointer tables and the ring block — a
-  code change plus two more pool pages, not a runtime allocation.
-- **No message boundaries.** It is a byte stream — no framing, no sizes, no
-  priority.
+- **Four channels of each kind, and no more.** Both sets are fixed and anonymous:
+  a pair agrees out of band (a convention, or a byte in the task header) which
+  index is theirs, and nothing detects two pairs picking the same one. A fifth
+  byte channel means growing `IPC_CHANNELS`, the two pointer tables and the ring
+  block — a code change plus two more pool pages, not a runtime allocation; a
+  fifth block channel would mean finding another bank.
+- **No message boundaries on the byte channels.** They are a byte stream — no
+  framing, no sizes, no priority. The block channels *do* carry a length per
+  frame; what they do not carry is a protocol, a sequence number or a reply.
 - **No wakeup.** `kIpcPick` never blocks, so a consumer polls; with a 1-tick
   sleep that is up to a jiffy of latency per byte.
 - **No protocol on death.** Nothing here notices that the other side is gone.

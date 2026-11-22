@@ -61,7 +61,9 @@ part. Nothing here is a substitute for the deep documents, which are linked thro
   kernel output routine takes; 1-3 are free for tasks.
 - **IPC.** `ipc.lib` provides four fixed 128-byte byte channels with a lock-free
   single-producer/single-consumer ring, a blocking post that yields under
-  backpressure rather than spinning, and no caller zero page. See [lib-ipc.md](lib-ipc.md).
+  backpressure rather than spinning, and no caller zero page — plus four **block
+  channels** that carry whole 256-byte frames through REU bank 250, one DMA per
+  message, for payloads a byte ring is the wrong shape for. See [lib-ipc.md](lib-ipc.md).
 
 ## 3. Memory: one pool, two directions
 

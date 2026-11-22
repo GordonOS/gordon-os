@@ -68,19 +68,19 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
   (`kSidPlay`/`kSidHush`/`kIpcPost`/`kIpcPick`) — the `$E000` table is full.
 - 38 of them have at least one call site in the current source tree; 4 have
   none.
-- **261 total call sites** found across `src/`.
+- **260 total call sites** found across `src/`.
 
 ## By library
 
 | Library | Note | Calls | Total call sites |
 |---|---|---|---:|
 | [`time.lib`](#timelib) | lib 0, eager | 3 | 3 |
-| [`filesys.lib`](#filesyslib) | lib 1, eager | 9 | 109 |
+| [`filesys.lib`](#filesyslib) | lib 1, eager | 9 | 103 |
 | [`gfx.lib`](#gfxlib) | lib 2, lazy | 13 | 38 |
 | [`fp.lib`](#fplib) | lib 3, eager | 1 | 2 |
 | [`string.lib`](#stringlib) | lib 4, lazy | 7 | 26 |
 | [`sid.lib`](#sidlib) | lib 5, lazy | 2 | 12 |
-| [`ipc.lib`](#ipclib) | lib 6, lazy | 2 | 7 |
+| [`ipc.lib`](#ipclib) | lib 6, lazy | 2 | 12 |
 | [`sprite.lib`](#spritelib) | lib 7, eager | 4 | 57 |
 | [`mouse.lib`](#mouselib) | lib 8, eager | 1 | 7 |
 
@@ -127,44 +127,26 @@ No call sites in the current source tree.
 
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kReuOpen`](#kreuopen) | `$E0FC` | 28 | 9 | Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`. |
-| [`kReuReadAt`](#kreureadat) | `$E0FF` | 28 | 10 | Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF. |
-| [`kReuWriteAt`](#kreuwriteat) | `$E102` | 15 | 7 | Write `len` bytes at a 16-bit position into an open fixed-size file; writes past the file end are rejected. |
-| [`kReuDelete`](#kreudelete) | `$E08A` | 12 | 7 | Mark a REU-FS file deleted (name cleared, deleted flag set); its data blocks stay orphaned until `compact.com` packs them away. |
-| [`kReuCreate`](#kreucreate) | `$E0F9` | 9 | 5 | Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below). |
+| [`kReuReadAt`](#kreureadat) | `$E0FF` | 27 | 10 | Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF. |
+| [`kReuOpen`](#kreuopen) | `$E0FC` | 26 | 9 | Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`. |
+| [`kReuWriteAt`](#kreuwriteat) | `$E102` | 14 | 7 | Write `len` bytes at a 16-bit position into an open fixed-size file; writes past the file end are rejected. |
+| [`kReuDelete`](#kreudelete) | `$E08A` | 11 | 7 | Mark a REU-FS file deleted (name cleared, deleted flag set); its data blocks stay orphaned until `compact.com` packs them away. |
 | [`kReuDirEntry`](#kreudirentry) | `$E081` | 9 | 7 | Read a single REU-FS directory entry by index (0-511) — name, size, flags, data offset (slot 0 is the allocator's free-offset). |
+| [`kReuCreate`](#kreucreate) | `$E0F9` | 8 | 5 | Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below). |
 | [`kReuRename`](#kreurename) | `$E0AB` | 4 | 3 | Rename a REU-FS directory entry in place; the old name must exist, the new name must not (deleted names can be reused). |
 | [`kReuSave`](#kreusave) | `$E084` | 3 | 3 | Save a C64 memory block to the REU filesystem under a unique 1-11 char name; data is appended to the end of the data area. |
 | [`kReuFormat`](#kreuformat) | `$E07E` | 1 | 1 | Format the REU filesystem — zeroes the directory and initialises the allocator state. Does not prompt for confirmation. |
-
-### kReuOpen
-
-`$E0FC` — Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`.
-
-**28 calls** across 9 file(s):
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/musedit.inc` | 8 |
-| `src/tasks/dynamic/grpaint.inc` | 5 |
-| `src/tasks/dynamic/basic.asm` | 4 |
-| `src/tasks/dynamic/edit.inc` | 4 |
-| `src/tasks/cmd/copy.inc` | 2 |
-| `src/tasks/dynamic/granim.inc` | 2 |
-| `src/tasks/cmd/fstest.inc` | 1 |
-| `src/tasks/dynamic/grview.inc` | 1 |
-| `src/tasks/dynamic/shell.inc` | 1 |
 
 ### kReuReadAt
 
 `$E0FF` — Read `len` bytes at a 16-bit position from an open fixed-size file, clamped at EOF.
 
-**28 calls** across 10 file(s):
+**27 calls** across 10 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/ehbasic.asm` | 8 |
-| `src/tasks/dynamic/musedit.inc` | 7 |
+| `src/tasks/dynamic/musedit.inc` | 6 |
 | `src/tasks/dynamic/grpaint.inc` | 4 |
 | `src/tasks/dynamic/granim.inc` | 2 |
 | `src/tasks/dynamic/grview.inc` | 2 |
@@ -174,16 +156,34 @@ No call sites in the current source tree.
 | `src/tasks/dynamic/edit.inc` | 1 |
 | `src/tasks/dynamic/shell.inc` | 1 |
 
+### kReuOpen
+
+`$E0FC` — Resolve a filename to a 5-byte file record (doubles as the existence check) for `kReuReadAt`/`kReuWriteAt`.
+
+**26 calls** across 9 file(s):
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/musedit.inc` | 6 |
+| `src/tasks/dynamic/grpaint.inc` | 5 |
+| `src/tasks/dynamic/basic.asm` | 4 |
+| `src/tasks/dynamic/edit.inc` | 4 |
+| `src/tasks/cmd/copy.inc` | 2 |
+| `src/tasks/dynamic/granim.inc` | 2 |
+| `src/tasks/cmd/fstest.inc` | 1 |
+| `src/tasks/dynamic/grview.inc` | 1 |
+| `src/tasks/dynamic/shell.inc` | 1 |
+
 ### kReuWriteAt
 
 `$E102` — Write `len` bytes at a 16-bit position into an open fixed-size file; writes past the file end are rejected.
 
-**15 calls** across 7 file(s):
+**14 calls** across 7 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/ehbasic.asm` | 4 |
-| `src/tasks/dynamic/musedit.inc` | 4 |
+| `src/tasks/dynamic/musedit.inc` | 3 |
 | `src/tasks/dynamic/edit.inc` | 2 |
 | `src/tasks/dynamic/grpaint.inc` | 2 |
 | `src/tasks/cmd/copy.inc` | 1 |
@@ -194,30 +194,16 @@ No call sites in the current source tree.
 
 `$E08A` — Mark a REU-FS file deleted (name cleared, deleted flag set); its data blocks stay orphaned until `compact.com` packs them away.
 
-**12 calls** across 7 file(s):
+**11 calls** across 7 file(s):
 
 | File | Calls |
 |---|---:|
-| `src/tasks/dynamic/musedit.inc` | 5 |
+| `src/tasks/dynamic/musedit.inc` | 4 |
 | `src/tasks/dynamic/edit.inc` | 2 |
 | `src/tasks/cmd/del.inc` | 1 |
 | `src/tasks/dynamic/ehbasic.asm` | 1 |
 | `src/tasks/dynamic/gortris.inc` | 1 |
 | `src/tasks/dynamic/grknoid.inc` | 1 |
-| `src/tasks/dynamic/grpaint.inc` | 1 |
-
-### kReuCreate
-
-`$E0F9` — Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below).
-
-**9 calls** across 5 file(s):
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/musedit.inc` | 3 |
-| `src/tasks/dynamic/basic.asm` | 2 |
-| `src/tasks/dynamic/edit.inc` | 2 |
-| `src/tasks/cmd/copy.inc` | 1 |
 | `src/tasks/dynamic/grpaint.inc` | 1 |
 
 ### kReuDirEntry
@@ -235,6 +221,20 @@ No call sites in the current source tree.
 | `src/tasks/cmd/type.inc` | 1 |
 | `src/tasks/dynamic/ehbasic.asm` | 1 |
 | `src/tasks/dynamic/musedit.inc` | 1 |
+
+### kReuCreate
+
+`$E0F9` — Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below).
+
+**8 calls** across 5 file(s):
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/basic.asm` | 2 |
+| `src/tasks/dynamic/edit.inc` | 2 |
+| `src/tasks/dynamic/musedit.inc` | 2 |
+| `src/tasks/cmd/copy.inc` | 1 |
+| `src/tasks/dynamic/grpaint.inc` | 1 |
 
 ### kReuRename
 
@@ -575,28 +575,28 @@ No call sites in the current source tree.
 
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kIpcPick`](#kipcpick) | `$FF87` | 4 | 1 | Read one byte from an IPC channel's ring (X = channel), non-blocking; C=1 when the channel is empty. |
-| [`kIpcPost`](#kipcpost) | `$FF84` | 3 | 1 | Send one byte to an IPC channel's ring (X = channel 0-3), blocking by yielding while that channel's ring is full. |
+| [`kIpcPick`](#kipcpick) | `$FF87` | 6 | 1 | Read one byte from an IPC channel's ring (X = channel), non-blocking; C=1 when the channel is empty. |
+| [`kIpcPost`](#kipcpost) | `$FF84` | 6 | 1 | Send one byte to an IPC channel's ring (X = channel 0-3), blocking by yielding while that channel's ring is full. |
 
 ### kIpcPick
 
 `$FF87` — Read one byte from an IPC channel's ring (X = channel), non-blocking; C=1 when the channel is empty.
 
-**4 calls** across 1 file(s):
+**6 calls** across 1 file(s):
 
 | File | Calls |
 |---|---:|
-| `src/tasks/cmd/ipctest.inc` | 4 |
+| `src/tasks/cmd/ipctest.inc` | 6 |
 
 ### kIpcPost
 
 `$FF84` — Send one byte to an IPC channel's ring (X = channel 0-3), blocking by yielding while that channel's ring is full.
 
-**3 calls** across 1 file(s):
+**6 calls** across 1 file(s):
 
 | File | Calls |
 |---|---:|
-| `src/tasks/cmd/ipctest.inc` | 3 |
+| `src/tasks/cmd/ipctest.inc` | 6 |
 
 ## sprite.lib
 

@@ -446,12 +446,11 @@
 // The band's own bytes are the only thing the REU holds, and only while the UI is up:
 // saving them is what lets the close put the canvas's two bottom rows back, because
 // the file's image covers them. 640 pixel bytes at $3CC0 and 80 matrix bytes at $0798
-// go to bank 0 -- $D000-$FFFF is 12KB the REU layout leaves free (the filesystem
-// starts at bank 5 $9000 and the malloc shadow at bank 252), so this costs the
-// filesystem no capacity. Recorded in docs/memory-map.md's REU layout.
-.const GP_REU_BANK    = 0
-.const GP_REU_SAV_PIX = $D000    // 640: the band, saved while the UI is up
-.const GP_REU_SAV_MAT = $D280    // 80:  ...and its matrix
+// go into the task's own REU WORKSPACE (REU_WS_BASE, 4KB per slot), so the copy needs
+// no band the kernel has to reserve, cannot collide with another task's, and cannot be
+// stale -- the spawn path zeroes it. Recorded in docs/memory-map.md's REU layout.
+.const GP_WS_PIX      = 0        // 640: the band, saved while the UI is up
+.const GP_WS_MAT      = 640      // 80:  ...and its matrix
 
 grpaintBinStart:
     .word HDR_MAGIC              // +0:  magic 'G','O' (LE)

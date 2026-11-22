@@ -122,66 +122,7 @@ If a task crashes (BRK instruction, invalid memory access), the kernel catches i
 
 ---
 
-### 7. Extended Task Workspace in REU
-
-**Effort:** Medium — needs an REU region carved out of the FS band
-
-General-purpose REU DMA is available to any task today: `kReuToC64` / `kReuFromC64`
-take a 24-bit REU address and a length, so a task can keep state in the REU
-without new kernel support. What is missing is an **allocator** and a region to
-allocate from: bank 0 holds the stack images, shadows and the bounce buffer,
-bitmap slots start at bank 1, the filesystem owns banks 5-251 and the malloc
-shadow banks 252-255, so a task may only DMA where the kernel already knows
-about it.
-
-**The region is a bookkeeping change, not a hardware limit.** The FS band is
-vastly under-used — ~147 KB of files inside a region that spans bank 5 to bank
-251 — so shortening `REU_FS_*` (or moving the FS up) frees contiguous banks for
-anything that needs one. The cost is the capacity formula (`reu-fs.inc` — bank 5
-contributes `REU_FS_BANK5_CAP` and each later bank adds its own), `memory-map.md`
-and a REU re-seed. That is the donor route for this section and for §8/§9.
-
-The sketch below is the shape it would take, given a region:
-
-| Task | Stack (REU) | Workspace (REU) |
-|---|---|---|
-| Task 0 | `$000000` | `$001000` |
-| Task 1 | `$000100` | `$002000` |
-| Task 2 | `$000200` | `$003000` |
-
-**Design:**
-- Workspace size: 4KB per task by default (configurable via `REU_WS_SIZE`)
-- Task workspace offset = `REU_WS_BASE + (taskIndex × REU_WS_SIZE)`
-- The offsets above are illustrative and collide with the live layout, so the
-  first step is naming the region to give up — the FS band is the obvious donor
-
----
-
-### 8. REU-Based IPC Shared Buffer
-
-**Effort:** Medium — takes two of the FS band's banks (§7)
-
-A REU region used as a shared message ring buffer for inter-task communication.
-Pairs with §1.
-
-[`ipc.lib`](lib-ipc.md) keeps its four 128-byte rings in the pool deliberately:
-a byte costs a `sta` there, while a REU round trip would dominate the transfer.
-The REU pays off for **large** messages — sprites, screen regions, audio — where
-a DMA beats a copy loop.
-
-```
-REU $010000-$01FFFF: 64KB IPC region
-  - Ring buffer with head/tail pointers in kernel data
-  - Tasks DMA messages in/out of REU
-  - Much larger messages possible (sprites, screen regions, audio)
-```
-
-The addresses above sit inside the bitmap-slot band, so this takes its region
-from the FS band the same way §7 does.
-
----
-
-### 9. RAM Disk / Sector Cache
+### 7. RAM Disk / Sector Cache
 
 **Effort:** High
 
@@ -196,11 +137,11 @@ REU $020000-$02FFFF: 64KB sector cache (256 × 256-byte sectors)
 - LRU or simple ring-buffer eviction policy
 - Swap DMA (`$92`) could implement copy-on-write buffering
 - The range above sits inside the bitmap-slot band, so it comes out of the FS
-  band as in §7
+  band
 
 ---
 
-### 10. Char Cache for Text Surfaces
+### 8. Char Cache for Text Surfaces
 
 **Effort:** Medium (designed, not built)
 
@@ -222,7 +163,7 @@ every glyph is a pixel blit, so 100 lines of `dir` cost ~1.5-2 s.
 
 ---
 
-### 11. Editor Undo / Redo
+### 9. Editor Undo / Redo
 
 **Effort:** Medium-Hard (designed, not built)
 
@@ -286,7 +227,7 @@ and across chunk grow/shrink boundaries, with no pool or arena leaks.
 
 ---
 
-### 12. REU FS Directories
+### 10. REU FS Directories
 
 **Effort:** Medium (traversal API) / Hard (subdirectories) — designed, not built
 
@@ -333,7 +274,7 @@ directory). A name then identifies a path rather than a leaf, so every existing 
 **Sequencing:** do (1) first — it is useful on its own and it is the traversal primitive
 (2) needs.
 
-### 13. A C compiler
+### 11. A C compiler
 
 **Effort:** Hard — a toolchain retarget, not a kernel change
 
@@ -403,12 +344,10 @@ a task, prints through the kernel, and carries a derived fixup table.
 | **2** | SEND/RECEIVE IPC (§1) | Medium-Hard | The byte channels exist; this adds framing, a wakeup and a blocking handoff |
 | **3** | Stream abstraction (§3) | Medium | Pipelines, stdin/stdout |
 | **4** | Blocking I/O (§4) | Hard | A BLOCKED state and IRQ-driven wake |
-| **5** | Extended REU workspace (§7) | Medium | Per-task private RAM in REU — the region comes from the FS band |
-| **6** | REU IPC buffer (§8) | Medium | Large shared memory for IPC — same FS band |
-| **7** | Crash protection (§6) | Hard | BRK handler, graceful task death |
-| **8** | File system (§5) | Very Hard | IEC disk I/O |
-| **9** | RAM disk (§9) | High | REU sector cache, depends on §5 |
-| **10** | Char cache (§10) | Medium | Background scrollback and bulk-output latency |
-| **11** | Editor undo / redo (§11) | Medium-Hard | The editor has no history — every mutation is final; design is settled, code is not written |
-| **12** | REU FS directories (§12) | Medium / Hard | A flat 512-entry namespace: every consumer scans the table itself, and there are no subdirectories |
-| **13** | A C compiler (§13) | Hard | The compilers exist (cc65 has the permissive licence); the work is the retarget — a KERNAL-free runtime, a relinkable image, and `float` landed on `fp.lib` |
+| **5** | Crash protection (§6) | Hard | BRK handler, graceful task death |
+| **6** | File system (§5) | Very Hard | IEC disk I/O |
+| **7** | RAM disk (§7) | High | REU sector cache, depends on §5 |
+| **8** | Char cache (§8) | Medium | Background scrollback and bulk-output latency |
+| **9** | Editor undo / redo (§9) | Medium-Hard | The editor has no history — every mutation is final; design is settled, code is not written |
+| **10** | REU FS directories (§10) | Medium / Hard | A flat 512-entry namespace: every consumer scans the table itself, and there are no subdirectories |
+| **11** | A C compiler (§11) | Hard | The compilers exist (cc65 has the permissive licence); the work is the retarget — a KERNAL-free runtime, a relinkable image, and `float` landed on `fp.lib` |

@@ -8,8 +8,10 @@
 //  the library is refcounted, so a ring cannot be freed while a participant
 //  lives. The bytes therefore live in the pool, not in the kernel image.
 //
-//      kIpcPost   call 35 -- X = channel, A = byte -> push it (yields while full)
-//      kIpcPick   call 36 -- X = channel -> A = next byte, C=1 if that channel is empty
+//      kIpcPost   call 35 -- X = channel 0..3, A = byte -> push it (yields while full)
+//                          X = $80+c, A = length, kPtr = source -> a whole frame
+//      kIpcPick   call 36 -- X = channel 0..3 -> A = next byte, C=1 if empty
+//                          X = $80+c, kPtr = dest -> A = length, C=1 if empty
 //
 //  WARNING: NO LOCK, AND NONE IS NEEDED. One writer owns `ipcHead`, one reader owns
 //  `ipcTail`, each of them a single byte, so every update is one `sta` and every
@@ -41,6 +43,34 @@
 //  patched `sta abs,y` operand would be *shared* -- two posters preempting each
 //  other inside `kIpcPost` would clobber one another's channel. Per-task `kPtr`
 //  has no such race.
+//
+//  THE BLOCK HALF. The same two entries also carry whole FRAMES, for payloads a
+//  byte ring is the wrong shape for. X = $80 + channel selects a block channel;
+//  the byte channels are 0..3, so the two ranges cannot collide, and $84 and up
+//  is refused exactly as X = 4 is:
+//
+//      kIpcPost  X = $80+c, A = length (1..255), kPtr = the source
+//                -> C=1 if X is out of range; blocks while the ring is full
+//      kIpcPick  X = $80+c, kPtr = the destination
+//                -> C=0, A = the length; C=1 when that channel is empty
+//
+//  A frame is one 256-byte page of bank 250 (`REU_IPC_BASE`), so the frame index
+//  IS the address: lo 0, hi = frame, bank = the IPC bank. One DMA per message
+//  instead of one `sta` per byte -- 255 bytes in a fraction of a millisecond,
+//  against ~86 cycles a byte through the ring -- which is the whole reason for a
+//  second path. There is no third kernel entry because `LIB_CALLS` is at its
+//  ceiling (main.asm): the channel code is the sub-op, the way `kMouseCall` and
+//  `kFpCall` select theirs.
+//
+//  WARNING: THE LENGTH LIVES IN `ipcBlkLen`, INDEXED BY FRAME -- not by channel, and
+//  not in the frame itself. One writer (that frame's producer) and one reader (its
+//  consumer), which is the same single-owner argument that makes `ipcHead` and
+//  `ipcTail` lock-free. It is written BEFORE the payload and published by the head
+//  byte after it, so a consumer can never read a frame's length and payload from
+//  different messages.
+//
+//  WARNING: 63 OF THE 64 FRAMES PER CHANNEL ARE USABLE. The ring leaves one frame
+//  empty so that "full" and "empty" stay distinct, exactly as the byte rings do.
 // ==========================================
 
 .encoding "screencode_mixed"
@@ -81,6 +111,18 @@ ipcCode:
 //  same geometry.
 .const IPC_CHANNELS = 4
 
+//  The block channels: X = IPC_BLK_CODE + c selects channel c of the REU frames.
+//  Four of them, 64 frames each, filling bank 250 exactly (256 pages), and a
+//  power of two so both the channel base (c x 64) and the ring wrap (& 63) are
+//  arithmetic rather than a table.
+.const IPC_BLK_CODE     = $80
+.const IPC_BLK_CHANNELS = 4
+.const IPC_BLK_MASK_CH  = IPC_BLK_CHANNELS - 1
+.const IPC_BLK_FRAMES   = 64
+.const IPC_BLK_MASK     = IPC_BLK_FRAMES - 1
+.const IPC_BLK_USED     = IPC_BLK_CHANNELS * IPC_BLK_FRAMES   // = the bank's 256 frames
+.const IPC_BLK_BANK     = REU_IPC_BASE / $10000               // the bank they live in
+
 // ==========================================
 //  ipcPost -- kIpcPost: append byte A to the pipe
 // ==========================================
@@ -106,8 +148,15 @@ ipcCode:
 //  3's head.
 ipcPost:
     cpx #IPC_CHANNELS
-    bcs ipcPostBad               // X out of range: refuse rather than write into
-                                 // a neighbouring ring (the sprite API's rule)
+    bcc ipcPostByte              // 0-3: the byte pipe
+    cpx #IPC_BLK_CODE            // below $80 there is nothing...
+    bcc ipcPostBad
+    cpx #IPC_BLK_CODE+IPC_BLK_CHANNELS
+    bcc ipcBlkSend               // ...$80-$83 are the block frames
+ipcPostBad:
+    sec                          // C=1, nothing stored -- and NO `pla`, because the
+    rts                          //   range check ran before anything was parked
+ipcPostByte:
     tay                          // park the byte in Y for a moment...
     txa
     pha                          // ...park the CHANNEL (lower on the stack)...
@@ -147,9 +196,72 @@ ipcPostWait:
     lda $0102,x                  //   our own stack ($0102,x = one below the top,
     tax                          //   because the byte sits above it)
     jmp ipcPostFull
-ipcPostBad:
-    sec                          // C=1, nothing stored -- and NO `pla`, because the
-    rts                          //   range check ran before anything was parked
+
+// ==========================================
+//  ipcBlkSend -- the block half of kIpcPost: X = $80+channel, A = length (1..255),
+//  kPtr = the source. One DMA into the ring's next frame.
+// ==========================================
+//  The channel and the length are parked on the task's own stack while the full
+//  test waits, for the reason ipcPost's wait does the same -- SYS_SLEEP comes
+//  back with X = curTask. The frame's length goes into `ipcBlkLen` BEFORE the
+//  payload and the head byte is published after it, so a consumer never pairs a
+//  length with another message's bytes.
+//  Clobbers A, X, Y, kPtr (read only), kArg..kArg+4.
+ipcBlkSend:
+    cmp #0                       // a length of 0 is not "nothing to send": the DMA
+    beq ipcPostBad               //   counts down to zero, so it would move 65536
+                                 //   bytes and run over the whole bank
+    pha                          // park the length...
+    txa
+    pha                          // ...and the channel code on top of it
+iblkSRetry:
+    tsx
+    lda $0101,x                  // the parked channel code
+    and #IPC_BLK_MASK_CH
+    tay                          // Y = the block channel
+    lda ipcBlkHead,y             // A = the slot this frame will fill
+    sta kArg+1                   // the frame index starts at the slot
+    clc
+    adc #1
+    and #IPC_BLK_MASK            // the slot AFTER it: the one that stays free
+    cmp ipcBlkTail,y
+    beq iblkSWait                // no room: head+1 == tail
+    tya
+    asl
+    asl
+    asl
+    asl
+    asl
+    asl                          // channel x 64 = its first frame
+    clc
+    adc kArg+1
+    sta kArg+1                   // = the frame index, which IS the address's hi byte
+    tsx
+    lda $0102,x                  // the parked length
+    sta kArg+3                   // the transfer length...
+    ldx kArg+1                   // ...and the frame this length belongs to
+    sta ipcBlkLen,x
+    lda #0
+    sta kArg+4                   // length hi
+    sta kArg                     // REU lo = 0: the frame's first byte
+    lda #IPC_BLK_BANK
+    sta kArg+2
+    jsr kReuFromC64              // (kPtr) -> the frame; X and Y survive
+    lda ipcBlkHead,y             // the slot again -- nothing moved it
+    clc
+    adc #1
+    and #IPC_BLK_MASK
+    sta ipcBlkHead,y             // ...then the consumer may see it
+    pla                          // the parked channel code
+    pla                          // the parked length
+    clc
+    rts
+iblkSWait:
+    lda #1
+    sta kArg+1
+    lda #SYS_SLEEP
+    jsr syscall
+    jmp iblkSRetry
 
 // ==========================================
 //  ipcPick -- kIpcPick: take the oldest byte from the pipe
@@ -163,7 +275,15 @@ ipcPostBad:
 //  SYS_SLEEP, which yields.
 ipcPick:
     cpx #IPC_CHANNELS
-    bcs ipcPickEmpty             // out of range: report empty, consume nothing
+    bcc ipcPickByte              // 0-3: the byte pipe
+    cpx #IPC_BLK_CODE            // below $80 there is nothing...
+    bcc ipcPickEmpty
+    cpx #IPC_BLK_CODE+IPC_BLK_CHANNELS
+    bcc ipcBlkPick               // ...$80-$83 are the block frames
+ipcPickEmpty:
+    sec                          // out of range or empty: nothing was consumed
+    rts
+ipcPickByte:
     lda ipcRingLo,x
     sta kPtr                     // kPtr = this channel's ring (see ipcPost)
     lda ipcRingHi,x
@@ -181,8 +301,51 @@ ipcPick:
     pla
     clc
     rts
-ipcPickEmpty:
-    sec
+
+// ==========================================
+//  ipcBlkPick -- the block half of kIpcPick: X = $80+channel, kPtr = the
+//  destination. One DMA out of the ring's oldest frame.
+// ==========================================
+//  C=1 (and nothing transferred) when the channel is empty, so a consumer polls
+//  or sleeps exactly as it does for a byte channel. The tail byte is advanced
+//  only AFTER the payload has landed in the caller's buffer, so a producer can
+//  never overwrite the frame mid-transfer.
+//  Clobbers A, X, Y, kPtr (read only), kArg..kArg+4.
+ipcBlkPick:
+    txa
+    and #IPC_BLK_MASK_CH
+    tay                          // Y = the block channel
+    lda ipcBlkTail,y             // A = the frame this read will take
+    cmp ipcBlkHead,y
+    beq ipcPickEmpty             // head == tail: nothing buffered
+    sta kArg+1                   // the frame index starts at the slot
+    tya
+    asl
+    asl
+    asl
+    asl
+    asl
+    asl                          // channel x 64 = its first frame
+    clc
+    adc kArg+1
+    sta kArg+1                   // = the frame index, which IS the address's hi byte
+    ldx kArg+1
+    lda ipcBlkLen,x              // the length its producer recorded
+    sta kArg+3
+    pha                          // ...and the answer this call returns
+    lda #0
+    sta kArg+4                   // length hi
+    sta kArg                     // REU lo = 0: the frame's first byte
+    lda #IPC_BLK_BANK
+    sta kArg+2
+    jsr kReuToC64                // the frame -> (kPtr); X and Y survive
+    lda ipcBlkTail,y
+    clc
+    adc #1
+    and #IPC_BLK_MASK
+    sta ipcBlkTail,y             // ...then the frame may be reused
+    pla
+    clc
     rts
 
 // ==========================================
@@ -191,6 +354,13 @@ ipcPickEmpty:
 // ==========================================
 ipcHead:     .fill IPC_CHANNELS, 0   // producer's write index, one per channel
 ipcTail:     .fill IPC_CHANNELS, 0   // consumer's read index, one per channel
+ipcBlkHead:  .fill IPC_BLK_CHANNELS, 0   // the same pair for the block frames
+ipcBlkTail:  .fill IPC_BLK_CHANNELS, 0
+//  The length of every frame in the bank, indexed by FRAME. One writer (that
+//  frame's producer) and one reader (its consumer), which is what keeps this
+//  lock-free on the same argument as head and tail. Written before the payload,
+//  published by the head byte after it.
+ipcBlkLen:   .fill IPC_BLK_USED, 0
 //  Channel -> ring table. Both routines load a channel's base into kPtr, so the
 //  rings need no page alignment and pack tightly. Each `.byte >ipcRingN` is a
 //  relocated high byte and is picked up by the three-pass fixup generator.
@@ -200,5 +370,13 @@ ipcRing0:    .fill IPC_SIZE, 0
 ipcRing1:    .fill IPC_SIZE, 0
 ipcRing2:    .fill IPC_SIZE, 0
 ipcRing3:    .fill IPC_SIZE, 0
+
+//  The block frames are addressed as lo 0, hi = frame index, bank = the IPC
+//  bank, so the base must be page-aligned and one page must hold the longest
+//  message a length byte can describe.
+.assert "the IPC bank starts on a bank boundary", (REU_IPC_BASE & $FFFF) == 0 ? 1 : 0, 1
+.assert "the block channels fill that one bank", IPC_BLK_USED == $100 ? 1 : 0, 1
+.assert "the frame index is the high byte of its address", IPC_BLK_BANK * $10000 == REU_IPC_BASE ? 1 : 0, 1
+.assert "a frame holds the longest message", REU_IPC_FRAME >= 255 ? 1 : 0, 1
 
 .label ipcEnd = *

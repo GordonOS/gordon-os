@@ -1279,6 +1279,66 @@
     }
     .word $FFFF
 
+// --- ws - checks the per-task REU workspace (REU_WS_BASE): zeros at spawn, a write/read round trip, and the window's last byte ---
+.var wsBase     = LoadBinary("../tasks-out/temp/ws.base.bin")
+.var wsShift    = LoadBinary("../tasks-out/temp/ws.shift.bin")
+.var wsCheck    = LoadBinary("../tasks-out/temp/ws.check.bin")
+.var wsNameLen  = wsBase.get(12)
+.var wsCodeSize = wsBase.getSize() - 256
+.var wsFixups   = List()
+
+// scan: a code byte that advanced by exactly one page is a high byte.
+// Mask both operands to 0..255 - LoadBinary returns signed bytes, and
+// an unmasked difference is only correct while no byte crosses $80.
+.for (var i = 256; i < wsBase.getSize(); i++) {
+    .if (((wsShift.get(i) & $FF) - (wsBase.get(i) & $FF)) == 1) {
+        .eval wsFixups.add(i - 256)
+    }
+}
+.print "ws: " + wsCodeSize + " bytes of code, " + wsFixups.size() + " fixups"
+
+// verify fixups: base + 2 pages must equal check.
+.for (var f = 0; f < wsFixups.size(); f++) {
+    .var idx = 256 + wsFixups.get(f)
+    .if ((((wsBase.get(idx) & $FF) + 2) & $FF) != (wsCheck.get(idx) & $FF)) {
+        .error "ws: fixup verify failed at code offset " + wsFixups.get(f)
+    }
+}
+
+// verify position independence: every NON-fixup byte must be equal.
+.var wsFi = 0
+.for (var i = 256; i < wsBase.getSize(); i++) {
+    .if ((wsFi < wsFixups.size()) && (i - 256 == wsFixups.get(wsFi))) {
+        .eval wsFi++
+    } else {
+        .if ((wsBase.get(i) & $FF) != (wsCheck.get(i) & $FF)) {
+            .error "ws: non-fixup byte changed at code offset " + (i - 256)
+        }
+    }
+}
+.print "ws: relocation verification OK"
+
+.segmentdef wsFinal [outBin="../tasks-out/ws.bin"]
+.segment wsFinal
+
+// magic byte 1 (+0) is shared.
+.fill 2, wsBase.get(i)
+
+// Header: flags..name, then the fixup trailer (16-bit count + the
+// table offset), then zero padding to the 256-byte page.
+    .fill 11 + wsNameLen, wsBase.get(2 + i)      // flags..name
+    .word wsFixups.size()                          // fixup count (16-bit)
+    .word 256 + wsCodeSize                         // fixup_offset (file offset of the table)
+    .if (17 + wsNameLen > 256) {
+        .error "ws: header overflow"
+    }
+    .fill 256 - (17 + wsNameLen), 0                // pad to the 256-byte page
+    .fill wsCodeSize, wsBase.get(256 + i)         // code body
+    .for (var f = 0; f < wsFixups.size(); f++) {
+        .word wsFixups.get(f)
+    }
+    .word $FFFF
+
 // --- banner - 2-page runtime kMalloc row buffer, freed on exit ---
 .var bannerBase     = LoadBinary("../tasks-out/temp/banner.base.bin")
 .var bannerShift    = LoadBinary("../tasks-out/temp/banner.shift.bin")
@@ -1759,7 +1819,7 @@
     }
     .word $FFFF
 
-// --- ipctest - declares ipc.lib; the ipc.lib runtime self-test (keep - the counterpart of fstest) - spawns two thread producers (channels 1 and 3) and consumes both interleaved, so the backpressure wait and the channel recovery after SYS_SLEEP are both exercised; expect `ipc PASS` ---
+// --- ipctest - declares ipc.lib; the ipc.lib runtime self-test (keep - the counterpart of fstest) - byte half: spawns two thread producers (channels 1 and 3) and consumes both interleaved, so the backpressure wait and the channel recovery after SYS_SLEEP are both exercised; block half: refuses X = $84, then a third thread sends the whole 64-frame ring on block channel $82 (length 1+n on frame n, payload XORed with frameCount so a repeat run cannot pass on stale frames) while the parent drains and verifies it; expect `ipc PASS` ---
 .var ipctestBase     = LoadBinary("../tasks-out/temp/ipctest.base.bin")
 .var ipctestShift    = LoadBinary("../tasks-out/temp/ipctest.shift.bin")
 .var ipctestCheck    = LoadBinary("../tasks-out/temp/ipctest.check.bin")
@@ -2659,7 +2719,7 @@
     }
     .word $FFFF
 
-// --- ipclib - lib 6 (lazy), relocatable; IPC pipe (kIpcPost/kIpcPick) as a 128-byte ring in the library's own shared data, lock-free SPSC, no caller ZP ---
+// --- ipclib - lib 6 (lazy), relocatable; two halves behind the same two entries - byte channels (X = 0-3, a 128-byte ring in the library's own shared data, lock-free SPSC) and block channels (X = $80-83, whole 256-byte frames of REU bank 250, 64 frames per channel, length per frame in ipcBlkLen); no caller ZP, and no third call index because LIB_CALLS is at its ceiling ---
 .var ipclibBase     = LoadBinary("../tasks-out/temp/ipclib.base.bin")
 .var ipclibShift    = LoadBinary("../tasks-out/temp/ipclib.shift.bin")
 .var ipclibCheck    = LoadBinary("../tasks-out/temp/ipclib.check.bin")

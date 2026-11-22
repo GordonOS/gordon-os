@@ -3,7 +3,7 @@
 > Complete memory layout for the Commodore 64 under GordonOS (`$01=$35`).
 > Every figure below is checked against the KickAssembler build map by
 > `tools/verify-map.ps1`, which rebuilds the kernel, recomputes the free runs
-> and their total (**480B across 28 pockets**) and asserts the pinned pockets.
+> and their total (**443B across 28 pockets**) and asserts the pinned pockets.
 > A green build makes **234 asserts**.
 > The FS block must stay above `$0801` — the PRG's first block has to be
 > the BASIC stub, or VICE autostart flattens the PRG into one linear
@@ -121,11 +121,12 @@ main.asm  .pc=$0801  →  BASIC loader
 | `$0F00-$0FBF` | 192B | sprite slots 5-7 | ⚠️ **Not free RAM** — 3 × 64B VIC sprite blocks (`$0F00 $0F40 $0F80`, the **high band**). Ordinary task sprites, like every other slot. Carved out of `verify-map.ps1`'s free total |
 | `$0FC0-$0FC9` | 10B | `main.asm` | `libNameMouse` — the `"mouse.lib"` name string, in the relocation slack above the slot band. `$0FC0` is deliberately not a slot: eight is the VIC's ceiling |
 | `$0FCA-$0FCB` | 2B | | ✓ Free — the rest of that slack |
-| `$0FCC-$13BF` | ~1.0KB | | **Kernel core part 2**: `spawnCore`'s remainder (`$0FCC-$10D8`) + `sysSpawn`/`sysKill` and the rest of the syscall API (hard limit is `reuDirBuf` at `$13D4`, guarded by the `kernelCoreEnd` assert) |
-| `$13C7-$13D3` | 13B | | ✓ Free — the kernel core's growth headroom (`kernelCoreEnd` is at `$13C7`; `main.asm` asserts it stays `<= $13D4`) |
+| `$0FCC-$13C9` | ~1.0KB | | **Kernel core part 2**: `spawnCore`'s remainder (`$0FCC-$10D8`) + `sysSpawn`/`sysKill` and the rest of the syscall API (hard limit is `reuDirBuf` at `$13D4`, guarded by the `kernelCoreEnd` assert) |
+| `$13CA-$13D3` | 10B | | ✓ Free — the kernel core's growth headroom (`kernelCoreEnd` is at `$13CA`; `main.asm` asserts it stays `<= $13D4`) |
 | `$13D4-$14D3` | 256B | `reuDirBuf` | REU directory page buffer |
 | `$14D4-$176E` | 667B | | REU filesystem code (init, detect, find/dma helpers, `reuLoad`, `reuDmaRange`, `reuLoadAtomic`). With `reuDirBuf` the whole FS block is 923B (`$13D4-$176E`) |
-| `$176F-$1795` | 39B | | ✓ Free — the FS block's tail, between `reuDmaRange`'s `rdrDma` helper and `spawnCore`'s relocated front half |
+| `$176F-$1790` | 34B | `reu-fs.inc` | `clearSlotWorkspace` — zeroes a spawned slot's 4KB REU workspace (`REU_WS_BASE`), the most expensive clear on the spawn path and still one DMA fill |
+| `$1791-$1795` | 5B | | ✓ Free — the rest of the FS block's tail, below `spawnCore`'s relocated front half |
 | `$1796-$1843` | 174B | `syscall.inc` | `spawnCore`'s first 132B + a 3B `jmp` seam back to the remainder at `$0FCC` (`$1796-$181C`, guarded by the `spawnPieceEnd <= $186F` assert), then `warmBootReset` 28B (`$181D-$1838`) and `sprite.lib`'s name string (`$1839-$1843`). **`$1844-$186E` (43B) is free.** See the SEAM note in `syscall.inc` |
 | `$529E-$52CC` | 47B | `sprite.inc` | `warmSpriteReset` 34B (`$529E-$52BF`) + 1B free (`$52C0`) + `kbScreenGate` 11B (`$52C1-$52CB`) + 1B free (`$52CC`). `kbScreenGate` is the switch path's first stop: it applies a display change the key scan recorded, or jumps straight back. It lives here because every band it is reached from is pinned. `warmSpriteReset` is the reboot half. A reboot must forget every task's sprite state — the live copy in kernel RAM, `sprLiveOwner`, and the whole per-task REU block region — or the boot task (slot 0, which never goes through the spawn path) would inherit the last session's sprites. Called by `warmBootReset` and by `init.inc`'s cold boot (the REU image persists) |
 | `$186F-$189E` | 48B | | `tasks.inc` — task lookup tables (`taskLo`/`taskHi`, populated at runtime) |
@@ -521,9 +522,7 @@ the first scroll clobbers it — harmless.
 | `$00C000-$00C17F` | 384B | Thread names (24 × 16B) — the `parent.N` names `ps` prints |
 | `$00C180-$00C3FF` | 640B | (free) |
 | `$00C400-$00CFFF` | 3KB | **Per-task sprite state, 24 × 128B** at `REU_SPR_BASE + slot × 128` — the sheet records, the 39-byte shadow and the frame indices (71B used per block). Page-aligned on purpose: the block address is `slot × 128` with no add, so the base's low byte must be 0 (asserted in `main.asm`). Only the display owner's copy is live in kernel RAM; `sprInstall` swaps them with the display, and `warmSpriteReset` zeroes the region at a warm reboot |
-| `$00D000-$00D2CF` | 720B | **`grpaint`'s saved UI band** — the canvas's bottom two cell rows as the task found them: 640 pixel bytes at `$D000` and 80 matrix bytes at `$D280`, kept only while the palette is up so the release can put them back (`gpDma` in `src/tasks/dynamic/grpaint.inc`). The band's own image — the palette and the tools — is not here: it is the REU-FS file `gpui.bin` -- and `gpuimc.bin` for the multicolour band
--- written by `tools/gen-ui.py`. Bank 0 is free below the FS (which starts at bank 5 `$9000`), so the save costs the filesystem no capacity |
-| `$00D2D0-$00FFFF` | ~11.3KB | (free in bank 0) |
+| `$00D000-$00FFFF` | ~12KB | (free in bank 0) — `grpaint`'s saved UI band lives in the task's own REU workspace (`REU_WS_BASE`), so nothing here claims a fixed address |
 
 ### Bitmap Slots (banks 1+)
 28 slots × 10KB each at `$010000-$055FFF` (slot N = `$010000 + N×$2800`):
@@ -554,11 +553,14 @@ the first scroll clobbers it — harmless.
 | `$00C000-$00C17F` | 384B | Thread names (24 × 16B) |
 | `$00C180-$00C3FF` | 640B | (free in bank 0) |
 | `$00C400-$00CFFF` | 3KB | **Per-task sprite state (24 × 128B)** — one block per task slot, swapped with the display |
-| `$00D000-$00D59F` | 1440B | **`grpaint`'s UI band images** ([gordonpaint.md](gordonpaint.md)) — the palette/tools pixels (640B), their matrix (80B), and the band's saved pixels and matrix (the same two sizes, see the table above). Four REU DMAs per show or hide, so the task's code image holds no copy of the band |
+| `$00D000-$00D59F` | 1440B | (free in bank 0) — `grpaint`'s saved UI band is in the task's REU workspace |
 | `$00D5A0-$00FFFF` | ~10.6KB | (free in bank 0) |
 | `$010000-$055FFF` | 280KB | Bitmap slots (28 × 10KB, banks 1+) |
 | `$056000-$058FFF` | 12KB | (free — gap between bitmap slots and FS) |
-| `$059000-$FAFFFF` | ~15.7MB | REU filesystem (16 KB directory + 24-bit data region, banks 5–250, capacity `$F53000`) — see table below |
+| `$059000-$F7FFFF` | ~15.5MB | REU filesystem (16 KB directory + 24-bit data region, banks 5–247, capacity `$F23000`) — see table below |
+| `$F80000-$F97FFF` | 96KB | **Per-task REU workspace** (`REU_WS_BASE`) — 24 slots × 4KB (`REU_WS_SIZE`), slot *n* at `REU_WS_BASE + n × $1000`, so slots 16–23 cross into bank 249. Zeroed at spawn by `clearSlotWorkspace`. Banks 248–249 |
+| `$F98000-$F9FFFF` | 32KB | (free — the slack above 24 × 4KB inside the two banks the workspace reserved) |
+| `$FA0000-$FAFFFF` | 64KB | **Block IPC frames** (`REU_IPC_BASE`) — 256 frames of 256 B, four block channels of 64 frames each for `ipc.lib`'s `kIpcPost`/`kIpcPick` block forms ([lib-ipc.md](lib-ipc.md)). A frame index *is* its address high byte: lo 0, hi = frame, bank `$FA`. Held out of the FS data region, so it costs the filesystem nothing. Bank 250 |
 | `$FB0000-$FBFFFF` | 64KB | `grpaint`'s **undo/redo ring** ([gordonpaint.md](gordonpaint.md)) — six 10,240-byte canvas states (a `.pic` payload plus the mode and the palette), bank 251 |
 | `$FC0000-$FFFFFF` | 256KB | Malloc shadow (banks 252–255, 32 KB/slot × 8 dyn slots) |
 
@@ -567,12 +569,12 @@ the first scroll clobbers it — harmless.
 |---|---|---|
 | `$059000-$05CFFF` | 16KB | Directory (512 entries × 32 bytes, bank 5) |
 | `$05D000-$05FFFF` | 12KB | Data region — bank 5 tail (`REU_FS_BANK5_CAP = $3000`) |
-| `$060000-$06FFFF` | 64KB | Data region — bank 6 (+`$10000` per additional bank, up to bank 250) |
-| `$FA0000-$FAFFFF` | 64KB | Data region — the highest bank the filesystem may use. `reuFsCapacity` is `$3000 + (banks - 11) × $10000`, so the last data byte is `$FAFFFF` and the undo band above it can never be allocated into |
+| `$060000-$06FFFF` | 64KB | Data region — bank 6 (+`$10000` per additional bank, up to bank 247) |
+| `$F70000-$F7FFFF` | 64KB | Data region — the highest bank the filesystem may use. `reuFsCapacity` is `$3000 + (banks - 14) × $10000`, so the last data byte is `$F7FFFF`; the workspace, IPC and undo bands above it can never be allocated into |
 | `$FC0000-$FFFFFF` | 256KB | **Malloc shadow** — banks 252–255, 32 KB/slot × 8 dyn slots (bank `252 + slot>>1`, within-bank offset `(slot&1)<<7`) |
 
-Capacity formula (24-bit): `$3000 + (reuTotalBanks − 10) × $10000` — byte0 = `$00`, byte1 = `$30`, byte2 = `max(0, totalBanks − 10)` (= `$F6` at 256 banks). The top 4 banks (252–255) are reserved for the malloc shadow.
-For 16MB REU (256 banks): the FS data region spans banks 5–251, capacity ≈ 15.8 MB (`$F63000`).
+Capacity formula (24-bit): `$3000 + (reuTotalBanks − 14) × $10000` — byte0 = `$00`, byte1 = `$30`, byte2 = `max(0, totalBanks − 14)` (= `$F2` at 256 banks). Banks 248–249 are the per-task workspace, 250 the IPC buffer and 251 the undo ring; the top 4 (252–255) are the malloc shadow.
+For 16MB REU (256 banks): the FS data region spans banks 5–247, capacity ≈ 15.1 MB (`$F23000`).
 
 ---
 
@@ -580,7 +582,7 @@ For 16MB REU (256 banks): the FS data region spans banks 5–251, capacity ≈ 1
 
 Free ranges in C64 RAM, recomputed from the KickAssembler build map (every
 range below is a gap between two emitted blocks or the tail of a pinned
-pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 480
+pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 443
 -ExpectPockets 28` are its built-in defaults — no arguments needed.
 
 > **The jump-table addresses in the docs have their own gate:**
@@ -614,8 +616,9 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 480
 | `$0EE3-$0EFF` | 29B | `slot-shadow.inc` — `clearKArgShadow`, the spawn path's clear of a recycled slot's kArg shadow (parked at the top of the run so the room below stays one piece) |
 | `$0FC0-$0FC9` | 10B | `libNameMouse` — the `"mouse.lib"` name string, in the relocation slack above the high band |
 | `$0FCA-$0FCB` | 2B | Free — the rest of that slack. `$0FC0` is deliberately **not** a slot: eight is the VIC's ceiling |
-| `$13C7-$13D3` | 13B | Free — the kernel core's growth headroom (the core's linear end is `kernelCoreEnd` at `$13C7`). ⚠️ Never park a routine at the bottom of this run: it is the core's only spare space |
-| `$176F-$1795` | 39B | Free — the FS code's tail: after `reuDmaRange`'s `rdrDma` helper (`reu-fs.inc` ends at `$176E`) and before `spawnCore`'s relocated front half at `$1796` |
+| `$13CA-$13D3` | 10B | Free — the kernel core's growth headroom (the core's linear end is `kernelCoreEnd` at `$13CA`). ⚠️ Never park a routine at the bottom of this run: it is the core's only spare space |
+| `$176F-$1790` | 34B | `clearSlotWorkspace` — `reu-fs.inc`, the spawn path's zeroing of a recycled slot's 4KB REU workspace (part of the FS code's tail run) |
+| `$1791-$1795` | 5B | Free — the rest of that tail run, below `spawnCore`'s relocated front half at `$1796` |
 | `$1844-$186E` | 43B | `printGlyphAt` (40B, `$1844-$186B`) + 4B free — above `sprite.lib`'s name string (`$1839-$1843`, 11B) and `warmBootReset` (28B at `$181D-$1838`), below `taskLo` at `$186F` |
 | `$1C6A-$1C6D` | 4B | Free — the tail of the `$1A1B` stub block, 4B below `sysExit` at `$1C6E` (the block's limit is asserted in `main.asm`) |
 | `$1CBC-$1CBF` | 4B | Free — above `sysExit`+`seClean` (`sysExitMovedEnd <= $1CC0`) |
@@ -638,7 +641,7 @@ pocket). `tools/verify-map.ps1` checks this exact set: `-ExpectTotal 480
 | `$ECBA-$ECD8` | 31B | `paRoute` (`scroll-region.inc`) — `kPrintCharAt`'s surface router; **3B free at `$ECD9-$ECDB`** above it, under `gfx.inc`'s anchor |
 | `$FBE0-$FC3E` | 95B | ✓ Free — the code chain's growth room below the `$FC3F` gfx scratch pin |
 | `$FFE9-$FFF8` | 16B | `gfxSurfPrep`'s tail (the cursorRow/cursorOn stores, `jmp`ed to from `$CD5C`) then the `kScrollRegionDown` entry stub (`$FFF6-$FFF8`); 1B free at `$FFF9`, below the vectors |
-| **Total (fixed headroom)** | **480B across 28 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total |
+| **Total (fixed headroom)** | **443B across 28 pockets** | ⚠️ This EXCLUDES the **512B of sprite slots (8 × 64B)**, which `verify-map.ps1` carves out because the map cannot show them. The sprite feature occupies **~1.1KB** in total: those 512B of fixed slots plus the code (`sprInstall` 91 + `warmSpriteReset` 34 + the helpers 48 + `kSpriteCollide`/`clearSlotSprite` 59 + `sprFrameDma` 86 + `rasterCommit` 129), the five entry stubs, the 71-byte per-task state block and the per-task REU blocks. `tools/verify-map.ps1` pins this total and the pocket count (its `-ExpectTotal` / `-ExpectPockets` defaults) and recomputes the runs from the build map, so the map stays the authority. Keep the free runs as long, clean runs rather than splitting them: every reader of this table budgets from the total |
 
 Usable beyond the fixed headroom:
 
