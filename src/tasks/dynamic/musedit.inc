@@ -3254,12 +3254,14 @@ muBarPrompt:
     lda #0
     sta muObjFresh              // the first digit starts the number afresh
 mbtDraw:
+    jsr muBlinkOff              // the repaint below must not race a live block
     jsr muClearRow0
     lda #M_BAR2
     jsr muMsg
     lda muObjVal
     ldx muObjValHi
     jsr muNum16
+    jsr muBlinkOn               // the block follows the value as digits come and go
 mbtKey:
     jsr kReadKey
     beq mbtWait
@@ -3284,12 +3286,14 @@ mbtBack:
     jsr muValDiv10
     jmp mbtDraw
 mbtTake:
+    jsr muBlinkOff              // RETURN ends the prompt, whether it jumps or refuses
     lda muObjVal
     ora muObjValHi
-    bne muBarGo
+    beq mbtRts                  // bar 0 does not exist
+    jmp muBarGo                 // muBarGo is out of branch range from here
 mbtRts:
-    jsr muDrawHead              // bar 0 does not exist: the prompt only touched row 0,
-                                //   so the head takes it back
+    jsr muBlinkOff              // STOP -- a no-op when mbtTake already ran it
+    jsr muDrawHead              // the prompt only touched row 0, so the head takes it back
     jmp muKeyIdle
 
 // ==========================================
@@ -6450,16 +6454,26 @@ mqRefuse:
 mqRts:
     rts
 
-// --- mqCsrOff -- retire the blinking block from the prompt's own row ---
+// --- muBlinkOff -- retire the blinking block from a prompt's own row ---
 //  Disable BEFORE resetting: with cursorOn still set, an IRQ tick could redraw the
 //  block between the two calls. kBlinkReset also forgets the cell it saved, so the
 //  next ON is a fresh draw wherever the cursor has been moved to. That is what lets
-//  mqDraw repaint row 0 through muPutC -- a bare framebuffer blit, not a
+//  a prompt repaint row 0 through muPutC -- a bare framebuffer blit, not a
 //  cursor-aware writer -- without the block being baked into the cell or restored
-//  over it by a later blink.
-mqCsrOff:
+//  over it by a later blink. Calling it when no block is live is a no-op.
+muBlinkOff:
     jsr kDisableCursor          // A, Y and kPtr clobbered
     jmp kBlinkReset             // A, X, Y, kPtr and kArg+7 clobbered
+
+// --- muBlinkOn -- park the block one cell past the value and let it blink ---
+//  MU_CURCOL is where muNum16 left the text cursor, so the block sits on the cell
+//  the next digit would go in. Both numeric prompts draw on row 0, so the row is
+//  not a parameter.
+muBlinkOn:
+    ldx muCurCol
+    ldy #0                      // the head row
+    jsr kSetCursor              // the only call that keeps every register
+    jmp kEnableCursor           // A, Y and kPtr clobbered, so it goes last
 
 // --- mqPick -- the row-0 prompt: pick the mnemonic, then type the operand ---
 mqPick:
@@ -6467,7 +6481,7 @@ mqPick:
     sta muObjPhase
     sta muObjFresh
 mqDraw:
-    jsr mqCsrOff                // the repaint below must not race a live block
+    jsr muBlinkOff              // the repaint below must not race a live block
     jsr muObjEnc                // the operand's maximum, and the encoded pair
     jsr mqClamp                 // a mnemonic picked after a value was typed keeps it
     jsr muClearRow0
@@ -6492,12 +6506,7 @@ mqDraw:
 mqDrawEnd:
     lda muObjPhase
     beq mqIdKey                 // picking the mnemonic: there is no parameter yet
-    //  The operand step: park the block on the cell the next digit would go in --
-    //  MU_CURCOL is where muNum16 left the text cursor -- and let it blink there.
-    ldx muCurCol
-    ldy #0                      // the head row, which is where the prompt is drawn
-    jsr kSetCursor              // the only call that keeps every register
-    jsr kEnableCursor           // A, Y and kPtr clobbered, so it goes last
+    jsr muBlinkOn               // the operand step: the block follows the value
     jmp mqValKey
 
 // --- the mnemonic step: CRSR up and down walk the nine, RETURN takes one ---
@@ -6680,7 +6689,7 @@ muObjToKArg10:
 
 // --- mqTake -- encode the pair and write it ---
 mqTake:
-    jsr mqCsrOff                // RETURN ends the prompt: the block goes before the write
+    jsr muBlinkOff              // RETURN ends the prompt: the block goes before the write
     lda muErr                   // was the tune walkable before this write? MU_OBJFRESH
     sta muObjFresh              //   holds the answer until mqDone reads it
     jsr muObjEnc
@@ -6747,7 +6756,7 @@ mqFine:
 mqStatus:
     jmp muStatus
 mqCancel:
-    jsr mqCsrOff                // STOP ends the prompt whether or not an operand was up
+    jsr muBlinkOff              // STOP ends the prompt whether or not an operand was up
     jmp muDrawHead              // the prompt only touched row 0
 
 // --- mqPutPair -- the encoded pair into the image at MU_OBJLO/HI ---
