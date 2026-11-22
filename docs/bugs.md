@@ -21,6 +21,39 @@
 
 ---
 
+## Bug #216 — `musedit` refused every command until a note existed, because a voice's own `HLT` was not a boundary ✅ FIXED (2026-11-22)
+
+**Symptoms.** With a new tune — `run musedit mysong` — `C` (or the `CMD` cell) answered
+`? no event here` on every row of every lane, so a tune could not be started with `TEM`, an
+envelope or a waveform: the first thing that had to be entered was a note. The same refusal hid
+the end of a lane, because a `TAL` or `END` that closes a section ending at the voice's halt could
+not be written either.
+
+**Root cause.** A command pair is written *before* the event that follows its boundary, so
+`muObjKey` asked `muSeek` for an onset on the cursor's row and refused everything else
+(`muSekKind != 0`). A voice's `HLT` is not a timed event, so `muSeek` reports kind 2 ("past the
+end") at and after the last event — and a new tune is nothing *but* that position: `muNewTune`
+is a header of three stream lengths plus one bare `01 4F` per voice. Entering a note created an
+onset, which is why the editor began working after one.
+
+The format allows pairs there, and needs them: `END` at top level is the "the tune ends here"
+marker, and a section that ends with the lane closes with `TAL` immediately before the `HLT`. 36
+voices across `music/*.mus` carry pairs after their last note, and `immig.mus` voice 2 ends with
+`TAL`, `HLT`.
+
+**Fix.** `muSekTailOk` retargets a kind-2 seek at the voice's own `HLT` — `muVoEndHlt` sums the
+three stream lengths and steps back two bytes — and clears the kind, so that boundary reads
+exactly like an onset. The pair finder, which walks *backwards* over a command run, and the pair
+writer, which splices at `MU_SEKLO`, then need no special case. It is called after the seek on all
+three command paths (a new pair, an existing pair, and `SHIFT`+`INST/DEL`), and `C` on the `HLT`
+line itself now adds a pair above it instead of trying to edit the terminator.
+
+**Verified in VICE.** New tune: `C` on the `HLT` line opens the prompt, `TEM 140` lands above the
+`HLT` and the tempo takes effect; `C` on that line reopens it showing `140`; `SHIFT`+`INST/DEL`
+removes it and the tempo reverts to 144; `C` on a numbered row past the end writes there too; and
+`END` writes on its first `RETURN`. `immig.mus` still draws its `TAL`, `END`, `TAL`, `DEF 0` tail
+lines.
+
 ## Bug #215 — `scrollScreenSlot` moved every background scroll UP, because `scrollRows` consumed the direction before the slot loop read it 🟠 ✅ FIXED (2026-11-20)
 
 **Symptoms.** A task whose surface is in its REU slot — anything not currently displayed — scrolled the wrong way, and a *down* scroll could destroy the surface instead of moving it. Foreground scrolling was always correct, which is how it survived the first round of testing: `edit` and BASIC were the displayed task in every check.

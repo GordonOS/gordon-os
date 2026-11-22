@@ -6380,6 +6380,7 @@ mdkCmd:
     sta muObjMatch
     jsr muBandRebuild
     jsr muSeek
+    jsr muSekTailOk             // a pair in the run before the HLT reads as an onset
     lda muSekKind
     bne mdkGone                 // the row's event started above: no boundary
     jsr muObjFind
@@ -6424,21 +6425,104 @@ mdkGone:
 //  tune's own settings, where a sound command's operand is a timing or a waveform
 //  value that belongs to the pattern rather than to a line somebody types.
 
+// --- muVoEndHlt -- MU_OBJLO/HI = the offset of voice MU_SKV's HLT pair ---
+//  The three stream lengths sit at 2, 4 and 6, voice 1 starts at 8, and a voice's
+//  HLT is the last pair of its stream -- so its offset is the lengths summed over
+//  the voices at or before this one. Same arithmetic as muLdVoEnds, keeping the
+//  answer for one voice instead of checking all three.
+//  Clobbers A, X, Y, kPtr, srcPtr, MU_OBJLO/HI.
+muVoEndHlt:
+    jsr muImgSeat               // window 0 := page 0, where the length words live
+    ldy #2
+    lda #8
+    sta muObjLo
+    lda #0
+    sta muObjHi
+    ldx muSkV
+    beq mveSum                  // voice 1: its own length is the first word
+mveSkip:
+    lda (kPtr),y                // a voice before this one: skip its whole stream
+    clc
+    adc muObjLo
+    sta muObjLo
+    iny
+    lda (kPtr),y
+    adc muObjHi
+    sta muObjHi
+    iny
+    dex
+    bne mveSkip
+mveSum:
+    lda (kPtr),y                // ...then this voice's own length
+    clc
+    adc muObjLo
+    sta muObjLo
+    iny
+    lda (kPtr),y
+    adc muObjHi
+    sta muObjHi
+    lda muObjLo                 // the HLT is the stream's last pair: two bytes back
+    sec
+    sbc #2
+    sta muObjLo
+    bcs mveRts
+    dec muObjHi
+mveRts:
+    rts
+
+// --- muSekTailOk -- retarget a "past the end" seek at the voice's own HLT ---
+//  The walk reports kind 2 for every row at or past the end of a voice's last
+//  event. That is where the voice's terminator sits, and the format allows pairs
+//  there: a new tune is nothing but such a position, and a section that ends with
+//  the lane closes with TAL or END immediately before its HLT.
+//  Retargeting MU_SEKLO/HI at the HLT and clearing MU_SEKKIND makes that boundary
+//  read exactly like an onset, so the pair finder (which walks BACK over the run)
+//  and the pair writer (which splices at MU_SEKLO) need no special case.
+//  C=1 when the retarget happened. Clobbers A, X, Y, kPtr, srcPtr, MU_OBJLO/HI.
+muSekTailOk:
+    lda muSekKind
+    cmp #2
+    bne mstNo
+    jsr muVoEndHlt
+    lda muObjLo
+    sta muSekLo
+    lda muObjHi
+    sta muSekHi
+    lda #0
+    sta muSekKind
+    sec
+    rts
+mstNo:
+    clc
+    rts
+
 // --- muObjKey -- SHIFT+C, and the bar's CMD cell ---
 muObjKey:
     jsr muPlaying
     bcs mqRts                   // "? stop first" is already up
     jsr muCmdHere               // a command on the cursor's line?
-    bcc mqHave                  // yes: A = its mnemonic id
-    jsr muCursorIdx             // no: a new pair needs a row's OWN line
+    bcs mqObjNotCmd             // no: a new pair needs a row's OWN line
+    cmp #MU_MN_HLT              // the terminator's own line: a pair written here
+    beq mqObjTail               //   sits above the HLT, so it is a new pair
+    jmp mqHave                  // any other command line: that pair is what C changes
+mqObjNotCmd:
+    jsr muCursorIdx
     tay
     cpy #MU_GRID_ROWS
     bcs mqRefuse                // below the band: there is no row there
     lda muLnKind,y
     beq mqNoCmd                 // a command line this lane has nothing on
     jsr muSeek
+    jsr muSekTailOk             // past the voice's last event -> at its HLT
     lda muSekKind
-    bne mqRefuse                // the event started above: no boundary here
+    bne mqRefuse                // inside a note: the format cannot split it
+    jmp mqObjNew
+mqObjTail:
+    jsr muSeek                  // the HLT's line: the boundary is the HLT itself
+    jsr muSekTailOk
+    lda muSekKind
+    bne mqRefuse
+mqObjNew:
     lda #MU_MN_TEM
     sta muObjId
     lda #0
@@ -6462,6 +6546,7 @@ mqHave:
     sta muObjMatch
     jsr muBandRebuild           // the walk left the producer parked
     jsr muSeek
+    jsr muSekTailOk             // a pair in the run before the HLT reads as an onset
     lda muSekKind
     bne mqGone                  // the row's event started above: no boundary
     jsr muObjFind               // its offset, by mnemonic and operand
