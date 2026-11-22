@@ -2610,7 +2610,6 @@ moChain:
     beq moEnd
     cmp #$4f
     beq moHlt
-    lda muSopt
     and #$07
     cmp #$01
     beq moOneS
@@ -5583,7 +5582,6 @@ muSlNote:
     lda muCountHi
     sbc muSplitN+1
     sta muSplitT+1
-    lda muSplitT+1
     bne muSlRts                 // 256 or more: a run of its own
     lda muSplitT
     cmp #2
@@ -6859,8 +6857,6 @@ mqWwOr:
     sta muObjCmdB
     lda muObjVal
     sta muObjOptB
-    rts
-mqEncNoShape:
     rts
 mqEncVal:
     lda muObjVal                // the whole option byte is the operand
@@ -9189,9 +9185,6 @@ muPlayStop:
 //  so the view restarts with it.
 muPlayRewind:
     jsr muBarPlayOff            // the pass is over: PLAY goes plain in this redraw
-    lda #0
-    sta muPhCurLo
-    sta muPhCurLo+1
 
 // --- muRewindView -- the score and the cursor go back to the first row ---
 //  The player always begins a pass at the tune's first row, so the view has to
@@ -9200,6 +9193,8 @@ muPlayRewind:
 //  still where the editing is -- until the next SPACE rewinds it with the music.
 muRewindView:
     lda #0
+    sta muPhCurLo
+    sta muPhCurLo+1
     sta muTop
     sta muTop+1
     sta muToff
@@ -9929,7 +9924,6 @@ muLnNum:
     lda muDecLo                 //   colon. So the width is decided first, in 16 bits
     cmp #100
     bcs mlrThree
-    lda muDecLo
     jmp muNum2                  // under a hundred: two digits from column 1
 mlrThree:
     ldx #0
@@ -10256,9 +10250,9 @@ muMusicThread:
     lda muPhBaseHi
     sta kArg+5
     lda #1                      // a play attempt is made: kSidHush from the parent
-    sta muSidOk                 //   is only safe once sid.lib has loaded
-    lda #1                      // mode 1: <base>.wrk paged through windows 3-5. A
-    jsr kSidPlay                //   wrong mode reads the config as a tune image
+    sta muSidOk                 //   is only safe once sid.lib has loaded. A stays 1:
+    jsr kSidPlay                //   mode 1 = <base>.wrk paged through windows 3-5; a
+                                //   wrong mode reads the config as a tune image
     bcs muMtRefused             // refused: another task owns the SID
     lda muPlayOn
     beq muMusicThread           // we were hushed: the parent asked for the stop
