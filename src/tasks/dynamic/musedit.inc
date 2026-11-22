@@ -453,11 +453,10 @@ muScreen:
     // kArg = border, bg0, bg1, bg2; A = 0 -> hires text (edit.inc's colours)
     lda #$0b
     sta kArg
-    lda #0
+    lda #0                      // A stays 0 for the call: the stores below leave it alone
     sta kArg+1
     sta kArg+2
     sta kArg+3
-    lda #0
     jsr kAllocScreen
     bcc muScrOk
     jmp muQuit                  // no surface at all: leave without drawing
