@@ -676,6 +676,18 @@ unplayable, the editor says so and puts everything back — see below.
 **Overwrite or insert** — the mode `M` shows decides what happens when that boundary already carries
 the same command: `OVR` replaces it where it stands, `INS` adds a second pair.
 
+**Where a new pair goes.** A command takes no time, so it is written at the end of the row's command
+run, immediately before the note or rest itself: it is the last thing the voice does before that note
+sounds. Adding several commands to one row therefore lays them out in the order you added them — the
+first ends up furthest from the note and the last nearest. What the lines *show* is grouped by kind
+rather than by order: the row's sound commands sit on the lines further above the note and the
+structural nine on the lines nearest it.
+
+A row only has a boundary if an event *starts* there, so a row in the middle of a longer note cannot
+take a command — the format has no way to split the note, and the editor answers `? no event here`
+rather than writing a pair that would fire at the wrong moment. Put the command on the row the note
+starts on instead; a command there applies from that note's onset.
+
 **Editing and removing** — put the cursor on an existing command line and `C` opens the prompt *on
 that line*, already filled in and ready to change; `SHIFT`+`INST/DEL` removes that pair and closes
 the gap. `Z` takes either back, like any other edit.

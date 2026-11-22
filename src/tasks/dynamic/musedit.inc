@@ -6431,15 +6431,12 @@ muObjKey:
     bcs mqRts                   // "? stop first" is already up
     jsr muCmdHere               // a command on the cursor's line?
     bcc mqHave                  // yes: A = its mnemonic id
-    jsr muCursorIdx             // no: only a row's OWN line can take a new one
+    jsr muCursorIdx             // no: a new pair needs a row's OWN line
     tay
     cpy #MU_GRID_ROWS
-    bcs mqRefuse
+    bcs mqRefuse                // below the band: there is no row there
     lda muLnKind,y
-    bne mqRefuse                // no: only a row's OWN line can take a new one
-    jsr muBandRebuild           // a command line this lane has nothing on, and
-    lda #M_NO_CMD               //   muCmdHere walked the producer to find out
-    jmp muMsgGo
+    beq mqNoCmd                 // a command line this lane has nothing on
     jsr muSeek
     lda muSekKind
     bne mqRefuse                // the event started above: no boundary here
@@ -6450,6 +6447,10 @@ muObjKey:
     sta muObjValHi
     sta muObjKind               // 0 = a pair to be added at the boundary
     jmp mqPick
+mqNoCmd:
+    jsr muBandRebuild           // muCmdHere walked the producer to find out
+    lda #M_NO_CMD
+    jmp muMsgGo
 mqHave:
     sta muObjId                 // every mnemonic the picker offers has an encoder,
                                 //   so a structural id and a sound one take the same path
