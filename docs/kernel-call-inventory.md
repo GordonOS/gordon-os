@@ -11,7 +11,7 @@
 > `jsr kSyscall` finds 1 call: `tools/assemble-tasks.asm` defines
 > `.const syscall = kSyscall`, and essentially every task calls it as
 > `jsr syscall`, not `jsr kSyscall`. Folding those in puts `kSyscall` in
-> **first place (208 calls)**. See the aliasing note in Methodology.
+> **first place (209 calls)**. See the aliasing note in Methodology.
 
 ## Methodology
 
@@ -95,13 +95,13 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1277 total call sites** found across `src/`.
+- **1278 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
 | Kernel call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kSyscall`](#ksyscall) | `$E090` | 208 | 48 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
+| [`kSyscall`](#ksyscall) | `$E090` | 209 | 48 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
 | [`kNewline`](#knewline) | `$E00C` | 163 | 26 | Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row. |
 | [`kPrintString`](#kprintstring) | `$E006` | 120 | 33 | Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator. |
 | [`kPrintChar`](#kprintchar) | `$E003` | 100 | 16 | Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom. |
@@ -162,7 +162,7 @@ many calls come from that file.
 
 ### kSyscall
 
-``$E090`` — **208 calls** across 48 file(s)
+``$E090`` — **209 calls** across 48 file(s)
 
 Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address.
 
@@ -179,8 +179,8 @@ Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, 
 | `src/tasks/cmd/mousetest.inc` | 6 |
 | `src/tasks/dynamic/fpdemo.inc` | 6 |
 | `src/tasks/dynamic/gfxdemo.inc` | 6 |
+| `src/tasks/dynamic/grpaint.inc` | 6 |
 | `src/tasks/dynamic/grview.inc` | 6 |
-| `src/tasks/dynamic/grpaint.inc` | 5 |
 | `src/tasks/cmd/dir.inc` | 4 |
 | `src/tasks/cmd/kill.inc` | 4 |
 | `src/tasks/cmd/pause.inc` | 4 |

@@ -3462,7 +3462,7 @@ gpBrushGlyphs:
 .assert "the UI band's matrix starts at $0798", GP_PK_MAT0, $0798
 .assert "the band is two cell rows: two 320-byte runs, one after the other", GP_PK_LEN, GP_PK_CR*GP_PK_PH
 .assert "...and its matrix is the two rows' 80 bytes", GP_PK_MLEN, 80
-.assert "the band's saved copy is in bank 0", GP_REU_BANK, 0
+.assert "the band's saved copy fits the task's REU workspace", (GP_WS_MAT + GP_PK_MLEN) <= REU_WS_SIZE ? 1 : 0, 1
 .assert "the palette fills the band's left cells in both rows", GP_PK_SW, GP_PK_PW*GP_PK_PH
 //  gpPickT is the band cell row the pointer is on, times eight, while the picker works
 //  the cell out: its two halves are computed at different points in gpPickSel.
@@ -3474,10 +3474,10 @@ gpPickT:  .byte 0
 //  the REU into the band). So the four transfers the gesture needs are 0 and 1 to keep
 //  the band and 2 and 3 to put it back.
 //  One routine for all four, because they differ only in the endpoints: the table
-//  holds each image's C64 end, its length and its REU address, and the direction
-//  picks the call. Its two halves go to different places -- the C64 end is kPtr and
-//  the REU block is kArg -- so they are stored in table order rather than as a
-//  block, and a row is eight bytes so the row index is one shift.
+//  holds each image's C64 end, its length and its offset INSIDE the task's REU
+//  workspace, and the direction picks the call. The C64 end is kPtr and the REU
+//  address is kArg, so they are stored in table order rather than as a block, and a
+//  row is eight bytes so the row index is one shift.
 //  The parameter block is written and the call made with nothing in between, and no
 //  IRQ-free window is needed for it: the block is per task (the scheduler DMAs all 8
 //  bytes out on switch-out and back in on switch-in), and the timer's own display
@@ -3487,6 +3487,8 @@ gpPickT:  .byte 0
 //  X carries the transfer through the table lookups; the REU calls preserve it.
 gpDma:
     tax
+    jsr gpWsBase                 // kArg+1/+2 = this slot's workspace hi byte and bank
+    txa                          // Y is clobbered by the syscall, so relookup
     and #1                       // the table bit: which of the band's two images
     asl
     asl
@@ -3500,12 +3502,15 @@ gpDma:
     sta kArg+3                   // the length, low byte then high
     lda gpDmaImg+3,y
     sta kArg+4
-    lda gpDmaImg+4,y             // the REU address: low, high, then the bank
+    lda gpDmaImg+4,y             // the offset inside the workspace, low byte
     sta kArg
-    lda gpDmaImg+5,y
+    lda gpDmaImg+5,y             // ...and its high byte, added to the slot's base
+    clc
+    adc kArg+1
     sta kArg+1
-    lda gpDmaImg+6,y
-    sta kArg+2
+    bcc gpdSeat                  // the offset is at most two pages, so this carry is
+    inc kArg+2                   //   only reachable through slot x 16 being near $FF
+gpdSeat:
     txa
     and #2
     beq gpDmaOut
@@ -3516,11 +3521,32 @@ gpDmaOut:
 gpDmaDone:
     rts
 
-//  Each row: the C64 end, the length, the REU address (low, high, bank) and a spare
-//  byte that keeps the row eight long.
+// --- gpWsBase -- kArg+1/+2 = the hi byte and bank of this slot's REU workspace ---
+//  REU_WS_BASE + slot x REU_WS_SIZE: the base is page-aligned, so its low byte is 0,
+//  its hi byte is slot x 16 and the shift's carry is the bank. Recomputed per transfer
+//  rather than cached in the instance buffer: a task's slot is fixed for its life, but
+//  this keeps the workspace arithmetic in ONE place instead of adding state that has to
+//  stay in step with it.
+//  Clobbers A and Y; X is preserved, so the caller's transfer survives.
+gpWsBase:
+    lda #SYS_GETTID
+    jsr syscall                  // A = this task's slot
+    asl
+    asl
+    asl
+    asl                          // slot x 16 IS the hi byte of slot x 4KB
+    sta kArg+1
+    lda #>REU_WS_BASE
+    adc #0                       // the shift's carry: slots past 15 are in the next bank
+    sta kArg+2
+    rts
+
+//  Each row: the C64 end, the length, the offset inside the workspace (low, high) and
+//  two spare bytes that keep the row eight long, which is what makes the row index one
+//  shift.
 gpDmaImg:
-    .byte <GP_PK_SCR0, >GP_PK_SCR0, <GP_PK_LEN, >GP_PK_LEN, <GP_REU_SAV_PIX, >GP_REU_SAV_PIX, GP_REU_BANK, 0
-    .byte <GP_PK_MAT0, >GP_PK_MAT0, <GP_PK_MLEN, >GP_PK_MLEN, <GP_REU_SAV_MAT, >GP_REU_SAV_MAT, GP_REU_BANK, 0
+    .byte <GP_PK_SCR0, >GP_PK_SCR0, <GP_PK_LEN, >GP_PK_LEN, <GP_WS_PIX, >GP_WS_PIX, 0, 0
+    .byte <GP_PK_MAT0, >GP_PK_MAT0, <GP_PK_MLEN, >GP_PK_MLEN, <GP_WS_MAT, >GP_WS_MAT, 0, 0
 
 // --- gpUiRecFor -- kArg = the band record for mode A ---
 //  A record is 5 bytes of the instance buffer, filled by kReuOpen: size lo/hi, then base
