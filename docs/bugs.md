@@ -19,7 +19,128 @@
 # ACTIVE BUGS
 
 
+## Bug #221 — a note was validated against the tune's opening tempo, not the tempo of the row it was entered on ✅ FIXED (2026-11-22)
+
+**Symptoms.** On a fresh tune, type `TEM 192` on row 01 and then a 64th: refused with
+`? illegal duration`, while the head and the bar both said 192 and a 64th is a legal length at 192.
+The same note entered later in the same voice — once the voice held a note of its own — was accepted.
+Arming the tie made no difference.
+
+**Root cause.** `muSeek` primes its record with a virtual zero-length event at the voice's start
+(before the walk runs, so that an empty voice reports every row as a gap), and `muSkRecord` copies
+`muSimT` into `muSekTem` at that moment — which is `MU_INIT_TEM`, the tune's opening tempo, 144. A
+voice whose only pairs are commands (a fresh tune with `TEM` written) has no timed event, so the
+record stays the prime and `muNcGo` took `muSekTem` as the tempo in force. 144 cannot hold a 64th, so
+the entry was refused whatever the `TEM` pair said.
+
+**Fix.** The tempo a row plays at is the grid's own, the one the head prints and the walk used on that
+line: `muNcGo`, `muIvAppend` and `muIvOnset` now take it from `muCurTem` instead of `muSekTem`.
+`muIvStraddle` keeps `muSekTem`, because there the recorded event's own tempo is what its length was
+played at and no tempo change can occur inside an event.
+
+**Verified in VICE.** Fresh tune, `TEM 192`, cursor on row 01, `7` then a note key: `01 C-4 64    ?`
+is written and the cursor moves on (was `? illegal duration`). With `,` armed the same entry writes
+`01 C-4 64 TIE?`. Control: a fresh tune at the default 144 still refuses the 64th with
+`? illegal duration`, so the fix corrected the tempo without making an illegal length legal.
+
 ---
+
+## Bug #220 — the grid drew a stored 64th as dotted, because its reader had the same dot/class collision as the bar ✅ FIXED (2026-11-22)
+
+**Symptoms.** A 64th already in a tune — or one just written — showed as `64.` on the grid while the
+bar's `DUR` cell correctly showed `64`, and a triplet 64th was indistinguishable from a dotted one.
+
+**Root cause.** The grid's mark cell (`mlnDot`) masked the duration byte with the dot and triplet bits
+together (`$a0`) for every length. On a class-0 byte that bit *is* the class: a plain 64th stores
+`$20`, so the reader saw a dot that was never there.
+
+**Fix.** `mlnDot` asks the class first, exactly as `muDotBits` does for the armed byte: for a class-0
+length only the triplet bit is a mark.
+
+**Verified in VICE.** At TEM 192 with the row unit refined: a plain 64th reads `04 C-4 64    ?` (no
+dot) and a triplet 64th reads `05 C-4 64* TIE` — the triplet mark and `TIE` on the same line, so the
+tie display is untouched by the change.
+
+---
+
+## Bug #219 — a dotted note written past a voice's last event became a tie chain, not a dotted pair ✅ FIXED (2026-11-22)
+
+**Symptoms.** A dotted note typed on a row past the voice's last event, or in an empty voice, came out
+as a *plain* pair followed by a second pair carrying `TIE`: a dotted whole at TEM 144 was stored as
+`C-4 1` then `C-4 2 TIE`. The grid showed a tie nobody had armed, the note looked like two tied notes,
+and the same note typed on an onset row was stored correctly in one pair — the encoding depended on
+which row it was typed on.
+
+**Root cause.** The gap-fill path reduces the note to jiffies (`muLenNote`) and `muLenEmit` decomposed
+that greedily over `muDurTab`, the seven **plain** length classes. A dotted length is not in that
+table, so it came out as a run of plain pairs of the same pitch, and `muLeStore` marks every pair after
+the first with the tie bit. The dot bits were never consulted, so a dotted note could not be written
+as a dotted note on that path at all.
+
+**Fix.** `muLenEmit` reads `muLenArm`, which `muLenNote` sets for a run that *is* the armed note, and
+when the whole length equals what the armed byte plays at that tempo it writes that single pair —
+dots, second dot, triplet and the utility class included. Everything else is decomposed over each
+class's double-dotted, dotted, plain and triplet forms, longest first, so a length such as 12 jiffies
+becomes one dotted half instead of half + quarter; the tie bit still marks the continuations of a run
+that genuinely needs several pairs.
+
+**Verified in VICE** (TEM 144, a whole note = 16 rows, fresh tune). `1` then a note on row 01 writes
+`C-4 1` and the cursor lands 16 rows on. `.` (`DUR W .`) then a note writes `C-4 1.` — **one** pair,
+no `TIE` — and the cursor lands 24 rows on. A length the tempo cannot express is still refused with
+`? illegal duration` and nothing is written.
+
+
+
+## Bug #218 — a note key advanced the cursor one row, so the next note split the one just written ✅ FIXED (2026-11-22)
+
+**Symptoms.** Entering a note longer than one row — a whole note, say — wrote it correctly, but the
+next note typed on the pitch row *below the start of it* was taken as a split of that note instead of
+a new note after it. So a run of notes of one length could not be typed: every second entry chopped
+up the first, and the pitch you meant to add became the tail of a split. It needed a deliberate
+cursor move between every pair of notes.
+
+**Root cause.** `muCurSettleNext` settled the cursor on `MU_TGT + 1` — one row past the row the note
+started on, whatever length that note was. That is only the note's end when a row and the note are the
+same length, i.e. a 16th on a 16th grid. For anything longer the cursor landed *inside* the event just
+written, and a note key there is a split by design.
+
+**Fix.** `muJifRows` turns the length written (`MU_DURJIF`) into the rows it claims at the cursor's
+row unit, rounded up and never zero, and `muCurSettleNext` targets `MU_TGT + those rows`, stepping
+down line by line through `muInsGoStep` (so a target below the band scrolls, and a row's own line is
+reached past its command lines). A note shorter than a row therefore still moves one row, so it can
+never land on top of the one before it. Splitting the note under the cursor stays exactly as it was —
+it is now reached by moving the cursor into a note on purpose rather than as a side effect of typing.
+
+**Verified in VICE.** A whole note typed on row 01 leaves the cursor on row 09's own line; four more
+notes typed without touching the cursor land on rows 09, 17, 25, 33 and one whole note is never
+split. Eight 16ths still land on consecutive rows, a 32nd on a 16th grid still advances one row, and
+a note typed after deliberately moving into the middle of a long note still splits it.
+
+
+
+## Bug #217 — the 64th's length class is the duration byte’s “dotted” bit, so arming any other length through it inherited a dot ✅ FIXED (2026-11-22)
+
+**Symptoms.** With a 64th armed, every length armed afterwards came out dotted: pressing `7` and
+then `1` gave a dotted whole note, and so did stepping the bar's `DUR` cell from the 16th up to the
+whole note, because the cell's order is whole, half, quarter, 8th, 16th, 32nd, 64th and it passes
+*through* the 64th on the way round. The bar showed `DUR W .` and every note entered with it was
+dotted. Pressing `7` also showed `64.` — a plain 64th drawn as dotted.
+
+**Root cause.** `muDurTab` arms the 64th as `$20`, not `$00`, because `$00` is the one duration
+byte the player skips before it reads the class. But `$20` is also the dotted bit (dots are `$20`
+dotted, `$A0` double-dotted, `$80` triplet). `muArmKey` and `muBarDur` kept the dot state with
+`and #$a0`, so a 64th handed `$20` forward as a *dot*, and `muDrawArm` read the same bit back as
+one. A second fault sat alongside it: `muDotCycle` reached “plain” by writing `$00`, so `.` on a
+64th armed the skippable byte instead of a length.
+
+**Fix.** `muDotBits` is the single reader/writer of the dot state: for a class-0 byte (the 64th) it
+returns only bit 7 (the triplet mark), because bit 5 there is the class. `muArmKey`, `muBarDur` and
+`muDrawArm` all call it, and `muDotCycle` swaps a 64th between plain (`$20`) and triplet (`$A0`) —
+the only pair the format can write at that length — instead of writing `$00`.
+
+**Verified in VICE.** Stepping the `DUR` cell from the 16th through the 64th to the whole note
+leaves `DUR W` plain; a whole note entered then reads `C-4 1`; `7` shows `DUR 64` plain; `.` on a
+64th toggles `64` and `64*`; a dotted 8th still shows and writes its dot.
 
 ## Bug #216 — `musedit` refused every command until a note existed, because a voice's own `HLT` was not a boundary ✅ FIXED (2026-11-22)
 

@@ -3952,31 +3952,27 @@ mcsFound:
     jsr muHeadTail              // the head's BAR and R follow the cursor
     jmp muCursorShow
 
-// --- muCurSettleNext -- settle on the row a write changed, then stand on the next row ---
-//  In: A/X = the row the write landed on, as muCurSettle takes it.
+// --- muCurSettleNext -- stand on the first row past the note just written ---
+//  The next entry belongs at the end of this one, not one line below its start: a
+//  note of two rows or more would otherwise be split by the next note key. So the
+//  cursor goes to MU_TGT + the note's own rows (muJifRows, at the cursor's unit),
+//  stepping down line by line the way CRSR-DOWN does -- the target may be below the
+//  band, and a row's own line sits under its command lines.
 //  Overwrite mode only: insert mode's own entry leaves the cursor on the row its note
-//  starts on (muNoteInsMode -> muInsGoStep), so a second step would skip a row.
-//  The move is muCurSettle's own scan: the first line of that row which is the row's
-//  OWN line -- a row's command lines come above it, and a command takes no time, so the
-//  next note belongs on the line below them. The scan is bounded by the band's size and
-//  runs nothing else, so a next row that is not drawn yet (the tune's last row, or the
-//  row below the band's bottom line) leaves the cursor where the write put it. Nothing
-//  here touches the walk's producer: the band moves when the cursor is taken past its
-//  bottom line, exactly as CRSR-DOWN does.
+//  starts on (muNoteInsMode -> muInsGoStep), and a second step would skip a row.
+//  In: MU_DURJIF = the length written, MU_TGT = the row it starts on.
 muCurSettleNext:
-    jsr muCurSettle
     lda muInsMode
     bne mcsnRts
-    lda muTgtLo                 // the next row's own line, if the band holds it
+    lda muDurJif                // the rows the note claims
+    jsr muJifRows
     clc
-    adc #1
-    sta muCnT0
+    adc muTgtLo
+    sta muInsT0                 // the row after its end: muInsGoStep's own target
     lda muTgtHi
     adc #0
-    sta muCnT0+1
-    lda muCnT0
-    ldx muCnT0+1
-    jmp muCurSettle
+    sta muInsT0+1
+    jmp muInsGoStep
 mcsnRts:
     rts
 
@@ -4392,8 +4388,7 @@ muDaC1:
     ldx #5
     ldy #MU_BAR_ROW
     jsr kPrintCharAt
-    lda muDurArm                // the dot cell: bits 5 and 7, packed to 0-5
-    and #$a0
+    jsr muDotBits               // the dot cell: bits 5 and 7, packed to 0-5
     lsr
     lsr
     lsr
@@ -5437,8 +5432,9 @@ muNcGo:
     bcs muNcRts                 // nothing under the pointer
     jsr muNoteOpt               // A = the note option byte for that key
     jsr muSeek
-    lda muSekTem                // the tempo in force at the cursor's row
-    sta muJifTem
+    jsr muCurTem                // the tempo the cursor's row plays at -- NOT MU_SEKTEM,
+    sta muJifTem                //   which is the recorded event's and is the tune's
+                                //   opening tempo when that record is the seek's prime
     lda muDurArm
     jsr muNoteJiffies
     bcs muNcIllegal
@@ -5454,6 +5450,7 @@ muNcOvr:
     bne muNcKind2
     jmp muNcSplit
 muNcKind2:
+    jsr muSekTailPrev           // the note goes behind the row's command run
     jmp muFillNote              // a gap, or past the voice's last event
 muNcReplace:
     jsr muRecAtSek  // the undo record: 2 bytes at the onset...
@@ -5530,6 +5527,41 @@ muRjDone:
 muRjBig:
     lda #$ff
     sec
+    rts
+
+// --- muJifRows -- A = a length in jiffies -> A = the rows it claims ---
+//  Rounded UP, and never zero: the row the next note goes on is the first one that
+//  starts at or after this one's end, so notes of one length lay themselves down end
+//  to end. A length shorter than a row still claims the row it starts in.
+//  Clobbers MU_JIFTEM, MU_FITU and muNoteJiffies' scratch.
+muJifRows:
+    sta muCountLo
+    lda muJifTem
+    pha
+    jsr muCurTem
+    jsr muFit
+    pla
+    sta muJifTem
+    ldx #0
+    lda muFitU
+    beq mjrOne                  // a row of no jiffies: nothing to divide by
+mjrLp:
+    lda muCountLo
+    beq mjrDone
+    sec
+    sbc muFitU
+    bcc mjrPart
+    sta muCountLo
+    inx
+    jmp mjrLp
+mjrPart:
+    inx                         // the tail of a row claims that row
+mjrDone:
+    txa
+    bne mjrRts
+mjrOne:
+    lda #1
+mjrRts:
     rts
 
 // --- muSplitLens -- the three runs of a split, in jiffies ---
@@ -6028,12 +6060,13 @@ muIvAppend:
     sta muInsFrom               //   ended, which is above the cursor
     lda muSekEnd+1
     sta muInsFrom+1
-    lda muSekTem
-    sta muJifTem
+    jsr muCurTem                // the row's own tempo: MU_SEKTEM is only the
+    sta muJifTem                //   recorded event's, and the prime carries the opening one
     jsr muFillPlan              // muGapJ rests, then muN2 note events
     bcc muIvAppFit
     rts
 muIvAppFit:
+    jsr muSekTailPrev           // the fills go behind the voice's command run
     jsr muGapOpen
     bcs muIvAppRts
     jsr muSeekKPtr
@@ -6048,7 +6081,7 @@ muIvAppRts:
 
 // --- muIvOnset -- an event starts exactly at T0: rests go in before it ---
 muIvOnset:
-    lda muSekTem                // the tempo in force, for the rest durations
+    jsr muCurTem                // the row's tempo, for the rest durations
     sta muJifTem
     lda #0
     sta muLenOpt
@@ -6494,6 +6527,27 @@ muSekTailOk:
     rts
 mstNo:
     clc
+    rts
+
+// --- muSekTailPrev -- MU_SEKLO/HI = the pair before the voice's own HLT ---
+//  muInsSek2 opens two bytes PAST MU_SEKLO, so an insertion "at the seek's onset"
+//  is two bytes behind the pair the seek recorded. On a voice with no timed event
+//  that record is the prime, whose offset sits where the voice's stream starts --
+//  in FRONT of any pairs already written at that boundary (a tempo typed into a new
+//  tune, say). Pointing MU_SEKLO at the pair before the HLT instead makes the fill
+//  land immediately in front of the terminator: behind the boundary's command run,
+//  which is where the row's own event belongs.
+//  Call it from the "past the end" branch of a fill, after muSeek.
+//  Clobbers A, X, Y, kPtr, srcPtr, MU_OBJLO/HI.
+muSekTailPrev:
+    jsr muVoEndHlt
+    lda muObjLo
+    sec
+    sbc #2
+    sta muSekLo
+    lda muObjHi
+    sbc #0
+    sta muSekHi
     rts
 
 // --- muObjKey -- SHIFT+C, and the bar's CMD cell ---
@@ -7694,6 +7748,7 @@ muLenHead:
 muLenNote:
     lda #1
     sta muLenTie
+    sta muLenArm
     lda muNewOpt
     sta muLenOpt
     lda muDurJif
@@ -7723,12 +7778,18 @@ muLenOne:
     sta muLenJ+1
 
 // --- muLenEmit -- turn MU_LENJ jiffies into events ---
-//  Greedy over muDurTab, longest first; every entry is a power of two, so any
-//  length the tempo can express decomposes and never takes more events than it
-//  needs. A same-pitch continuation is a tied event: the player keeps the note
-//  sounding, and the option is repeated so the grid still shows the pitch.
+//  A run that IS the armed note is written as one pair of the armed byte, so a
+//  dotted or double-dotted length, a triplet and a utility length keep the encoding
+//  that says what they are instead of becoming a tied run of plain lengths.
+//  Anything else is decomposed greedily, longest first, over each class and its
+//  dotted, double-dotted and triplet forms -- every one of them is a length the tempo
+//  may or may not grant, and the plain classes are powers of two, so a length that
+//  only plain classes can express still comes out in as few events as it needs.
+//  A same-pitch continuation is a tied event: the player keeps the note sounding, and
+//  the option is repeated so the grid still shows the pitch.
 //  In:  MU_LENJ = the length in jiffies; MU_LENOPT = the option byte;
 //       muLenTie = 1 to tie every event after the first;
+//       muLenArm = 1 when the run is the armed note itself (cleared here);
 //       muLenMode = 0 count only, 1 write the pairs at kPtr (which advances).
 //  Out: A = the number of events; C=1 the tempo cannot express it, or it needs
 //       more than MU_LEN_MAX events. A failed count has written nothing.
@@ -7739,28 +7800,48 @@ muLenEmit:
     sta muValHi
     lda #0
     sta muLenCnt
+    ldx muLenArm                // the run is the armed note: one pair, whatever its
+    beq muLeLp                  //   class, dots or triplet say
+    sta muLenArm
+    lda muLenOpt
+    beq muLeLp                  // a rest keeps no armed byte
+    lda muDurArm
+    jsr muNoteJiffies
+    bcs muLeLp                  // not a length at this tempo: decompose instead
+    cmp muValLo
+    bne muLeLp
+    lda muValHi
+    bne muLeLp
+    jmp muLeArmed
 muLeLp:
     lda muValLo
     ora muValHi
     beq muLeDone
     lda #0
     sta muLpIdx
-muLeTry:
+muLeCls:
     ldx muLpIdx
     cpx #7
     bcs muLeFail            // nothing in the table is short enough
+    lda #0
+    sta muLpVar
+muLeTry:
+    ldy muLpVar
+    cpy #4
+    bcs muLeNextCls         // this class has no form left to try
     lda muDurTab,x
+    ora muVarTab,y
     jsr muNoteJiffies
-    bcs muLeNext            // not a length at this tempo
+    bcs muLeNextVar         // not a length at this tempo
     sta muLpJ
     cmp #0                  // a store leaves the flags alone: test the value
-    beq muLeNext            // a zero-jiffy length would never subtract: skip it
+    beq muLeNextVar         // a zero-jiffy length would never subtract: skip it
     lda muValHi
     bne muLeFit             // 256 or more left: the longest legal length fits
     lda muLpJ
     cmp muValLo
     beq muLeFit
-    bcs muLeNext
+    bcs muLeNextVar
 muLeFit:
     lda muValLo
     sec
@@ -7777,9 +7858,12 @@ muLeSub:
     beq muLeLp
     jsr muLeStore
     jmp muLeLp
-muLeNext:
-    inc muLpIdx
+muLeNextVar:
+    inc muLpVar
     jmp muLeTry
+muLeNextCls:
+    inc muLpIdx
+    jmp muLeCls
 muLeDone:
     lda muLenCnt
     clc
@@ -7788,11 +7872,28 @@ muLeFail:
     sec
     rts
 
+// --- muLeArmed -- the one pair of a run that is the armed note ---
+muLeArmed:
+    lda #1
+    sta muLenCnt
+    lda muLenMode
+    beq muLeArmRts              // counting pass: nothing is written
+    lda #0
+    sta muValLo                 // the whole length is this pair
+    sta muValHi
+    lda muDurArm
+    jsr muLeStoreArmed
+muLeArmRts:
+    lda #1
+    clc
+    rts
+
 // --- muLeStore -- the pair for the pick just made, at kPtr ---
 muLeStore:
     ldx muLpIdx
     lda muDurTab,x
     sta muLpDur
+muLsHave:
     lda muLenOpt                // a rest never carries a tie: it is silence
     beq muLsPlain
     lda muLenCnt
@@ -7820,6 +7921,11 @@ muLsPlain:
     jsr muSekAdv2
 muLsRts:
     rts
+
+// --- muLeStoreArmed -- store one pair of A, the armed note's own duration byte ---
+muLeStoreArmed:
+    sta muLpDur
+    jmp muLsHave
 
 // --- muImgRoom -- C=0 when MU_INSN more bytes fit behind MU_LEN ---
 //  The working file is MU_SCR_PAGES pages however long the tune is, so growing the
@@ -8119,6 +8225,24 @@ muKeyNotes:
     .byte 'k',$0c, 'o',$0d, 'l',$0e, 'p',$0f, ';',$10
     .byte 0
 
+// --- muDotBits -- A = the armed byte's DOT state: $00, $20, $80 or $a0 ---
+//  The 64th's own class byte IS $20, and $20 is also the dotted bit, so a byte
+//  whose class is zero carries no dot in bit 5 -- only a triplet mark in bit 7.
+//  Every reader and writer of the dot state goes through here, or a length armed
+//  through the 64th inherits a dot it never had.
+//  Clobbers A only; X and Y survive.
+muDotBits:
+    lda muDurArm
+    and #$1c
+    bne mdbDots                 // a plain class: bits 5 and 7 are the dot state
+    lda muDurArm
+    and #$80                    // the 64th: only the triplet mark counts
+    rts
+mdbDots:
+    lda muDurArm
+    and #$a0
+    rts
+
 // --- muArmKey -- '1'..'9' arms the duration a new note is written with ---
 //  1-7 are the plain classes (whole ... 64th, muDurTab's order) and the dot
 //  state rides along; 8 and 9 are the utility lengths UTL and UTV -- class 1,
@@ -8129,9 +8253,10 @@ muArmKey:
     cmp #7
     bcs muAkUtil
     tax
-    lda muDurArm
-    and #$a0
-    ora muDurTab,x
+    jsr muDotBits               // the dot or triplet mark the new class keeps
+    sta muTmp
+    lda muDurTab,x
+    ora muTmp
     sta muDurArm
     jmp muDrawArm
 muAkUtil:
@@ -8146,10 +8271,18 @@ muAkSet:
     jmp muDrawArm
 
 // --- muDotCycle -- '.': none -> dotted -> double-dotted -> triplet -> none ---
-//  The utility class does not cycle: its bit 5 picks UTV, not a dot.
+//  The utility class does not cycle: its bit 5 picks UTV, not a dot. The 64th has no
+//  dot either -- its class byte IS $20 -- so on a 64th the key swaps the plain length
+//  for a triplet and back, which is the only pair the format can write there.
 muDotCycle:
     lda muDurArm
     and #$1c
+    bne muDcClass               // a plain class: bits 5 and 7 are the dot state
+    lda muDurArm                // the 64th: plain <-> triplet
+    eor #$80
+    sta muDurArm
+    jmp muDrawArm
+muDcClass:
     cmp #$04                    // class 1
     beq muDcRts
     lda muDurArm
@@ -9097,8 +9230,7 @@ mbdNext:
 mbdHave:
     lda muDurTab,x
     sta muTmp
-    lda muDurArm
-    and #$a0                    // the dot or triplet mark is kept
+    jsr muDotBits               // the dot or triplet mark is kept
     ora muTmp
     sta muDurArm
     jmp muDrawArm
@@ -10131,7 +10263,15 @@ mlnDot:
     lda muPendSp,x              //   with bit 5, the second dot -- so the value alone
     beq mlnTie                  //   does not say which length the note is. A squeezed
     lda muPendDur,x             //   event takes no mark: its lane ends in the '?'
-    and #$a0                    //   that says the row is not where it starts
+    and #$1c                    //   that says the row is not where it starts
+    bne mlnDotMarks             // a class 0 length -- the 64th, whose own value IS the
+    lda muPendDur,x             //   dotted bit: only its triplet mark is a mark
+    and #$80
+    jmp mlnDotHave
+mlnDotMarks:
+    lda muPendDur,x
+    and #$a0
+mlnDotHave:
     beq mlnTie
     lsr
     lsr
@@ -10611,6 +10751,10 @@ muDotXHi:   .byte 0             // 1 = the dot's x is 256 or more
 muDotX:     .byte 0
 muVDur:     .fill 3, 0          // each voice's duration byte, for the grid
 muDurNum:   .byte 64, 0, 1, 2, 4, 8, 16, 32   // by length class: the 64th, a utility, then whole..32nd
+muVarTab:   .byte $a0, $20, $00, $80          // a class's double-dotted, dotted, plain and
+                                //   triplet forms, longest first (muLenEmit)
+muLpVar:    .byte 0             // which of those forms the emit is trying
+muLenArm:   .byte 0             // 1 = the run being emitted is the armed note itself
 muGlyBuf:   .fill 8, 0          // one keyboard cell, expanded to the 8 bytes a blit reads
 //  The commands with a fixed command byte, indexed by command byte / 8. A zero is
 //  a value of that eight that names no command, or one the grid does not draw. MS#
