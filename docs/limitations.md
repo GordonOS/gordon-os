@@ -278,7 +278,7 @@ you look at any task's surface without changing its code.
 
 - **512 entries × 32 bytes, flat.** Names are 1-11 characters, held as screen
   codes. **There are no subdirectories** — they are designed, not built
-  ([future-improvements.md](future-improvements.md) §12).
+  ([future-improvements.md](future-improvements.md) §11).
 - **A file's size is a 16-bit field**, so a single file is at most **65,535
   bytes**, and the data region's capacity is derived from how many banks the REU
   has (`$3000 + (banks − 10) × $10000`).
@@ -443,12 +443,11 @@ These are designed or planned, not present. Each is documented in
 | **Blocking I/O and device drivers** (§4) | no `BLOCKED` task state; waiting is polling or sleeping |
 | **IEC / disk filesystem** (§5) | the REU filesystem is the only filesystem |
 | **Crash protection** (§6) | a `BRK` or bad jump takes the whole system down |
-| **Extended task workspace in REU** (§7) | `kReuToC64`/`kReuFromC64` work, but there is no allocator or carved-out region for a task's own REU memory |
-| **REU IPC shared buffer** (§8) | no large shared-memory channel; IPC is 128 bytes per channel |
-| **RAM disk / sector cache** (§9) | depends on the disk filesystem |
-| **Char cache for text surfaces** (§10) | bulk output and background scrollback pay full glyph cost |
-| **Editor undo/redo** (§11) | `edit` has no undo ([edit.md](edit.md) → *Limits*); `musedit` has undo and redo, but `edit` does not |
-| **REU FS directories** (§12) | one flat namespace of 512 entries |
+| **REU IPC shared buffer** (§7) | no large shared-memory channel; IPC is 128 bytes per channel |
+| **RAM disk / sector cache** (§8) | depends on the disk filesystem |
+| **Char cache for text surfaces** (§9) | bulk output and background scrollback pay full glyph cost |
+| **Editor undo/redo** (§10) | `edit` has no undo ([edit.md](edit.md) → *Limits*); `musedit` has undo and redo, but `edit` does not |
+| **REU FS directories** (§11) | one flat namespace of 512 entries |
 
 ---
 

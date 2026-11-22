@@ -522,7 +522,7 @@ the first scroll clobbers it — harmless.
 | `$00C000-$00C17F` | 384B | Thread names (24 × 16B) — the `parent.N` names `ps` prints |
 | `$00C180-$00C3FF` | 640B | (free) |
 | `$00C400-$00CFFF` | 3KB | **Per-task sprite state, 24 × 128B** at `REU_SPR_BASE + slot × 128` — the sheet records, the 39-byte shadow and the frame indices (71B used per block). Page-aligned on purpose: the block address is `slot × 128` with no add, so the base's low byte must be 0 (asserted in `main.asm`). Only the display owner's copy is live in kernel RAM; `sprInstall` swaps them with the display, and `warmSpriteReset` zeroes the region at a warm reboot |
-| `$00D000-$00FFFF` | ~12KB | (free in bank 0) — `grpaint`'s saved UI band used to sit at `$D000` (pixels) and `$D280` (matrix); it now lives in the task's own REU workspace (`REU_WS_BASE`), so nothing here claims a fixed address |
+| `$00D000-$00FFFF` | ~12KB | (free in bank 0) — `grpaint`'s saved UI band lives in the task's own REU workspace (`REU_WS_BASE`), so nothing here claims a fixed address |
 
 ### Bitmap Slots (banks 1+)
 28 slots × 10KB each at `$010000-$055FFF` (slot N = `$010000 + N×$2800`):
@@ -553,14 +553,14 @@ the first scroll clobbers it — harmless.
 | `$00C000-$00C17F` | 384B | Thread names (24 × 16B) |
 | `$00C180-$00C3FF` | 640B | (free in bank 0) |
 | `$00C400-$00CFFF` | 3KB | **Per-task sprite state (24 × 128B)** — one block per task slot, swapped with the display |
-| `$00D000-$00D59F` | 1440B | (free in bank 0) — `grpaint`'s saved UI band used to be here; it is in the task's REU workspace now |
+| `$00D000-$00D59F` | 1440B | (free in bank 0) — `grpaint`'s saved UI band is in the task's REU workspace |
 | `$00D5A0-$00FFFF` | ~10.6KB | (free in bank 0) |
 | `$010000-$055FFF` | 280KB | Bitmap slots (28 × 10KB, banks 1+) |
 | `$056000-$058FFF` | 12KB | (free — gap between bitmap slots and FS) |
 | `$059000-$F7FFFF` | ~15.5MB | REU filesystem (16 KB directory + 24-bit data region, banks 5–247, capacity `$F23000`) — see table below |
 | `$F80000-$F97FFF` | 96KB | **Per-task REU workspace** (`REU_WS_BASE`) — 24 slots × 4KB (`REU_WS_SIZE`), slot *n* at `REU_WS_BASE + n × $1000`, so slots 16–23 cross into bank 249. Zeroed at spawn by `clearSlotWorkspace`. Banks 248–249 |
 | `$F98000-$F9FFFF` | 32KB | (free — the slack above 24 × 4KB inside the two banks the workspace reserved) |
-| `$FA0000-$FAFFFF` | 64KB | **Reserved for the REU IPC buffer** (`future-improvements.md` §8) — held out of the FS now so its capacity does not have to move twice. Bank 250 |
+| `$FA0000-$FAFFFF` | 64KB | **Reserved for the REU IPC buffer** (`future-improvements.md` §7) — held out of the FS so its capacity does not have to move twice. Bank 250 |
 | `$FB0000-$FBFFFF` | 64KB | `grpaint`'s **undo/redo ring** ([gordonpaint.md](gordonpaint.md)) — six 10,240-byte canvas states (a `.pic` payload plus the mode and the palette), bank 251 |
 | `$FC0000-$FFFFFF` | 256KB | Malloc shadow (banks 252–255, 32 KB/slot × 8 dyn slots) |
 
