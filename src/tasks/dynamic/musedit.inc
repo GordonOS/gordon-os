@@ -144,6 +144,9 @@
 .label muN1         = MU_ZP_BASE+132  // the events a fill's rests, or a split's runs, take
 .label muN2         = MU_ZP_BASE+133  // ...and the note's own
 .label muSekTem     = MU_ZP_BASE+134  // the tempo in force at the recorded event
+.label muObjEmpty   = MU_ZP_BASE+135  // 1 = the operand field shows nothing: every
+                                      //   character was deleted. Only a delete sets it,
+                                      //   so an existing value of 0 still reads as 0
 .label muSkV        = MU_ZP_BASE+136
 .label muValLo      = MU_ZP_BASE+137
 .label muValHi      = MU_ZP_BASE+138
@@ -453,11 +456,10 @@ muScreen:
     // kArg = border, bg0, bg1, bg2; A = 0 -> hires text (edit.inc's colours)
     lda #$0b
     sta kArg
-    lda #0
+    lda #0                      // A stays 0 for the call: the stores below leave it alone
     sta kArg+1
     sta kArg+2
     sta kArg+3
-    lda #0
     jsr kAllocScreen
     bcc muScrOk
     jmp muQuit                  // no surface at all: leave without drawing
@@ -992,8 +994,7 @@ muLdPgBad:
 // --- muLdNew -- the blank tune a name with no file stands for ---
 muLdNew:
     jsr muScrOpen
-    bcc muLnGo
-    jmp muLdNoScr               // out of branch range
+    bcs muLdNoScr
 muLnGo:
     jsr muWin0Ptr
     ldy #0
@@ -1613,8 +1614,7 @@ muUnitCycle:
     bcs muUcWrap
     inc muUnitRef
     jsr muUcValid
-    bcs muUcSkip
-    jmp muUnitApply             // exact: apply it
+    bcc muUnitApply             // exact: apply it
 muUcSkip:
     jmp muUnitCycle             // skip to the next one
 muUcWrap:
@@ -1734,11 +1734,7 @@ muFtVoice:
     //  the voice's size word: image offset 2 + 2 * voice, always page 0
     jsr muImgSeat
     lda muScanV
-    asl
-    clc
-    adc #2
-    tay
-    lda (kPtr),y
+    jsr muLenWordOfs
     sta muScanLen
     iny
     lda (kPtr),y
@@ -1893,11 +1889,7 @@ muSiPtrLp:
     cpx #2
     beq muSiPtrRts
     txa
-    asl
-    clc
-    adc #2
-    tay                         // the length word's offset in the header
-    lda (kPtr),y
+    jsr muLenWordOfs
     clc
     adc muAccLo
     sta muAccLo
@@ -2189,16 +2181,13 @@ muSimCmd:
     jmp muCmHed
 muCmN1:
     cmp #MU_CMD_TEM
-    bne muCmN2
-    jmp muCmTem
+    beq muCmTem
 muCmN2:
     cmp #MU_CMD_UTL
-    bne muCmN3
-    jmp muCmUtl
+    beq muCmUtl
 muCmN3:
     cmp #MU_CMD_UTV
-    bne muCmN4
-    jmp muCmUtv
+    beq muCmUtv
 muCmN4:
     lda muScmd
     and #$03
@@ -2554,18 +2543,15 @@ muDecExact:
 mdeRts:
     lda muTmpH
     rts
+// --- muDecHi12 / muDecDtn12 -- P-W and DTN: the command's high nibble is the
+//  value's high half and the option is its low byte. The two differ only in the
+//  mnemonic id they hand back, so one body serves both.
 muDecHi12:
-    lda muScmd                  // P-W: high nibble of the command, then the option
-    lsr
-    lsr
-    lsr
-    lsr
-    sta muLnVHi
-    lda muSopt
-    sta muLnVLo
-    lda #MU_MN_PW
-    rts
+    ldx #MU_MN_PW
+    bne muDec12Go               // MU_MN_PW is never 0, so this entry always skips on
 muDecDtn12:
+    ldx #MU_MN_DTN
+muDec12Go:
     lda muScmd
     lsr
     lsr
@@ -2574,7 +2560,7 @@ muDecDtn12:
     sta muLnVHi
     lda muSopt
     sta muLnVLo
-    lda #MU_MN_DTN
+    txa
     rts
 muDecPor:
     lda muScmd                  // POR: six bits of the command, then the option
@@ -2624,7 +2610,6 @@ moChain:
     beq moEnd
     cmp #$4f
     beq moHlt
-    lda muSopt
     and #$07
     cmp #$01
     beq moOneS
@@ -2848,8 +2833,7 @@ muHeadTail:
     jsr muCurTem
     ldy #MU_HEADTEM
     cmp (dataPtr),y
-    beq mhtTail
-    jmp muDrawHead
+    bne muDrawHead
 mhtTail:
     ldy #MU_CURROW
     lda #0
@@ -3272,13 +3256,19 @@ muBarPrompt:
     stx muObjValHi
     lda #0
     sta muObjFresh              // the first digit starts the number afresh
+    sta muObjEmpty              // and the bar it opened on shows
 mbtDraw:
+    jsr muBlinkOff              // the repaint below must not race a live block
     jsr muClearRow0
     lda #M_BAR2
     jsr muMsg
+    lda muObjEmpty              // empty only when every character was deleted: the bar
+    bne mbtNoNum                //   the prompt opened on still reads as itself
     lda muObjVal
     ldx muObjValHi
     jsr muNum16
+mbtNoNum:
+    jsr muBlinkOn               // the block follows the value as digits come and go
 mbtKey:
     jsr kReadKey
     beq mbtWait
@@ -3293,22 +3283,37 @@ mbtKey:
     bcc mbtKey                  // not a digit
     cmp #10
     bcs mbtKey
-    jsr muValAcc                // ...so the number builds as the panel's does
+    jsr muValAcc                // the first digit replaces the bar, later ones extend
     jmp mbtDraw
 mbtWait:
     lda #SYS_YIELD
     jsr syscall
     jmp mbtKey
 mbtBack:
+    lda muObjEmpty
+    bne mbtDraw                 // nothing shown: there is nothing to delete
+    lda #1
+    sta muObjFresh              // a digit typed now extends what the delete leaves
+    lda muObjVal
+    ora muObjValHi
+    beq mbtBackClear            // the lone '0' was the last character: it goes too
     jsr muValDiv10
+    lda muObjVal
+    ora muObjValHi
+    bne mbtDraw                 // a digit is left: repaint it
+mbtBackClear:
+    lda #1
+    sta muObjEmpty
     jmp mbtDraw
 mbtTake:
+    jsr muBlinkOff              // RETURN ends the prompt, whether it jumps or refuses
     lda muObjVal
     ora muObjValHi
     beq mbtRts                  // bar 0 does not exist
-    jmp muBarGo
+    jmp muBarGo                 // muBarGo is out of branch range from here
 mbtRts:
-    jsr muDrawHead              // the prompt only touched row 0: the head takes it back
+    jsr muBlinkOff              // STOP -- a no-op when mbtTake already ran it
+    jsr muDrawHead              // the prompt only touched row 0, so the head takes it back
     jmp muKeyIdle
 
 // ==========================================
@@ -3575,8 +3580,7 @@ mchRow:
     bne mchNext
     lda muGrpRow
     cmp muCmdRow
-    bne mchNext
-    jmp mchFound
+    beq mchFound
 mchNext:
     lda muOn                    // the producer has no row past the tune's end, so
     ora muOn+1                  //   its halt flags are the end test
@@ -4261,8 +4265,7 @@ muBarPaint:
     jsr muDrawArm
     lda muTid                   // the reverse cells go straight to the framebuffer,
     cmp kbFocus                 //   which belongs to the displayed task
-    beq muBpGo
-    jmp muBpKeep
+    bne muBpKeep
 muBpGo:
     lda #M_BAR                  // the bar's text, read back out of the message file
     jsr muMsgSet
@@ -4923,16 +4926,15 @@ muKeyNotSpace:
     cmp #$84                    // CRSR down
     bne muKeyN1
     lda muPlayOn                // while the player runs the cursor IS the playhead:
-    beq muKnDownGo              //   the follow would drag it back, so up and down are
-    jmp muKeyIdle               //   refused outright. Left and right still work --
+    bne muKeyIdle               //   the follow would drag it back, so up and down are
+                                //   refused outright. Left and right still work --
 muKnDownGo:                     //   they point the dots at another voice.
     jmp muCurDown
 muKeyN1:
     cmp #$85                    // CRSR up
     bne muKeyN2
     lda muPlayOn
-    beq muKnUpGo
-    jmp muKeyIdle
+    bne muKeyIdle
 muKnUpGo:
     jmp muCurUp
 muKeyN2:
@@ -4986,8 +4988,7 @@ muKeyIdle:
 muPageDown:
     lda muLnTbHi+MU_GRID_ROWS-1
     cmp #$ff
-    bne muPdGo
-    jmp muKeyIdle
+    beq muKeyIdle
 muPdGo:
     sta muTop+1
     lda muLnTbLo+MU_GRID_ROWS-1
@@ -5472,10 +5473,11 @@ muNcStore:
     iny
     lda muNewOpt
     sta (kPtr),y
+muFlushSettle:
     jsr muWinFlush0             // the pair reaches its page before the record reads it
-    jsr muPushEdit             // ...become 2 new bytes there
-    lda muTgtLo                 // the note's length may differ, so every row below
-    ldx muTgtHi                 //   moves: repaint from the note's own row down
+    jsr muPushEdit              // ...become 2 new bytes there
+    lda muTgtLo                 // the changed row may move: repaint from the target down
+    ldx muTgtHi
     jsr muRedrawBand
     lda muTgtLo                 // ...and leave the cursor on the row that changed
     ldx muTgtHi
@@ -5601,7 +5603,6 @@ muSlNote:
     lda muCountHi
     sbc muSplitN+1
     sta muSplitT+1
-    lda muSplitT+1
     bne muSlRts                 // 256 or more: a run of its own
     lda muSplitT
     cmp #2
@@ -5687,13 +5688,7 @@ muPlBad:
 //  did, so nothing below moves. A run that is not one legal length becomes several
 //  tied events.
 muNcSplit:
-    jsr muSeekKPtr
-    ldy #0
-    lda (kPtr),y
-    sta muSekDur                // the pair being replaced, read before it moves
-    iny
-    lda (kPtr),y
-    sta muSekOpt
+    jsr muReadSekPair
     jsr muRecAtSek  // the undo record: 2 bytes at the onset become...
     lda #2
     sta muRecOldN
@@ -6018,12 +6013,10 @@ muInsOneVoice:
     lda muSekRow+1              //   before it ended -- see muIvAppend
     sta muInsFrom+1
     lda muSekKind
-    bne muIvNot0
-    jmp muIvOnset
+    beq muIvOnset
 muIvNot0:
     cmp #1
-    bne muIvNot1
-    jmp muIvStraddle
+    beq muIvStraddle
 muIvNot1:
     lda muItV                   // kind 2: a rest voice has nothing to push...
     cmp muInsNoteV
@@ -6097,13 +6090,7 @@ muIvRts:
 //  inserted silence, and the part from T0 on (its remainder) with a fresh attack.
 //  The three together last exactly the event's length plus the inserted silence.
 muIvStraddle:
-    jsr muSeekKPtr
-    ldy #0
-    lda (kPtr),y
-    sta muSekDur                // the straddling pair, read before it moves
-    iny
-    lda (kPtr),y
-    sta muSekOpt
+    jsr muReadSekPair
     lda muSekTem
     sta muJifTem
     //  --- the event's length and the front J1 (rows before T0) ---
@@ -6214,14 +6201,7 @@ muRkGo:
     iny
     lda #0
     sta (kPtr),y
-    jsr muWinFlush0             // the pair reaches its page before the record reads it
-    jsr muPushEdit
-    lda muTgtLo                 // only the rested row changed, and it is the cursor's
-    ldx muTgtHi
-    jsr muRedrawBand
-    lda muTgtLo
-    ldx muTgtHi
-    jmp muCurSettleNext
+    jmp muFlushSettle
 
 // --- muDelPair -- splice the 2-byte event at MU_SEKLO/HI out of MU_SKV ---
 //  One undo record, so a caller that splices several voices decides the grouping
@@ -6451,15 +6431,12 @@ muObjKey:
     bcs mqRts                   // "? stop first" is already up
     jsr muCmdHere               // a command on the cursor's line?
     bcc mqHave                  // yes: A = its mnemonic id
-    jsr muCursorIdx             // no: only a row's OWN line can take a new one
+    jsr muCursorIdx             // no: a new pair needs a row's OWN line
     tay
     cpy #MU_GRID_ROWS
-    bcs mqRefuse
+    bcs mqRefuse                // below the band: there is no row there
     lda muLnKind,y
-    bne mqRefuse                // no: only a row's OWN line can take a new one
-    jsr muBandRebuild           // a command line this lane has nothing on, and
-    lda #M_NO_CMD               //   muCmdHere walked the producer to find out
-    jmp muMsgGo
+    beq mqNoCmd                 // a command line this lane has nothing on
     jsr muSeek
     lda muSekKind
     bne mqRefuse                // the event started above: no boundary here
@@ -6470,6 +6447,10 @@ muObjKey:
     sta muObjValHi
     sta muObjKind               // 0 = a pair to be added at the boundary
     jmp mqPick
+mqNoCmd:
+    jsr muBandRebuild           // muCmdHere walked the producer to find out
+    lda #M_NO_CMD
+    jmp muMsgGo
 mqHave:
     sta muObjId                 // every mnemonic the picker offers has an encoder,
                                 //   so a structural id and a sound one take the same path
@@ -6494,12 +6475,35 @@ mqRefuse:
 mqRts:
     rts
 
+// --- muBlinkOff -- retire the blinking block from a prompt's own row ---
+//  Disable BEFORE resetting: with cursorOn still set, an IRQ tick could redraw the
+//  block between the two calls. kBlinkReset also forgets the cell it saved, so the
+//  next ON is a fresh draw wherever the cursor has been moved to. That is what lets
+//  a prompt repaint row 0 through muPutC -- a bare framebuffer blit, not a
+//  cursor-aware writer -- without the block being baked into the cell or restored
+//  over it by a later blink. Calling it when no block is live is a no-op.
+muBlinkOff:
+    jsr kDisableCursor          // A, Y and kPtr clobbered
+    jmp kBlinkReset             // A, X, Y, kPtr and kArg+7 clobbered
+
+// --- muBlinkOn -- park the block one cell past the value and let it blink ---
+//  MU_CURCOL is where muNum16 left the text cursor, so the block sits on the cell
+//  the next digit would go in. Both numeric prompts draw on row 0, so the row is
+//  not a parameter.
+muBlinkOn:
+    ldx muCurCol
+    ldy #0                      // the head row
+    jsr kSetCursor              // the only call that keeps every register
+    jmp kEnableCursor           // A, Y and kPtr clobbered, so it goes last
+
 // --- mqPick -- the row-0 prompt: pick the mnemonic, then type the operand ---
 mqPick:
     lda #0
     sta muObjPhase
     sta muObjFresh
+    sta muObjEmpty
 mqDraw:
+    jsr muBlinkOff              // the repaint below must not race a live block
     jsr muObjEnc                // the operand's maximum, and the encoded pair
     jsr mqClamp                 // a mnemonic picked after a value was typed keeps it
     jsr muClearRow0
@@ -6518,12 +6522,16 @@ mqDraw:
     beq mqDrawEnd
     lda #MU_SPACE
     jsr muPutC
+    lda muObjEmpty              // only a delete empties the field, so a value of 0
+    bne mqDrawEnd               //   that was there or typed still reads as 0
     lda muObjVal
     ldx muObjValHi
     jsr muNum16
 mqDrawEnd:
     lda muObjPhase
-    bne mqValKey
+    beq mqIdKey                 // picking the mnemonic: there is no parameter yet
+    jsr muBlinkOn               // the operand step: the block follows the value
+    jmp mqValKey
 
 // --- the mnemonic step: CRSR up and down walk the nine, RETURN takes one ---
 mqIdKey:
@@ -6565,28 +6573,24 @@ mqIdDec:
 mqIdTake:
     lda muObjId
     cmp #MU_MN_TAL
-    bne mqIt1
-    jmp mqTake
-mqIt1:
+    beq mqIdGo
     cmp #MU_MN_HLT
-    bne mqIt2
-    jmp mqTake
-mqIt2:
+    beq mqIdGo
     cmp #MU_MN_END
-    bne mqIt3
-    jmp mqTake
-mqIt3:
+    beq mqIdGo
     lda #1
     sta muObjPhase
     lda #0
     sta muObjFresh
+    sta muObjEmpty              // entering the operand step: the value shows
     jmp mqDraw
+mqIdGo:
+    jmp mqTake                  // mqTake is out of branch range from the three tests
 
 // --- the operand step: digits build the value, INST/DEL backs one out ---
 mqValKey:
     jsr kReadKey
-    bne mqValGot
-    jmp mqValWait
+    beq mqValWait
 mqValGot:
     cmp #$81                    // RETURN: write the pair
     beq mqValTake
@@ -6603,17 +6607,7 @@ mqValDigit:
     bcc mqValKey                // not a digit
     cmp #10
     bcs mqValKey
-    sta muTmpL
-    lda muObjFresh              // the first digit typed starts the value afresh, so
-    bne mqValAcc                //   an operand already there is not extended
-    lda #1
-    sta muObjFresh
-    lda #0
-    sta muObjVal
-    sta muObjValHi
-mqValAcc:
-    lda muTmpL                  // the digit
-    jsr muValAcc
+    jsr muValAcc                // the first digit replaces the operand, later ones extend
     jsr mqClamp                 // never past the maximum
     jmp mqDraw
 
@@ -6636,13 +6630,26 @@ mqClRts:
 mqValBack:
     lda muObjVal
     ora muObjValHi
-    bne mqVbGo                  // a value: drop its last digit
-    lda #0                      // nothing left to delete: back to the mnemonic
-    sta muObjPhase
+    bne mqVbGo                  // digits left: drop one
+    lda muObjEmpty
+    bne mqVbMnem                // nothing shown at all: back to the mnemonic
+    lda #1                      // the lone '0' was the last character: it goes too
+    sta muObjEmpty
     jmp mqDraw
 mqVbGo:
     sta muObjFresh              // a digit typed now extends what is left
     jsr muValDiv10
+    lda muObjVal
+    ora muObjValHi
+    bne mqVbDraw                // a digit is left: repaint it
+    lda #1                      // that was the last digit: the field is now empty
+    sta muObjEmpty
+mqVbDraw:
+    jmp mqDraw
+mqVbMnem:
+    lda #0
+    sta muObjPhase
+    sta muObjEmpty              // the value reads again on the mnemonic step
     jmp mqDraw
 mqValWait:
     lda #SYS_YIELD
@@ -6652,16 +6659,22 @@ mqValWait:
 // --- muValAcc -- MU_OBJVAL := MU_OBJVAL * 10 + A, the digit typed ---
 //  Both numeric prompts type their number this way. kMul16 does the arithmetic in 16
 //  bits, so a value above 255 is exact and one byte of entry can carry two digits.
+//  MU_OBJFRESH is 0 until the first digit of a prompt, so that digit REPLACES the
+//  value the prompt opened on and later ones extend it -- the two prompts agree by
+//  construction because the rule lives here and not at the call sites.
 muValAcc:
     sta muTmpL
-    lda muObjVal
-    sta kArg
-    lda muObjValHi
-    sta kArg+1
-    lda #10
-    sta kArg+2
     lda #0
-    sta kArg+3
+    sta muObjEmpty              // a digit is on the field again
+    lda muObjFresh
+    bne muVaAdd                 // a digit has been typed: extend it
+    lda #1
+    sta muObjFresh
+    lda #0
+    sta muObjVal
+    sta muObjValHi
+muVaAdd:
+    jsr muObjToKArg10
     jsr kMul16
     lda kArg+4                  // the product's low two bytes
     clc
@@ -6674,6 +6687,37 @@ muValAcc:
 
 // --- muValDiv10 -- MU_OBJVAL := MU_OBJVAL / 10, its last digit dropped ---
 muValDiv10:
+    jsr muObjToKArg10
+    jsr kDiv16
+    lda kArg+4
+    sta muObjVal
+    lda kArg+5
+    sta muObjValHi
+    rts
+
+// --- shared helpers ---
+// muLenWordOfs -- Y := 2 + 2*A, A := the word there; X survives
+muLenWordOfs:
+    asl
+    clc
+    adc #2
+    tay
+    lda (kPtr),y
+    rts
+
+// muReadSekPair -- read the pair at MU_SEK into MU_SEKDUR/MU_SEKOPT before it moves
+muReadSekPair:
+    jsr muSeekKPtr
+    ldy #0
+    lda (kPtr),y
+    sta muSekDur
+    iny
+    lda (kPtr),y
+    sta muSekOpt
+    rts
+
+// muObjToKArg10 -- kArg := MU_OBJVAL as a 16-bit value, kArg+2/3 := 10
+muObjToKArg10:
     lda muObjVal
     sta kArg
     lda muObjValHi
@@ -6682,15 +6726,11 @@ muValDiv10:
     sta kArg+2
     lda #0
     sta kArg+3
-    jsr kDiv16
-    lda kArg+4
-    sta muObjVal
-    lda kArg+5
-    sta muObjValHi
     rts
 
 // --- mqTake -- encode the pair and write it ---
 mqTake:
+    jsr muBlinkOff              // RETURN ends the prompt: the block goes before the write
     lda muErr                   // was the tune walkable before this write? MU_OBJFRESH
     sta muObjFresh              //   holds the answer until mqDone reads it
     jsr muObjEnc
@@ -6757,6 +6797,7 @@ mqFine:
 mqStatus:
     jmp muStatus
 mqCancel:
+    jsr muBlinkOff              // STOP ends the prompt whether or not an operand was up
     jmp muDrawHead              // the prompt only touched row 0
 
 // --- mqPutPair -- the encoded pair into the image at MU_OBJLO/HI ---
@@ -6880,8 +6921,6 @@ mqWwOr:
     sta muObjCmdB
     lda muObjVal
     sta muObjOptB
-    rts
-mqEncNoShape:
     rts
 mqEncVal:
     lda muObjVal                // the whole option byte is the operand
@@ -7797,11 +7836,7 @@ muInsGap:
     bcs muInRts
     jsr muImgSeat               // page 0: the length words live there
     lda muInsV                  // the voice's word, at image offset 2 + 2 * voice
-    asl
-    clc
-    adc #2
-    tay
-    lda (kPtr),y
+    jsr muLenWordOfs
     clc
     adc muInsN
     sta (kPtr),y
@@ -7851,11 +7886,7 @@ muDgGo:
     bcs muDgRts
     jsr muImgSeat
     lda muInsV
-    asl
-    clc
-    adc #2
-    tay
-    lda (kPtr),y
+    jsr muLenWordOfs
     sec
     sbc muInsN
     sta (kPtr),y
@@ -8204,9 +8235,8 @@ muDvScan:
     lda muHistRHi,y
     cmp muPhCurLo+1
     bcc muDvFound               // a row below the playhead's high byte: it is at or
-    beq muDvRowCmp              //   before the playhead, so it is the one sounding
-    jmp muDvScanNx
-muDvRowCmp:
+    bne muDvScanNx
+muDvRowCmp:                     //   before the playhead, so it is the one sounding
     lda muHistRLo,y
     cmp muPhCurLo
     bcc muDvFound
@@ -8887,8 +8917,7 @@ muClickAct:
     jsr muPtrCol
     lda muRowNew
     cmp #MU_MODE_ROW
-    bne muClkNotModeRow
-    jmp muClkMode               // the mode button
+    beq muClkMode               // the mode button
 muClkNotModeRow:
     cmp #MU_BAR_ROW
     bne muClkGrid
@@ -9139,8 +9168,7 @@ muMiNone:
 // --- muPlayToggle -- SPACE: start when stopped, stop when playing ---
 muPlayToggle:
     lda muPlayOn
-    beq muPtStart
-    jmp muPlayStop
+    bne muPlayStop
 muPtStart:
     lda muPlaySlot
     cmp #$ff
@@ -9221,9 +9249,6 @@ muPlayStop:
 //  so the view restarts with it.
 muPlayRewind:
     jsr muBarPlayOff            // the pass is over: PLAY goes plain in this redraw
-    lda #0
-    sta muPhCurLo
-    sta muPhCurLo+1
 
 // --- muRewindView -- the score and the cursor go back to the first row ---
 //  The player always begins a pass at the tune's first row, so the view has to
@@ -9232,6 +9257,8 @@ muPlayRewind:
 //  still where the editing is -- until the next SPACE rewinds it with the music.
 muRewindView:
     lda #0
+    sta muPhCurLo
+    sta muPhCurLo+1
     sta muTop
     sta muTop+1
     sta muToff
@@ -9778,9 +9805,8 @@ mlcHave:
     tax                         // the block: voice * 2 + class
     lda muTmpH
     cmp muLogN,x
-    bcc mlcHasCmd               // this voice has a command this deep
-    jmp mlcNext
-mlcHasCmd:
+    bcs mlcNext
+mlcHasCmd:                      // this voice has a command this deep
     lda muLogBase,x
     clc
     adc muTmpH
@@ -9962,7 +9988,6 @@ muLnNum:
     lda muDecLo                 //   colon. So the width is decided first, in 16 bits
     cmp #100
     bcs mlrThree
-    lda muDecLo
     jmp muNum2                  // under a hundred: two digits from column 1
 mlrThree:
     ldx #0
@@ -10289,9 +10314,9 @@ muMusicThread:
     lda muPhBaseHi
     sta kArg+5
     lda #1                      // a play attempt is made: kSidHush from the parent
-    sta muSidOk                 //   is only safe once sid.lib has loaded
-    lda #1                      // mode 1: <base>.wrk paged through windows 3-5. A
-    jsr kSidPlay                //   wrong mode reads the config as a tune image
+    sta muSidOk                 //   is only safe once sid.lib has loaded. A stays 1:
+    jsr kSidPlay                //   mode 1 = <base>.wrk paged through windows 3-5; a
+                                //   wrong mode reads the config as a tune image
     bcs muMtRefused             // refused: another task owns the SID
     lda muPlayOn
     beq muMusicThread           // we were hushed: the parent asked for the stop
