@@ -66,19 +66,19 @@ sweep as the kernel doc — the two aliases it found, `syscall` and
   `$E000+` jump table as the resident kernel calls, except the four entries
   that live in the `$FF7E` pocket
   (`kSidPlay`/`kSidHush`/`kIpcPost`/`kIpcPick`) — the `$E000` table is full.
-- 38 of them have at least one call site in the current source tree; 4 have
+- 37 of them have at least one call site in the current source tree; 5 have
   none.
-- **260 total call sites** found across `src/`.
+- **254 total call sites** found across `src/`.
 
 ## By library
 
 | Library | Note | Calls | Total call sites |
 |---|---|---|---:|
 | [`time.lib`](#timelib) | lib 0, eager | 3 | 3 |
-| [`filesys.lib`](#filesyslib) | lib 1, eager | 9 | 103 |
+| [`filesys.lib`](#filesyslib) | lib 1, eager | 9 | 102 |
 | [`gfx.lib`](#gfxlib) | lib 2, lazy | 13 | 38 |
 | [`fp.lib`](#fplib) | lib 3, eager | 1 | 2 |
-| [`string.lib`](#stringlib) | lib 4, lazy | 7 | 26 |
+| [`string.lib`](#stringlib) | lib 4, lazy | 7 | 21 |
 | [`sid.lib`](#sidlib) | lib 5, lazy | 2 | 12 |
 | [`ipc.lib`](#ipclib) | lib 6, lazy | 2 | 12 |
 | [`sprite.lib`](#spritelib) | lib 7, eager | 4 | 57 |
@@ -134,7 +134,7 @@ No call sites in the current source tree.
 | [`kReuDirEntry`](#kreudirentry) | `$E081` | 9 | 7 | Read a single REU-FS directory entry by index (0-511) — name, size, flags, data offset (slot 0 is the allocator's free-offset). |
 | [`kReuCreate`](#kreucreate) | `$E0F9` | 8 | 5 | Create a fixed-size REU-FS file and zero-fill it (used by the in-place file I/O group below). |
 | [`kReuRename`](#kreurename) | `$E0AB` | 4 | 3 | Rename a REU-FS directory entry in place; the old name must exist, the new name must not (deleted names can be reused). |
-| [`kReuSave`](#kreusave) | `$E084` | 3 | 3 | Save a C64 memory block to the REU filesystem under a unique 1-11 char name; data is appended to the end of the data area. |
+| [`kReuSave`](#kreusave) | `$E084` | 2 | 2 | Save a C64 memory block to the REU filesystem under a unique 1-11 char name; data is appended to the end of the data area. |
 | [`kReuFormat`](#kreuformat) | `$E07E` | 1 | 1 | Format the REU filesystem — zeroes the directory and initialises the allocator state. Does not prompt for confirmation. |
 
 ### kReuReadAt
@@ -252,13 +252,12 @@ No call sites in the current source tree.
 
 `$E084` — Save a C64 memory block to the REU filesystem under a unique 1-11 char name; data is appended to the end of the data area.
 
-**3 calls** across 3 file(s):
+**2 calls** across 2 file(s):
 
 | File | Calls |
 |---|---:|
 | `src/tasks/dynamic/gortris.inc` | 1 |
 | `src/tasks/dynamic/grknoid.inc` | 1 |
-| `src/tasks/dynamic/shell.inc` | 1 |
 
 ### kReuFormat
 
@@ -462,10 +461,10 @@ rejected.
 
 | Call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
-| [`kByteToHex`](#kbytetohex) | `$E027` | 21 | 5 | Convert a byte to 2 hex digit characters written at `(kPtr)` (pointer not advanced). |
+| [`kByteToHex`](#kbytetohex) | `$E027` | 17 | 5 | Convert a byte to 2 hex digit characters written at `(kPtr)` (pointer not advanced). |
 | [`kStrcmp`](#kstrcmp) | `$E107` | 2 | 2 | Compare two null-terminated strings at `(kPtr)`/`(srcPtr)`; Z=1 when equal. Dual-mode via `kArg` (0=exact, 1=wildcard match with `*`/`?`) — must be set before every call. |
 | [`kStrlen`](#kstrlen) | `$E021` | 2 | 1 | Count the characters in a null-terminated string. |
-| [`kHexDigit`](#khexdigit) | `$E078` | 1 | 1 | Convert a screen-code hex digit character to its nibble value (0-15). |
+| [`kHexDigit`](#khexdigit) | `$E078` | 0 | 0 | Convert a screen-code hex digit character to its nibble value (0-15). |
 | [`kNibbleToHex`](#knibbletohex) | `$E07B` | 0 | 0 | Convert a nibble (0-15) to its screen-code hex character. |
 | [`kSkipSpaces`](#kskipspaces) | `$E075` | 0 | 0 | Advance `kPtr` past leading spaces; returns the first non-space char in A (C=1 at end of string). |
 | [`kStrcpy`](#kstrcpy) | `$E024` | 0 | 0 | Copy a null-terminated string from `(kPtr)` to `(srcPtr)`, including the terminator. |
@@ -474,11 +473,11 @@ rejected.
 
 `$E027` — Convert a byte to 2 hex digit characters written at `(kPtr)` (pointer not advanced).
 
-**21 calls** across 5 file(s):
+**17 calls** across 5 file(s):
 
 | File | Calls |
 |---|---:|
-| `src/tasks/dynamic/shell.inc` | 10 |
+| `src/tasks/dynamic/shell.inc` | 6 |
 | `src/tasks/cmd/dir.inc` | 5 |
 | `src/libs/time.asm` | 3 |
 | `src/tasks/cmd/ps.inc` | 2 |
@@ -509,11 +508,8 @@ rejected.
 
 `$E078` — Convert a screen-code hex digit character to its nibble value (0-15).
 
-**1 calls** across 1 file(s):
+**0 calls** across 0 file(s):
 
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/shell.inc` | 1 |
 
 ### kNibbleToHex
 

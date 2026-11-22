@@ -95,16 +95,16 @@ API surface this document is inventorying.
   [Methodology](#methodology)).
 - 53 of them have at least one call site in the current source tree;
   7 have none (listed at the end).
-- **1288 total call sites** found across `src/`.
+- **1259 total call sites** found across `src/`.
 
 ## All calls, by total call count (descending)
 
 | Kernel call | Address | Total calls | Files calling it | What it does |
 |---|---|---:|---:|---|
 | [`kSyscall`](#ksyscall) | `$E090` | 214 | 48 | Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, exit, etc.) -- tasks call it via the `syscall` alias so they never hardcode the kernel-internal dispatcher address. |
-| [`kNewline`](#knewline) | `$E00C` | 164 | 26 | Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row. |
-| [`kPrintString`](#kprintstring) | `$E006` | 120 | 33 | Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator. |
-| [`kPrintChar`](#kprintchar) | `$E003` | 100 | 16 | Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom. |
+| [`kNewline`](#knewline) | `$E00C` | 142 | 26 | Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row. |
+| [`kPrintString`](#kprintstring) | `$E006` | 118 | 33 | Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator. |
+| [`kPrintChar`](#kprintchar) | `$E003` | 96 | 16 | Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom. |
 | [`kSetTextColor`](#ksettextcolor) | `$E063` | 57 | 4 | Set the text colour for the current task's surface; picked up by `kPrintChar` on the next character (not retroactive). |
 | [`kSetCursor`](#ksetcursor) | `$E009` | 54 | 14 | Set the kernel cursor position (X=col, Y=row). The only screen routine that preserves all registers. |
 | [`kSwitchView`](#kswitchview) | `$E054` | 31 | 18 | Switch the VIC-II display to another task's screen -- changes only what's shown, not where the caller writes. |
@@ -141,7 +141,6 @@ API surface this document is inventorying.
 | [`kBlitChar`](#kblitchar) | `$E0ED` | 5 | 3 | Blit one font glyph at an explicit cell without moving the cursor or mirroring the char shadow -- the fixed-position primitive for UI like status bars. |
 | [`kScanKeyboard`](#kscankeyboard) | `$E01E` | 5 | 5 | Pop one key from the IRQ-filled ring buffer, non-blocking. |
 | [`kSetGfxMode`](#ksetgfxmode) | `$E10D` | 5 | 3 | Switch the current task's surface between hires and multicolour in place, preserving pixels/matrix/colour RAM and per-task colours. |
-| [`kReuLoad`](#kreuload) | `$E087` | 4 | 4 | Load a named block from the REU filesystem into C64 memory. |
 | [`kScrollScreen`](#kscrollscreen) | `$E00F` | 4 | 4 | Scroll the current surface's scroll region up by one row, blanking the bottom row. |
 | [`kDynLoad`](#kdynload) | `$E08D` | 3 | 2 | Load a task binary from the REU filesystem and spawn it, applying relocation fixups as the code streams into a pool page. |
 | [`kFillColorRam`](#kfillcolorram) | `$E110` | 3 | 3 | Fill all 1000 colour-RAM slots with a colour (low nibble only -- the MC bitmap pixel-value-3 colour). |
@@ -149,6 +148,7 @@ API surface this document is inventorying.
 | [`kPrintGlyph`](#kprintglyph) | `$E0A8` | 3 | 3 | Print a custom 8-byte glyph at the cursor and advance it, identical to `kPrintChar` otherwise. |
 | [`kReadRow`](#kreadrow) | `$E0A2` | 3 | 1 | Read a full 40-char screen row back from the task's char shadow in one DMA (the row variant of `kCharAt`). |
 | [`kReuCmpName`](#kreucmpname) | `$E0B7` | 3 | 1 | Compare one REU-FS directory entry's name against the target filename (internal helper behind `kReuFindFile`). |
+| [`kReuLoad`](#kreuload) | `$E087` | 3 | 3 | Load a named block from the REU filesystem into C64 memory. |
 | [`kSetScrollRegion`](#ksetscrollregion) | `$E0E7` | 3 | 3 | Set the current surface's scroll region (the rows that auto-scroll on print/newline overflow); stored per-surface, survives view switches and eviction. |
 | [`kReadString`](#kreadstring) | `$E060` | 2 | 2 | Read a line of keyboard input into a buffer with echo, cursor-key editing, backspace, and a blinking reverse-video cursor; always null-terminated. |
 | [`kSetCharShadow`](#ksetcharshadow) | `$E09C` | 2 | 1 | Enable/disable the char shadow for the task's surface -- a REU mirror of every printed screen code, so text can be read back exactly (no glyph OCR). |
@@ -219,13 +219,13 @@ Stable dispatcher entry for the syscall ABI (yield, spawn, kill, pause, resume, 
 
 ### kNewline
 
-``$E00C`` — **164 calls** across 26 file(s)
+``$E00C`` — **142 calls** across 26 file(s)
 
 Move the cursor to column 0 on the next row; scrolls the surface's scroll region up if already on the bottom row.
 
 | File | Calls |
 |---|---:|
-| `src/tasks/dynamic/shell.inc` | 65 |
+| `src/tasks/dynamic/shell.inc` | 43 |
 | `src/tasks/cmd/compact.inc` | 13 |
 | `src/tasks/cmd/type.inc` | 9 |
 | `src/tasks/cmd/dir.inc` | 8 |
@@ -254,13 +254,13 @@ Move the cursor to column 0 on the next row; scrolls the surface's scroll region
 
 ### kPrintString
 
-``$E006`` — **120 calls** across 33 file(s)
+``$E006`` — **118 calls** across 33 file(s)
 
 Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor through each character; `kPtr` ends up past the terminator.
 
 | File | Calls |
 |---|---:|
-| `src/tasks/dynamic/shell.inc` | 16 |
+| `src/tasks/dynamic/shell.inc` | 14 |
 | `src/tasks/cmd/fstest.inc` | 11 |
 | `src/tasks/cmd/ps.inc` | 10 |
 | `src/tasks/cmd/dir.inc` | 8 |
@@ -296,13 +296,13 @@ Print a null-terminated screen-code string at `(kPtr)`, advancing the cursor thr
 
 ### kPrintChar
 
-``$E003`` — **100 calls** across 16 file(s)
+``$E003`` — **96 calls** across 16 file(s)
 
 Print one screen-code character at the cursor and advance it, auto-scrolling the surface's scroll region if the cursor wraps past the bottom.
 
 | File | Calls |
 |---|---:|
-| `src/tasks/dynamic/shell.inc` | 34 |
+| `src/tasks/dynamic/shell.inc` | 30 |
 | `src/tasks/dynamic/grknoid.inc` | 11 |
 | `src/tasks/dynamic/gortris.inc` | 10 |
 | `src/tasks/cmd/ps.inc` | 7 |
@@ -978,19 +978,6 @@ Switch the current task's surface between hires and multicolour in place, preser
 | `src/tasks/dynamic/basic.asm` | 1 |
 | `src/tasks/dynamic/grview.inc` | 1 |
 
-### kReuLoad
-
-``$E087`` — **4 calls** across 4 file(s)
-
-Load a named block from the REU filesystem into C64 memory.
-
-| File | Calls |
-|---|---:|
-| `src/tasks/dynamic/gortris.inc` | 1 |
-| `src/tasks/dynamic/grknoid.inc` | 1 |
-| `src/tasks/dynamic/shell.inc` | 1 |
-| `src/tasks/dynamic/sidplay.asm` | 1 |
-
 ### kScrollScreen
 
 ``$E00F`` — **4 calls** across 4 file(s)
@@ -1069,6 +1056,18 @@ Compare one REU-FS directory entry's name against the target filename (internal 
 | File | Calls |
 |---|---:|
 | `src/libs/filesys.asm` | 3 |
+
+### kReuLoad
+
+``$E087`` — **3 calls** across 3 file(s)
+
+Load a named block from the REU filesystem into C64 memory.
+
+| File | Calls |
+|---|---:|
+| `src/tasks/dynamic/gortris.inc` | 1 |
+| `src/tasks/dynamic/grknoid.inc` | 1 |
+| `src/tasks/dynamic/sidplay.asm` | 1 |
 
 ### kSetScrollRegion
 
