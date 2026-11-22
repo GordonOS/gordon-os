@@ -12,9 +12,10 @@
 //           kReuToC64, with the buffer wiped in between so a match cannot be
 //           luck.
 //    END    the window's LAST byte takes a write while its FIRST byte still
-//           reads zero, so the two ends are distinct addresses and the slot
-//           arithmetic -- including the bank carry past slot 15 -- lands
-//           inside the window rather than wrapping onto its start.
+//           holds what the BACK check left there, so the two ends are distinct
+//           addresses: the slot arithmetic -- including the bank carry past
+//           slot 15 -- lands inside the window rather than wrapping onto its
+//           start.
 //
 //  Scratch: 15B instance buffer -- WS_BUF (8B round-trip), WS_DEC (5B digits),
 //  WS_SLOT (1B), WS_TMP (1B).
@@ -118,19 +119,20 @@ wsBckSay:
     lda #WS_TMP
     jsr wsPtr
     ldy #0
-    lda #$5a
-    sta (kPtr),y                // the byte to send
-    jsr kReuFromC64             // ($FFF into the window) <- $5a
+    lda #$3c
+    sta (kPtr),y                // the byte to send -- not a value the pattern holds
+    jsr kReuFromC64             // ($FFF into the window) <- $3c
     lda #WS_TMP
     jsr wsPtr
     jsr kReuToC64               // ...and back again
     ldy #0
     lda (kPtr),y
-    cmp #$5a
+    cmp #$3c
     bne wsEndBad
-    jsr wsIn1                   // the window's FIRST byte must still be zero
-    ldy #WS_BUF
-    lda (dataPtr),y
+    jsr wsIn1                   // the FIRST byte must still be the pattern's $a5:
+    ldy #WS_BUF                 //   if $FFF aliased onto the start, the write would
+    lda (dataPtr),y             //   have replaced it
+    cmp #$a5
     bne wsEndBad
     lda #5
     jmp wsEndSay
