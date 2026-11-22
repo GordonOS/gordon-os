@@ -6521,22 +6521,18 @@ mqIdDec:
 mqIdTake:
     lda muObjId
     cmp #MU_MN_TAL
-    bne mqIt1
-    jmp mqTake
-mqIt1:
+    beq mqIdGo
     cmp #MU_MN_HLT
-    bne mqIt2
-    jmp mqTake
-mqIt2:
+    beq mqIdGo
     cmp #MU_MN_END
-    bne mqIt3
-    jmp mqTake
-mqIt3:
+    beq mqIdGo
     lda #1
     sta muObjPhase
     lda #0
     sta muObjFresh
     jmp mqDraw
+mqIdGo:
+    jmp mqTake                  // mqTake is out of branch range from the three tests
 
 // --- the operand step: digits build the value, INST/DEL backs one out ---
 mqValKey:

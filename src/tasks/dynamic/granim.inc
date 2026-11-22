@@ -276,8 +276,7 @@ grnStepAcc:
     jsr grnReadFrame
     bcs grnStop                  // a short read: the film is not what it claims
     jsr grnAdvance
-    bcs grnStop
-    jmp grnWait
+    bcc grnWait                  // both reads were fine: yield and go on
 grnStop:
     jmp grnQuit                  // grnQuit is too far for a branch from here
 grnNoStep:
