@@ -873,7 +873,7 @@ are a plain byte work exactly as a signed byte does: **256 + the value**.
 The rule for a byte is **`256 + the value`**, which makes the negative half of the range the top half:
 -1 is 255, -10 is 246, -128 is 128. `DTN` is twelve bits, so the same idea with 4096 instead of 256;
 and `TPS`/`RTP` are not signed numbers at all but three fields packed into one byte, which *How a
-transpose operand is built* above decodes into an interval.
+transpose operand is built* below decodes into an interval.
 
 The byte-wide ones in one line, for the values you are most likely to want:
 
