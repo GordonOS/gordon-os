@@ -19,6 +19,25 @@
 # ACTIVE BUGS
 
 
+## Bug #225 — the user guide's example typed `TPS 2` for "two semitones up" ✅ FIXED (2026-11-26)
+
+**Symptom.** A `TPS` written above a `CALL`, with the operand the guide's phrase example gave, made no
+audible change to the called phrase.
+
+**Root cause.** `TPS`'s operand is the format's packed interval, not a semitone count, and the guide
+said so everywhere except that one example: *Phrases — `DEF`, `END`, `CALL`* showed `TPS 2` annotated
+"plays two semitones up". `2` is `%00000010` — direction up, octave field `001`, which counts down from
+seven — so it means six octaves up and zero semitones. The player's own decode is
+`D = DataTPSLookupA[raw&1] + ((raw>>1) & 7)` for the octave and
+`H = DataTPSLookupB[raw&1] + (raw >> 4)` for the semitones, which is what the guide's
+*How a transpose operand is built* section derives (`16s + 14 - 2o` up, `16(11-s) + 2o + 1` down).
+
+**Fix.** Documentation only — the editor's behaviour is unchanged, because the guide already documents
+the packed operand correctly elsewhere. The example now reads `TPS 46` (`16 x 2 + 14`), and
+*Frequency* gained the trap in one line: two semitones up is `46`, not `2`.
+
+---
+
 ## Bug #224 — a note or a command could not be written between a phrase's `END` and the `CALL` after it ✅ FIXED (2026-11-26)
 
 **Symptoms.** With `DEF 0 … END` followed by `CALL 0`, the only place to write anything between them
@@ -73,6 +92,12 @@ three, which paid back the pool page the other two fixes cost: musedit is back t
 
 **Verified in VICE.** `SHIFT`+`C` on `CALL 0`, `TPS`, `1`: the grid reads `END / TPS 1 / CALL 0` in
 that order, and the saved file has `$000E 01 2F`, `$0010 A6 01`, `$0012 01 02`.
+
+**Docs.** The user guide's *Where a new pair goes* still described the old grouping — "the row's sound
+commands sit on the lines further above the note and the structural nine on the lines nearest it" — and
+said nothing about `SHIFT`+`C`. It now states that the lines are drawn in stream order, that `C` writes
+at the end of the run and `SHIFT`+`C` in front of the command on the cursor's line, and that a row a
+`CALL` replays is a boundary because its commands sit at the end of the stream.
 
 ---
 

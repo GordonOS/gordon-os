@@ -109,7 +109,7 @@ and no mode to be in.
 commodo  TEM 160  BAR 1 R0                    <- row 0: the head
 ROW VOICE 1     VOICE 2     VOICE 3   OVR     <- row 1: the lanes, and the entry mode
     WAV 1        WAV 1        WAV 1           <- a row's command lines: no row number,
-    SUS 14       SUS 14       SUS 14              one line per depth
+    SUS 14       SUS 14       SUS 14              one per command, in stream order
     TEM 160      TEM 160      TEM 160
 >01 ...    16    ...    16    ...    16        <- the row's own line: numbered, and what
  02 ...    16    ...    16    ...    16           each voice plays on it
@@ -154,10 +154,10 @@ bar has can differ between one part of a tune and another. The numbers down the 
 counted from the bar's own first row.
 
 A row can have **several lines**: the row's own numbered line, plus a command line above it for each
-depth of command that comes into force there. A command line carries **no row number**, because it is
-not a point in time — and one line carries all three voices' commands at that depth, each in its own
-lane and colour, so three commands on the same row take one line, not three. See
-[Reading a lane](#reading-a-lane).
+command that comes into force there, in the order the pairs are written. A command line carries **no
+row number**, because it is not a point in time — and one line carries all three voices' commands in
+that position, each in its own lane and colour, so three commands on the same row take one line, not
+three. See [Reading a lane](#reading-a-lane).
 
 ### Rows 21–23 — the piano
 
@@ -526,7 +526,7 @@ works, and it is why the grid never shows overlaps.
 | `SHIFT`+`R` | **delete a bar** — the same rows `SHIFT`+`I` would open |
 | `M` | **insert/overwrite mode** (the `OVR`/`INS` readout): on a row's own line it decides whether a note replaces the event there or is inserted, pushing the rows below down, and whether `C` replaces the same command at that boundary or adds a second one |
 | `C` | **write or edit the command** at the cursor — on a row's own line it adds one, on a command line it edits that one |
-| `SHIFT`+`C` | **add a command above** the one on this line: the new pair is written in front of it, so it governs what follows — a `TPS` added above a `CALL` transposes the called phrase, and a `TEM` above it sets the tempo the call runs at |
+| `SHIFT`+`C` | **add a command above** the one on this line: the new pair is written in front of it, so it governs what follows — a `TPS` added above a `CALL` transposes the called phrase, and a `TEM` above it sets the tempo the call runs at. It needs a command line to sit on, so on a row's own line it answers `? no command in this lane` |
 | `SHIFT`+`D` | **follow a phrase**: from a `CALL` to its `DEF`, from a `DEF` to the next `CALL` |
 | `Z` / `X` | undo / redo |
 
@@ -714,9 +714,10 @@ renumbering.
 
 **Values.** The prompt takes the value in decimal, up to whatever that command allows: most take
 0–255, the one-bit commands (`SNC`, `FLT`, `RNG`, `3-O`, `BMP`, `F-X`, `LFO`, `P&V`) take 0 or 1,
-`WAV` and `F-M` 0–7, the envelope nibbles 0–15, `RUP`/`RDN` 0–31, and three take more than a byte —
-`MS#` up to 999, `P-W` and `DTN` up to 4095, `POR` up to 16383. A value the command cannot hold is
-clamped to its maximum rather than refused, so what the prompt shows is always what gets written.
+`WAV` and `F-M` 0–7, the envelope nibbles 0–15, `RUP`/`RDN` 0–31, `SRC` 0–7, `DST` 0–3, and four take
+more than a byte — `MS#` up to 999, `P-W` and `DTN` up to 4095, `POR` up to 16383. A value the command
+cannot hold is clamped to its maximum rather than refused, so what the prompt shows is always what
+gets written.
 
 The field opens showing the value the command already has, `0` included, and the **first** digit you
 type **replaces** it — re-entering `VOL 7` and typing `3` gives `3`, not `73`; type `37` to get `37`.
@@ -741,18 +742,26 @@ changes **that** pair, in either mode, because the line you are pointing at is t
 change. So to give a row a second command, put the cursor on the row's own numbered line and press
 `C` there; pressing `C` on the command already there edits it instead.
 
-**Where a new pair goes.** A command takes no time, so it is written at the end of the row's command
+**Where a new pair goes.** A command takes no time, so `C` writes it at the end of the row's command
 run, immediately before the note or rest itself: it is the last thing the voice does before that note
-sounds. Adding several commands to one row therefore lays them out in the order you added them — the
-first ends up furthest from the note and the last nearest. What the lines *show* is grouped by kind
-rather than by order: the row's sound commands sit on the lines further above the note and the
-structural nine on the lines nearest it.
+sounds. Adding several commands to one row with `C` therefore lays them out in the order you added
+them — the first ends up furthest from the note and the last nearest. `SHIFT`+`C` is the other end of
+the run: it writes the new pair **in front of** the command on the cursor's line, which is how a
+command is placed ahead of one that is already there — a `TPS` in front of a `CALL`, say, or a `TEM`
+in front of a repeat.
 
-A row has a boundary if an event *starts* there, or if it is the row that voice's `HLT` sits on —
-the end of the voice's last event. A row in the middle of a longer note has neither, so it cannot
-take a command: the format has no way to split the note, and the editor answers `? no event here`
-rather than writing a pair that would fire at the wrong moment. Put the command on the row the note
-starts on instead; a command there applies from that note's onset.
+**The lines are drawn in stream order**, so what you see above the note is the order the pairs happen
+in: a sound command added after a structural one draws below it, and one written in front draws above.
+That is the same reading the player takes.
+
+A row has a boundary if an event *starts* there, if it is the row that voice's `HLT` sits on — the end
+of the voice's last event — or if it is a row a phrase replay draws its own lines on. That last one is
+the subtle case: a row filled by a `CALL` holds the body's music, and the `END` and `CALL` the row
+shows sit at the **end** of the voice's stream rather than just behind that row's event, so the editor
+looks for them there. A row in the middle of a longer note has none of these, so it cannot take a
+command: the format has no way to split the note, and the editor answers `? no event here` rather than
+writing a pair that would fire at the wrong moment. Put the command on the row the note starts on
+instead; a command there applies from that note's onset.
 
 **The end boundary is the one a new tune has.** Every voice of a fresh tune is a bare `HLT`, so
 `C` works from the first keystroke and the pair lands immediately above that `HLT` — there is
@@ -1867,15 +1876,15 @@ Every message the editor can print, and what to do about it:
 | `? illegal duration` | the current tempo cannot express that note length |
 | `? illegal tempo` | a command write left a length the tempo cannot express; the editor **took the pair straight back** — the tune is exactly as it was, with nothing to undo |
 | `? the tune cannot play that` | a written command left the tune unwalkable in some other way — a `CALL` to a phrase with no `DEF`, a call stack one frame too deep, a `TAL` whose `HED` is in another phrase. The pair was taken straight back |
-| `? no event here` | the rest or delete key needs the cursor on a row where an event starts, and a command write needs a boundary — an event's own row, or the row the voice's `HLT` sits on. A row inside a longer note has neither |
-| `? a note in voice 2 spans the row` | `R` or `SHIFT`+`R` met a note that runs past that row, so the row cannot be closed without shortening it — shorten the note first, then delete |
+| `? no event here` | the rest or delete key needs the cursor on a row where an event starts, and a command write needs a boundary — an event's own row, the row the voice's `HLT` sits on, or a line a `CALL` row draws from the end of the stream. A row inside a longer note has none of these, so there is nothing there to change |
+| `? a note in voice 1 spans the row` | `R` or `SHIFT`+`R` met a note that runs past that row, so the row cannot be closed without shortening it — shorten the note first, then delete. The message names the voice it found (1, 2 or 3) |
 | `? hlt ends the voice` | `SHIFT`+`INST/DEL` on an `HLT` line: that pair is what ends the voice, so removing it would leave the voice unreadable — delete the events above it instead, or retype the line |
 | `? phrase 3 x5` | an insert or a delete was attempted on a row inside phrase 3's `DEF` body, which 5 `CALL` sites play — move off it, or edit the phrase deliberately with a note |
 | `? nothing to undo` | `Z` with no action behind it — a freshly opened tune, or everything already undone |
 | `? nothing to redo` | `X` with nothing undone since the last edit |
 | `? no definition` | `SHIFT`+`D` on a `CALL 3` line when the tune has no `DEF 3` at all |
 | `? no call` | `SHIFT`+`D` on a `DEF 3` line that no `CALL` in the tune plays |
-| `? no command in this lane` | `C` on a command line, in a lane that has no command on it — a line carries one command per voice, so the cursor must be in the lane that shows the one to change |
+| `? no command in this lane` | `C` or `SHIFT`+`C` on a line, in a lane that has no command on it — a line carries one command per voice, so the cursor must be in the lane that shows the one to change. `SHIFT`+`D` on the same line answers `? not a phrase` instead |
 | `? no such bar` | a bar jump asked for a bar the tune never reaches — the tune's own walk counts the bars, so the last bar is the last one it opens |
 | `? not a phrase` | `SHIFT`+`D` on a line with no `CALL` or `DEF` in the cursor's lane — move into the lane that shows one |
 | `? no pointer art` | the mouse is on but the pointer sprites could not be resolved — the REU image is stale |
@@ -1998,7 +2007,7 @@ pretend to:
 | a duration the tempo cannot express (`? illegal duration`) | the format stores a length *class*, not a jiffy count, so a length the tempo's table has no entry for would be written as some other length — [which lengths a tempo can hold](#which-lengths-a-tempo-can-hold) is the list |
 | a pair that leaves the tune unwalkable (`? illegal tempo`, `? the tune cannot play that`) | a `CALL`, `TAL` or tempo can break the *rest* of the tune; the walk finds it and the pair is taken back |
 | inserting or deleting time inside a `DEF` body (`? phrase 3 x5`) | the body plays at every `CALL` site, so the row count change would land in all of them |
-| deleting a row through a note (`? a note in voice 2 spans the row`) | closing the row could only shorten the note, and the format has no way to say "the same note, one row shorter" |
+| deleting a row through a note (`? a note in voice 1 spans the row`) | closing the row could only shorten the note, and the format has no way to say "the same note, one row shorter" |
 | removing an `HLT` (`? hlt ends the voice`) | that pair is what ends the voice; without it the stream runs on into the next voice's bytes |
 | any edit during playback (`? stop first`) | the grid is drawn from the walk the player is running, so the two would part company |
 
