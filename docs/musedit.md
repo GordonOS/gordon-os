@@ -279,11 +279,11 @@ rows puts the `HLT` on a row of its own below it:
 
 A command line prints its mnemonic in reverse video and its operand plain, so the value is easy to
 read, and it never fills the row-number column — a command is not a point in time, so the row's own
-line below it is the numbered one. A row's **sound** commands (envelope, wave, filter and the rest)
-take the lines furthest from it and its **structural** ones — `TEM` `UTL` `UTV` `HED` `DEF` `CALL`
-`TAL` `HLT` `END` — the lines nearest it, so a row's control flow always sits right above the note it
-governs. A row whose own note starts between rows is the one exception, and
-[when a cell says `?`](#when-a-cell-says-) covers it.
+line below it is the numbered one. The command lines above a row read **in the order the player
+meets them**, which is the order the pairs are written in the tune and not the order of their kinds:
+a pair written between a phrase's `END` and the `CALL` that replays it draws between those two lines,
+so a row's control flow is always exactly where it sits in the stream. A row whose own note starts
+between rows is the one exception, and [when a cell says `?`](#when-a-cell-says-) covers it.
 
 Each lane is drawn in its own voice's colour — red, yellow, cyan — the same colours as that voice's
 dots on the piano, so a note and the dot that follows it are one thing seen twice. The row numbers,
@@ -372,10 +372,13 @@ the audition and playback agree on what `C-4` is. If another task's music is run
 stays silent rather than cutting into it, and the dots stay away, because the dots on the keys
 belong to whoever is playing. During our own playback a click enters nothing (`? stop first`).
 
-A command has a line of its own above the row it belongs to, and that line holds no note: with the
-cursor on a command's line a note key is refused (`? no event here`), so an entry can never rewrite
-the row below the one the cursor is on. Move down to the row's own line — the one with the row
-number — and the note goes in there.
+A command has a line of its own above the row it belongs to, and that line holds no note: a note key
+pressed there is written **in front of** that command instead. The format is a plain stream of pairs,
+so a note may sit between the `END` that closes a phrase body and the `CALL` that replays it — it
+then plays before the call rather than becoming part of the body, and the call's own rows move down
+by its length. Overwrite and insert mode make no difference there: a command line holds nothing to
+overwrite. A command that consumes no time still decides *what* a note belongs to, so the row's own
+line — the one with the row number — remains the place to change that row's note.
 
 The keys are narrow — about 5.7 pixels per white key — because all eight octaves share the
 320-pixel width. The black keys are short bars on the boundaries: C# between C and D, D# between D
@@ -521,8 +524,9 @@ works, and it is why the grid never shows overlaps.
 | `SHIFT`+`I` | **insert a bar** (the rows a bar has at the tempo in force where the cursor is) |
 | `R` | **delete a row** at the cursor, in all three voices |
 | `SHIFT`+`R` | **delete a bar** — the same rows `SHIFT`+`I` would open |
-| `M` | **insert/overwrite mode** for entering notes and for adding a command (the `OVR`/`INS` readout) |
+| `M` | **insert/overwrite mode** (the `OVR`/`INS` readout): on a row's own line it decides whether a note replaces the event there or is inserted, pushing the rows below down, and whether `C` replaces the same command at that boundary or adds a second one |
 | `C` | **write or edit the command** at the cursor — on a row's own line it adds one, on a command line it edits that one |
+| `SHIFT`+`C` | **add a command above** the one on this line: the new pair is written in front of it, so it governs what follows — a `TPS` added above a `CALL` transposes the called phrase, and a `TEM` above it sets the tempo the call runs at |
 | `SHIFT`+`D` | **follow a phrase**: from a `CALL` to its `DEF`, from a `DEF` to the next `CALL` |
 | `Z` / `X` | undo / redo |
 
@@ -1081,6 +1085,29 @@ rows five call sites play, and any edit there is an edit to all five.
 `CALL` — so finding the partner of either is one keystroke. Nesting is allowed (a body may call
 another phrase) but the per-voice call stack is a fixed size, and a call one frame too deep is
 refused rather than allowed to run off the end.
+
+**Closing the body matters.** A body ends at its `END`; with no `END` it runs on into whatever
+follows, so a `CALL` written at the end of a voice lands *inside* the body — the phrase then calls
+itself until the call stack is full, and the editor takes that pair back. So write the `END` first
+and the `CALL` after it, which is what makes the second play of the body a play *after* the first.
+
+The pairs between the `END` and the `CALL` are ordinary editable ones, and that is where a per-call
+setting belongs. With the cursor on the `CALL`'s line:
+
+- **`SHIFT`+`C`** adds a command **above** it — `TPS 2` above a `CALL` transposes that call and no
+  other, and `TEM` above it sets the tempo the call runs at;
+- a **note key** writes a note **in front of** it, which plays between the end of the body and the
+  call, and pushes the call's own rows down by its length.
+
+```
+DEF 0
+01 C-4 16
+02 D-4 16
+   END
+   TPS 2          <- this call, and only this one, plays two semitones up
+   CALL 0
+   HLT
+```
 
 ```
 DEF 3

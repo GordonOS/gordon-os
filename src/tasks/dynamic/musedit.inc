@@ -84,7 +84,8 @@
 .label muObjValHi   = MU_ZP_BASE+224  // the high byte of each, for the 14-bit commands
 .label muObjMaxHi   = MU_ZP_BASE+225
 .label muCmdValHi   = MU_ZP_BASE+226  // the high half of a command's operand
-.label muObjKind    = MU_ZP_BASE+64  // 0 = a pair to add, 1 = the pair at MU_OBJLO/HI
+.label muObjKind    = MU_ZP_BASE+64  // 0 = a pair to add at the boundary, 1 = the pair
+                              //   at MU_OBJLO/HI is replaced, 2 = a pair to add at MU_SEKLO
 .label muObjPhase   = MU_ZP_BASE+65  // 0 = picking the mnemonic, 1 = typing the operand
 .label muObjFresh   = MU_ZP_BASE+66  // 0 = the next digit starts the operand afresh
 .label muObjMatch   = MU_ZP_BASE+67  // 1 = a scan matches the operand as well as the id
@@ -103,9 +104,8 @@
 .label muDecDig     = MU_ZP_BASE+82  // the digit muDec16 is building
 .label muDecIdx     = MU_ZP_BASE+83  // which decimal weight, or which digit of
 .label muDecAny     = MU_ZP_BASE+84  //   muPutC clobbers X; 1 once a digit is printed
-.label muLogN       = MU_ZP_BASE+85  // 6 bytes  how many that voice and class has logged
-.label muLogSnd     = MU_ZP_BASE+91  // the row's sound lines: the structural ones follow
-.label muLogLns     = MU_ZP_BASE+92  // the sound lines plus the structural, command lines
+.label muLogN       = MU_ZP_BASE+85  // 3 bytes  how many commands that voice logged
+.label muLogLns     = MU_ZP_BASE+92  // the longest of the three: the row's command lines
 .label muLogIx      = MU_ZP_BASE+93  // the command line being drawn
 .label muLnDraw     = MU_ZP_BASE+94  // the line is inside the band being repainted
 .label muLnV        = MU_ZP_BASE+95  // the voice a note line is drawing
@@ -264,8 +264,8 @@
 //  at a byte per reference. The buffer holds 255 bytes, so the third array stays in
 //  the image -- the assert below is what keeps that honest.
 .const MU_LOGID     = 53
-.const MU_LOGLO     = MU_LOGID+16*6
-.const MU_LOGID_END = MU_LOGLO+16*6
+.const MU_LOGLO     = MU_LOGID+20*3
+.const MU_LOGID_END = MU_LOGLO+20*3
 .assert "the logged-command arrays fit the instance buffer", MU_LOGID_END <= MU_DATA_SIZE ? 1 : 0, 1
 .assert "the instance buffer is one byte", MU_DATA_SIZE <= 255 ? 1 : 0, 1
 
@@ -331,8 +331,9 @@
                               //   stops as soon as the playhead's line is on target, so
                               //   this only bounds a catch-up
 .const MU_HIST      = 32      // pointer -> row slots per voice (power of two)
-.const MU_LOG_SLOTS = 16      // command pairs one voice may log for one row: the
-                              //   longest run a bundled tune has is twelve
+.const MU_LOG_SLOTS = 20      // command pairs one voice may log for one row: the
+                              //   longest run a bundled tune has is twelve, of one
+                              //   kind, and the two kinds now share the queue
 // --- the command ids ---
 //  Ids 1..9 are the structural commands, 10..46 the sound ones and 47..49 the
 //  player's own three. The ids and their mnemonics are one list --
@@ -2440,20 +2441,16 @@ muSimStop:
 
 // --- muLnLog -- record the pair the walk just read, if the grid draws it ---
 //  In: MU_SCMD/MU_SOPT (the pair), MU_SV (the voice).
+//  One queue per VOICE, in the order the walk met the pairs: a row's lines have to
+//  read in the order the player executes them, so a sound command written between a
+//  body's END and the CALL after it draws between them. The kind is not stored -- a
+//  mnemonic id below MU_MN_FC is one of the structural nine -- because nothing but
+//  the order needs it.
 muLnLog:
     jsr muLnDec                 // A = the id, value in MU_LNVLO/HI; 0 = not shown
     beq muLlRts
     sta muTmpH                  // the id
-    cmp #MU_MN_FC               // ids 1..9 are the structural nine
-    lda muSv
-    bcs mlbSound
-    asl                         // block = voice * 2 + class: the two classes never
-    jmp mlbHave                 //   share a line, so each voice has two queues
-mlbSound:
-    asl
-    ora #1
-mlbHave:
-    tax
+    ldx muSv
     lda muLogN,x
     cmp #MU_LOG_SLOTS
     bcs muLlRts                 // full: the pair has no line this row
@@ -3098,8 +3095,8 @@ mfcScan:
     bcc mfcNextRow
     beq mfcNextRow
 mfcBlocks:
-    ldx #0                      // the structural blocks only: CALL and DEF are ids
-mfcBlock:                       //   below MU_MN_FC, so they are never logged as sound
+    ldx #0                      // one queue per voice, so the voices are the blocks
+mfcBlock:
     lda muLogN,x
     beq mfcBlkNext
     lda muLogBase,x
@@ -3124,8 +3121,7 @@ mfcStep:
     bcc mfcSlot
 mfcBlkNext:
     inx
-    inx                         // block = voice * 2 + class, and the class is 0
-    cpx #6
+    cpx #3
     bcc mfcBlock
 mfcNextRow:
     lda muOn                    // the producer reports no row for a tune that has
@@ -3145,12 +3141,8 @@ mfcMaybe:
     bcc mfcStep
     beq mfcStep                 // the cursor's own row is not after itself
 mfcTake:
-    txa
-    lsr                         // the block's voice is its top bit
-    sta muFndVoice
-    lda muLogSnd                // a structural line sits below the row's sound lines
-    clc
-    adc muTmpH
+    stx muFndVoice              // the block IS the voice
+    lda muTmpH                  // ...and the depth IS the line
     sta muFndLine
     lda muGrpRow
     sta muFndRow
@@ -3610,23 +3602,8 @@ mchDepth:
     sec
     sbc #1
     sta muCmdK
-    lda muVoice                 // the lane the cursor stands in
-    asl                         // block = voice * 2 + class
-    sta muTmpL
-    lda muCmdK
-    cmp muLogSnd
-    bcc mchSound
-    sec                         // a structural line, counted from the row upwards
-    sbc muLogSnd
     sta muTmp2
-    lda muTmpL
-    jmp mchBlock
-mchSound:
-    sta muTmp2                  // a sound line: the depth is the line index
-    lda muTmpL
-    ora #1
-mchBlock:
-    tax
+    ldx muVoice                 // the depth in this voice's queue IS the line index
     lda muTmp2
     cmp muLogN,x
     bcs mchNone                 // the cursor's lane has no command on the line
@@ -4849,8 +4826,10 @@ muKndlIdle:
 muKeyNotDel:
     cmp #'c'                    // C: author the command on this row
     beq muKeyCmd
-    cmp #$43                    // ...and SHIFT+C does the same
+    cmp #$43                    // SHIFT+C: a new pair ABOVE the one on this line
     bne muKeyNotCmd
+    jsr muObjAdd
+    jmp muKeyIdle
 muKeyCmd:
     jsr muObjKey
     jmp muKeyIdle
@@ -5416,20 +5395,19 @@ muAuRts:
 //  entry the player could not express writes nothing.
 //  A command has a line of its own above the row it belongs to, and that line shares
 //  the row without holding a note: a note belongs on the row's OWN line, so a key
-//  pressed on a command line is refused rather than rewriting the event below it,
-//  which would change a length the cursor is not pointing at.
+//  pressed on a command line inserts a pair IN FRONT of that command (muNcPair)
+//  instead of rewriting the event below it, which would change a length the cursor
+//  is not pointing at.
 muNoteClick:
     jsr muPlaying               // a mouse click must not edit while playing
     bcc muNcGo
     rts
 muNcGo:
-    jsr muCursorIdx             // the kind of line the cursor stands on
-    tay
-    lda muLnKind,y
-    beq muNcNoEvt
     lda muNoteLin
     cmp #$fe
-    bcs muNcRts                 // nothing under the pointer
+    bcc muNcHave                // something under the pointer
+    rts                         // nothing under the pointer: there is no note to enter
+muNcHave:
     jsr muNoteOpt               // A = the note option byte for that key
     jsr muSeek
     jsr muCurTem                // the tempo the cursor's row plays at -- NOT MU_SEKTEM,
@@ -5440,6 +5418,15 @@ muNcGo:
     bcs muNcIllegal
     sta muDurJif                // the armed length, for the ones below
     jsr muPhArm                 // a body's bytes are every call site's bytes
+    jsr muCursorIdx             // the seek is done, so nothing below can undo the anchor
+    tay
+    lda muLnKind,y
+    bne muNcMode                // a row's own line: the mode picks the path
+    jsr muNcPair                // a command's line: the note goes in front of that pair
+    bcs muNcNoEvt
+    jmp muNcOvr                 // ...and always so: a command line holds no note to
+                                //   replace, whatever the mode says
+muNcMode:
     lda muInsMode
     beq muNcOvr
     jmp muNoteInsMode           // insert mode: push the rows below down
@@ -5447,11 +5434,15 @@ muNcOvr:
     lda muSekKind
     beq muNcReplace            // an onset on this row: the pair is replaced
     cmp #1
-    bne muNcKind2
-    jmp muNcSplit
+    beq muNcKind1
+    cmp #3
+    beq muNcFill               // 3 = anchored at the pair the cursor's line draws
 muNcKind2:
     jsr muSekTailPrev           // the note goes behind the row's command run
+muNcFill:
     jmp muFillNote              // a gap, or past the voice's last event
+muNcKind1:
+    jmp muNcSplit
 muNcReplace:
     jsr muRecAtSek  // the undo record: 2 bytes at the onset...
     lda #2
@@ -5482,9 +5473,52 @@ muNcIllegal:
     lda #M_ILLEGAL
     jmp muMsgGo
 muNcNoEvt:
-    lda #M_NO_EVENT             // a command's line holds no note to write
+    lda #M_NO_EVENT             // the line's pair was not found, or there is no boundary
     jmp muMsgGo
-muNcRts:
+
+// --- muNcPair -- a note key on a command's line: anchor at that command ---
+//  A command consumes no time, so a note written on its line belongs in FRONT of it.
+//  The format is a plain stream of pairs, so that position is legal wherever two
+//  pairs meet -- including between the END that closes a phrase body and the CALL
+//  that replays it, where the note then plays before the call instead of becoming
+//  part of the body.
+//  Out: C=0 with MU_SEKLO/HI = the pair BEFORE the one this line draws (a fill opens
+//       and writes two bytes past it), MU_SEKEND = the cursor's row (so nothing has
+//       to be filled) and MU_SEKKIND = 3; C=1 when the line's command was not found.
+muNcPair:
+    jsr muCmdHere               // the pair this line draws
+    bcs mncpNo
+    sta muObjId
+    lda muCmdVal
+    sta muObjVal
+    lda muCmdValHi
+    sta muObjValHi
+    lda #1
+    sta muObjMatch
+    jsr muBandRebuild           // muCmdHere walked the producer
+    jsr muSeek                  // MU_SKV, MU_TGT and the row's own tempo
+    jsr muObjFind
+    bcc mncpHave
+    jsr muObjTail               // a CALL's row: the run is at the stream's end
+    bcs mncpNo
+mncpHave:
+    lda muObjLo                 // the fill opens and writes two bytes PAST MU_SEKLO,
+    sec                         //   so the anchor is the pair BEFORE the line's own:
+    sbc #2                      //   that puts the note in front of the command and
+    sta muSekLo                 //   pushes the command up by two
+    lda muObjLo+1
+    sbc #0
+    sta muSekHi
+    lda muTgtLo                 // the note starts on the cursor's row: no rests
+    sta muSekEnd
+    lda muTgtHi
+    sta muSekEnd+1
+    lda #3
+    sta muSekKind
+    clc
+    rts
+mncpNo:
+    sec
     rts
 
 
@@ -5868,6 +5902,13 @@ muFillNote:
     bcc muFgGo
     jmp muNcIllegal
 muFgGo:
+    lda muN1                     // nothing counted: a fill with no rows to rest and no
+    clc                          //   events to write at a boundary that already holds a
+    adc muN2                     //   pair -- say so instead of doing nothing at all
+    bne muFgOpen
+    lda #M_NO_EVENT
+    jmp muMsgGo
+muFgOpen:
     jsr muGapOpen
     bcc muFgW
     jmp muStatus                // muInsGap left the reason in MU_STR
@@ -6550,7 +6591,54 @@ muSekTailPrev:
     sta muSekHi
     rts
 
-// --- muObjKey -- SHIFT+C, and the bar's CMD cell ---
+// --- muObjAdd -- SHIFT+C: a new pair in front of the command on this line ---
+//  A command line carries one pair, and a row a CALL replays carries that CALL and
+//  the END that closed the body in the same group -- so a pair that has to govern
+//  the call itself, a TPS or a TEM, must go BETWEEN the two. The new pair is
+//  spliced where the line's own pair is, so that one moves up and the new pair draws
+//  above it. A row's OWN line needs none of this: C adds a pair there already.
+muObjAdd:
+    jsr muPlaying
+    bcs moaRts
+    jsr muCmdHere               // a command on the cursor's line?
+    bcs moaNoCmd
+    sta muObjId
+    lda muCmdVal
+    sta muObjVal
+    lda muCmdValHi
+    sta muObjValHi
+    lda #1
+    sta muObjMatch
+    jsr muBandRebuild           // muCmdHere walked the producer
+    jsr muSeek                  // MU_SKV, which the tail scan needs
+    jsr muObjFind
+    bcc moaHave
+    jsr muObjTail               // a CALL's row: the run is at the stream's end
+    bcs moaGone
+moaHave:
+    lda muObjLo                 // the pair takes this one's place, so this one moves up
+    sta muSekLo
+    lda muObjLo+1
+    sta muSekHi
+    lda #MU_MN_TEM
+    sta muObjId
+    lda #0
+    sta muObjVal
+    sta muObjValHi
+    lda #2                      // 2 = a pair to ADD at MU_SEKLO
+    sta muObjKind
+    jmp mqPick
+moaNoCmd:
+    jsr muBandRebuild
+    lda #M_NO_CMD
+    jmp muMsgGo
+moaGone:
+    lda #M_NO_EVENT
+    jmp muMsgGo
+moaRts:
+    rts
+
+// --- muObjKey -- C, and the bar's CMD cell ---
 muObjKey:
     jsr muPlaying
     bcs mqRts                   // "? stop first" is already up
@@ -6604,6 +6692,8 @@ mqHave:
     lda muSekKind
     bne mqGone                  // the row's event started above: no boundary
     jsr muObjFind               // its offset, by mnemonic and operand
+    bcc mqPick
+    jsr muObjTail               // a CALL's row: that run is at the stream's end
     bcc mqPick
 mqGone:
 mqRefuse:
@@ -6873,7 +6963,10 @@ mqTake:
     sta muObjFresh              //   holds the answer until mqDone reads it
     jsr muObjEnc
     lda muObjKind
-    bne mqPut                   // the pair exists: replace it in place
+    cmp #1
+    beq mqPut                   // the pair exists: replace it in place
+    cmp #2
+    beq mqIns                   // 2 = a pair to add in front of the one on the line
     lda muInsMode
     bne mqIns                   // insert mode: a second pair, same command or not
     lda #0
@@ -7125,6 +7218,18 @@ mqfHit:
 mqfNo:
     sec
     rts
+
+// --- muObjTail -- the same scan, anchored at the voice's HLT instead ---
+//  A row a CALL replays has its command run at the END of the voice's stream, not
+//  behind that row's event: the event there is the body's own pair, so the pairs a
+//  note away from it are the body's music. The commands the row draws -- the END
+//  that closes the body, the CALL that replays it -- sit in front of the HLT, which
+//  is where this scan starts. The HLT itself is never a candidate: its own line has
+//  a branch of its own in muObjKey.
+//  In and out as muObjFind. MU_SKV must be the voice.
+muObjTail:
+    jsr muVoEndHlt              // MU_OBJLO/HI = the HLT pair
+    jmp mqfLp                   // ...so the first candidate is the pair above it
 
 // --- muMnPrint -- print the mnemonic of command id A ---
 //  The text is the REU file `msgs`, in the block after its message slots: one
@@ -9782,9 +9887,6 @@ mgpFresh:
     sta muLogN
     sta muLogN+1
     sta muLogN+2
-    sta muLogN+3
-    sta muLogN+4
-    sta muLogN+5
     sta muPendOn
     sta muPendOn+1
     sta muPendOn+2
@@ -9829,27 +9931,15 @@ mgpOff:
     jsr muGdAdv
     jmp mgpLoop
 mgpDone:
-    lda muLogN+1                // the sound commands are drawn first: their counts
-    cmp muLogN+3                //   are the ODD blocks (voice * 2 + 1, class 1), so a
-    bcs mgpSnd2                 //   line carries one class only -- a tempo and an
-    lda muLogN+3                //   envelope step are not comparable events
-mgpSnd2:
-    cmp muLogN+5
-    bcs mgpSnd3
-    lda muLogN+5
-mgpSnd3:
-    sta muLogSnd                // the row's sound lines, from the top
-    lda muLogN                  // ...and the structural nine, the EVEN blocks,
-    cmp muLogN+2                //   sit nearest the row, where they were before the
-    bcs mgpStr2                 //   sound commands had lines of their own
-    lda muLogN+2
+    lda muLogN                  // the row's command lines: the longest run of the
+    cmp muLogN+1                //   three voices, whatever kind the pairs are
+    bcs mgpStr2
+    lda muLogN+1
 mgpStr2:
-    cmp muLogN+4
+    cmp muLogN+2
     bcs mgpStr3
-    lda muLogN+4
+    lda muLogN+2
 mgpStr3:
-    clc
-    adc muLogSnd
     sta muLogLns
     clc
     rts
@@ -9959,25 +10049,12 @@ mlcGo:
     lda #0
     sta muLnV
 mlcVoices:
-    lda #1                      // a sound line: its depth is the line index
-    sta muTmpL
-    lda muLogIx
-    cmp muLogSnd
-    bcc mlcHave                 // ix < the row's sound lines: this is a sound one
-    lda #0
-    sta muTmpL                  // a structural line, counted from the row upwards
-    lda muLogIx
-    sec
-    sbc muLogSnd
-mlcHave:
+    lda muLogIx                 // the depth IS the line index: one queue per voice
     sta muTmpH
-    lda muLnV
-    asl
-    ora muTmpL
-    tax                         // the block: voice * 2 + class
+    ldx muLnV
     lda muTmpH
     cmp muLogN,x
-    bcs mlcNext
+    bcs mlcNext                 // this voice logged nothing on that line
 mlcHasCmd:                      // this voice has a command this deep
     lda muLogBase,x
     clc
@@ -10773,10 +10850,10 @@ muDecTab:   .byte MU_MN_TEM, MU_MN_FC,  MU_MN_UTL, MU_MN_MS
 //  even though its comment at the source reads 0101n011.
 muDecSm:    .byte MU_MN_BMP, MU_MN_FLT, MU_MN_RNG, MU_MN_SNC
             .byte MU_MN_FX,  MU_MN_3O,  MU_MN_LFO, MU_MN_PNV
-//  Each voice has a block per class of command, so a line never mixes a structural
-//  command with a sound one: block = voice * 2 + class, class 0 = structural.
+//  Each voice has a block, holding its pairs in the order the walk met them, so a
+//  row's lines read in the order the player executes them -- a sound command written
+//  between a phrase's END and the CALL after it draws between the two.
 muLogBase:  .byte 0, MU_LOG_SLOTS, 2*MU_LOG_SLOTS
-            .byte 3*MU_LOG_SLOTS, 4*MU_LOG_SLOTS, 5*MU_LOG_SLOTS
 muJifSt:    .byte 0
 muJifT:     .byte 0
 muUnitVal:  .byte 0
@@ -10800,8 +10877,8 @@ muCmdK:     .byte 0             // ...and its index in that row's command lines
 muObjCmdB:  .byte 0             // the encoded pair, ready to write
 // --- the line producer: a time row, or one structural command ---
 //  (muLogId and muLogLo are MU_LOGID/MU_LOGLO in the instance buffer; muLogHi is here
-//  because the buffer has no room for all three)
-muLogHi:    .fill MU_LOG_SLOTS*6, 0  // the row's logged operands' high byte
+//  because the operand's high byte is only needed by the three wide commands)
+muLogHi:    .fill MU_LOG_SLOTS*3, 0  // the row's logged operands' high byte
 muDecCnt:   .byte 0             //   muByteDec's output; both a variable, because
 muDecBuf:   .fill 3, 0          // kByteToDec's digits
 muPendOn:   .fill 3, 0          // that voice has a note on the open group's row

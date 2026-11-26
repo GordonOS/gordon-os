@@ -19,6 +19,84 @@
 # ACTIVE BUGS
 
 
+## Bug #224 — a note or a command could not be written between a phrase's `END` and the `CALL` after it ✅ FIXED (2026-11-26)
+
+**Symptoms.** With `DEF 0 … END` followed by `CALL 0`, the only place to write anything between them
+was nowhere: a note key on the `CALL` line was refused (`? no event here`), and writing a command
+there either edited the `CALL` or landed inside the phrase body. `SHIFT`+`C` (the key that adds a
+pair above a command) then spliced the pair at the beginning of the voice.
+
+**Root cause.** Two things. `muObjKey` and the note path only ever looked for a command pair by
+stepping back from the row's event, and on a row a `CALL` replays, that event is the phrase body's
+own pair — the command run of that boundary (`END`, `CALL`) sits at the *end* of the voice's stream,
+so the scan failed and there was no anchor to write at. And the note path had no anchor at all: it
+only knew the seek's onset, so a note written on a command's line was applied to the event on the
+row instead.
+
+**Fix.** `muObjTail` is a second scan anchored at the voice's `HLT` (where a boundary's command run
+lives), tried after the seek-anchored one; `mqHave` uses it, so `C` and `SHIFT`+`DEL` work on those
+lines. A new key, `SHIFT`+`C` (`muObjAdd`), writes a *new* pair in front of the command on the
+cursor's line, and a note key on a command's line (`muNcPair`) anchors a fill in front of that pair.
+The fill opens and writes two bytes past `MU_SEKLO`, so the anchor is the pair **before** the line's
+own — the same convention `muSekTailPrev` uses for the `HLT`.
+
+**The trap worth recording.** `muNcGo`'s shared preparation contains a `jsr muSeek` *after* the
+anchor is computed, and it overwrote `MU_SEKKIND`/`MU_SEKLO`, silently falling back to "replace the
+event on the row". The symptom was a note key that did **nothing** — because the pitch pressed
+replaced a note with the same byte, leaving the file identical. The path now runs the seek first and
+decides afterwards, so nothing can undo the anchor; overwrite/insert mode is consulted only on a
+row's own line, because a command line holds nothing to overwrite.
+
+**Verified in VICE.** Fresh tune `zz`: `DEF 0`, two notes, `END`, then `CALL 0` after it shows
+`DEF 0 / 01 C-4 16 / 02 D-4 16 / END / CALL 0 / 03 C-4 16 / 04 D-4 16 / END / HLT`. One note key on
+the `CALL` line inserts `03 E-4 16` between them and the call's rows move down one. The saved
+`zz.mus` read back out of the REU image: `$000E 01 2F` (`END`), `$0010 18 9B` (the new note),
+`$0012 01 02` (`CALL 0`), and `mus-sim --walk` plays `E-4` between the `END` and the call.
+
+---
+
+## Bug #223 — a command written between a phrase's `END` and its `CALL` was drawn above the `END` ✅ FIXED (2026-11-26)
+
+**Symptoms.** Writing `TPS 1` between `END` and `CALL 0` put the pair in the right place in the
+stream, but the grid drew it *above* the `END`, so it read as a command of the phrase rather than one
+governing the call.
+
+**Root cause.** The band kept **two** command queues per voice — one for the structural nine and one
+for the sound commands — and drew every sound line above every structural line of the row. A sound
+command that sits between two structural ones could therefore never be drawn between them.
+
+**Fix.** One ordered queue per voice (`muLogN` is three bytes, `muLogSnd` is gone, `MU_LOG_SLOTS` is
+20 per voice): the lines are drawn in the order the walk meets them, which is the order the player
+executes them. The kind of a line is no longer stored — a mnemonic id below `MU_MN_FC` is one of the
+nine — because only the order needs it. Splitting the queue also shrank the log from six blocks to
+three, which paid back the pool page the other two fixes cost: musedit is back to 103 pages.
+
+**Verified in VICE.** `SHIFT`+`C` on `CALL 0`, `TPS`, `1`: the grid reads `END / TPS 1 / CALL 0` in
+that order, and the saved file has `$000E 01 2F`, `$0010 A6 01`, `$0012 01 02`.
+
+---
+
+## Bug #222 — a phrase's `END` and its `CALL` could not be edited at all on the row the call replays ✅ FIXED (2026-11-26)
+
+**Symptoms.** In a tune whose phrase body is closed by `END` and replayed by `CALL 0`, pressing `C`
+or `SHIFT`+`INST/DEL` on the `END` line or the `CALL 0` line answered `? no event here`, so neither
+command could be changed or removed. The same lines in a tune without a `CALL` worked.
+
+**Root cause.** `muObjFind` walks backwards from `MU_SEKLO` — the pair of the event that starts at the
+boundary — on the assumption that a boundary's command run sits immediately in front of it. On a row a
+`CALL` replays, that event is the phrase body's own pair, early in the stream, so the step back lands
+in the body's music (a note) and the run is never found. The boundary's real command run is at the
+*end* of the voice's stream, in front of the `HLT`.
+
+**Fix.** `muObjTail` runs the same scan anchored at the voice's `HLT` (`muVoEndHlt`) instead, and
+`mqHave` tries it when the seek-anchored scan finds nothing. The `HLT` pair itself is never a
+candidate: its own line has a branch of its own in `muObjKey`.
+
+**Verified in VICE.** On the `CALL 0` line of `zz`, `C` opens `CMD CALL 0` (was
+`? no event here`), and `SHIFT`+`C` on the same line adds a pair above it.
+
+---
+
 ## Bug #221 — a note was validated against the tune's opening tempo, not the tempo of the row it was entered on ✅ FIXED (2026-11-22)
 
 **Symptoms.** On a fresh tune, type `TEM 192` on row 01 and then a 64th: refused with
