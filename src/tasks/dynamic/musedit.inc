@@ -3545,6 +3545,9 @@ muPhHereNo:
 //  whatever the window happens to start on -- scroll three lines into a row of ten
 //  commands and three of them are gone, so the index comes out three short.
 muCmdHere:
+    jsr muBandRebuild           // the line table must be this image's: a key that
+                                //   lands before the repaint reads the row from the
+                                //   layout of the edit before it
     jsr muCursorIdx
     tay
     cpy #MU_GRID_ROWS

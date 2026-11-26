@@ -1094,7 +1094,7 @@ and the `CALL` after it, which is what makes the second play of the body a play 
 The pairs between the `END` and the `CALL` are ordinary editable ones, and that is where a per-call
 setting belongs. With the cursor on the `CALL`'s line:
 
-- **`SHIFT`+`C`** adds a command **above** it — `TPS 2` above a `CALL` transposes that call and no
+- **`SHIFT`+`C`** adds a command **above** it — `TPS 46` above a `CALL` transposes that call and no
   other, and `TEM` above it sets the tempo the call runs at;
 - a **note key** writes a note **in front of** it, which plays between the end of the body and the
   call, and pushes the call's own rows down by its length.
@@ -1104,7 +1104,7 @@ DEF 0
 01 C-4 16
 02 D-4 16
    END
-   TPS 2          <- this call, and only this one, plays two semitones up
+   TPS 46         <- this call, and only this one, plays two semitones up: 16 x 2 + 14
    CALL 0
    HLT
 ```
@@ -1351,8 +1351,9 @@ into octave -1, which is rarely useful but is legal.
 
 Both transposes pack their interval into one byte (sign, octaves, semitones), so the operand is not
 a semitone count: `TPS 15` is -95 and `TPS 176` is +95, and `RTP`'s 91 is "no change at all".
-*Signed operands* above has the details, and the practical way to write an interval in between is to
-copy a line that already transposes the way you want.
+Two semitones up is **`TPS 46`**, not `TPS 2` — `2` is six octaves up, because the low bits are the
+octave field and it counts down from seven. *Signed operands* above has the details, and
+*How a transpose operand is built* below has the formula for any interval.
 
 There is no fractional transpose. `TPS` and `RTP` move a voice by whole semitones and no operand gives
 half of one. Half a semitone is a `DTN` instead: 50 cents is about 3% of the note's own frequency word,
